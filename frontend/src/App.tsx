@@ -18,6 +18,7 @@ const navItems = [
   { label: "字幕模板", shortLabel: "字幕", icon: Captions },
   { label: "BGM 管理", shortLabel: "BGM", icon: Music },
   { label: "音色中心", shortLabel: "音色", icon: Volume2 },
+  { label: "功能提取处理", shortLabel: "提取", icon: Sparkles },
   { label: "任务与输出", shortLabel: "任务", icon: SquarePlay },
   { label: "系统设置", shortLabel: "设置", icon: Settings },
 ];
@@ -129,11 +130,11 @@ export default function App() {
           <article className="panel primary-panel">
             <div className="panel-heading">
               <h2>新建混剪任务</h2>
-              <span>阶段 1 先搭建产品骨架，后续阶段接入素材、字幕模板、BGM 和音色资源。</span>
+              <span>阶段 1 先搭建产品骨架，后续阶段接入素材、字幕模板、BGM、音色和功能提取处理。</span>
             </div>
             <div className="empty-state">
               <strong>工作台已就绪</strong>
-              <p>下一阶段将接入资源中心和混剪任务流。</p>
+              <p>下一阶段将接入资源中心、功能提取处理和混剪任务流。</p>
             </div>
           </article>
 

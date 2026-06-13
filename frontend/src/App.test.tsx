@@ -68,6 +68,7 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("字幕模板")).toBeInTheDocument();
     expect(screen.getByText("BGM 管理")).toBeInTheDocument();
     expect(screen.getByText("音色中心")).toBeInTheDocument();
+    expect(screen.getByText("功能提取处理")).toBeInTheDocument();
     expect(screen.getByText("任务与输出")).toBeInTheDocument();
     expect(screen.getByText("系统设置")).toBeInTheDocument();
   });

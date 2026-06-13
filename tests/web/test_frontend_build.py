@@ -25,6 +25,7 @@ def test_frontend_source_contains_chinese_product_shell() -> None:
     assert "字幕模板" in app_source
     assert "BGM 管理" in app_source
     assert "音色中心" in app_source
+    assert "功能提取处理" in app_source
     assert "任务与输出" in app_source
     assert "系统设置" in app_source
 
