@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first runnable AutoVideo skeleton: FastAPI service, static Chinese workbench shell, configuration, data directory layout, runtime dependency checks, local launch, Docker launch, and tests.
+**Goal:** Build the first runnable AutoVideo skeleton: FastAPI service, React/Vite Chinese workbench shell, configuration, data directory layout, runtime dependency checks, local launch, Docker launch, and tests.
 
-**Architecture:** This plan implements only Phase 1 from the product redesign spec. The backend is a small FastAPI application split into `api`, `core`, and `web` packages. Resource-center features and real video rendering stay out of this plan; later plans will attach BGM, subtitle, voice, and mix-task modules to this skeleton.
+**Architecture:** This plan implements only Phase 1 from the product redesign spec. The backend is a small FastAPI application split into `api` and `core` packages, while the frontend lives in `frontend/` as a React + Vite + TypeScript SPA. FastAPI serves the built `frontend/dist` assets in production; local development can run the Vite dev server with `/api` proxied to FastAPI.
 
-**Tech Stack:** Python 3.12, FastAPI, Uvicorn, Pydantic Settings, Pytest, HTTPX/TestClient, static HTML/CSS/JavaScript, Docker with FFmpeg.
+**Tech Stack:** Python 3.12, FastAPI, Uvicorn, Pydantic Settings, Pytest, HTTPX/TestClient, React, TypeScript, Vite, Vitest, Testing Library, Docker with FFmpeg and Node build stage.
 
 ---
 
@@ -18,10 +18,10 @@ This plan covers:
 - Environment-based configuration with no real credentials.
 - Data directory creation for materials, BGM, voices, subtitle templates, outputs, and tasks.
 - Runtime dependency checks for FFmpeg and optional Fish Speech configuration.
-- FastAPI app factory, health endpoint, root static page, static assets.
-- Chinese UI shell with desktop and mobile layout.
+- FastAPI app factory, health endpoint, React build asset serving.
+- Chinese React UI shell with desktop and mobile layout.
 - Local development script, Dockerfile, `.env.example`, `.gitignore`, README updates.
-- Tests for the skeleton.
+- Backend and frontend tests for the skeleton.
 
 This plan does not implement:
 
@@ -43,6 +43,17 @@ python -m pip install "pytest>=8.2,<9.0"
 
 Expected: Pytest is installed and `python -m pytest --version` prints a version.
 
+- [ ] **Step 2: Ensure Node.js is available for the React frontend**
+
+Run:
+
+```bash
+node --version
+npm --version
+```
+
+Expected: Node.js 20 or newer is available, and npm prints a version.
+
 ## File Structure
 
 - Create: `pyproject.toml` - Python package metadata and dependencies.
@@ -59,15 +70,24 @@ Expected: Pytest is installed and `python -m pytest --version` prints a version.
 - Create: `autovideo/core/settings.py` - environment-backed settings.
 - Create: `autovideo/core/paths.py` - data directory layout and safe creation.
 - Create: `autovideo/core/runtime.py` - FFmpeg and optional service checks.
-- Create: `autovideo/web/index.html` - Chinese workbench shell.
-- Create: `autovideo/web/assets/styles.css` - responsive workbench layout.
-- Create: `autovideo/web/assets/app.js` - static shell status wiring.
+- Create: `frontend/package.json` - React/Vite scripts and frontend dependencies.
+- Create: `frontend/tsconfig.json` - TypeScript compiler settings.
+- Create: `frontend/tsconfig.node.json` - TypeScript settings for Vite config.
+- Create: `frontend/vite.config.ts` - Vite config, backend proxy, Vitest config.
+- Create: `frontend/index.html` - Vite HTML entry.
+- Create: `frontend/src/main.tsx` - React entrypoint.
+- Create: `frontend/src/App.tsx` - Chinese workbench shell component.
+- Create: `frontend/src/api/health.ts` - typed health API client.
+- Create: `frontend/src/styles.css` - responsive workbench layout.
+- Create: `frontend/src/App.test.tsx` - React component tests.
+- Create: `frontend/src/test/setup.ts` - Testing Library setup.
+- Create: `frontend/src/vite-env.d.ts` - Vite type declarations.
 - Create: `tests/conftest.py` - test helpers.
 - Create: `tests/core/test_settings.py` - configuration tests.
 - Create: `tests/core/test_paths.py` - data directory tests.
 - Create: `tests/core/test_runtime.py` - runtime dependency tests.
 - Create: `tests/api/test_health.py` - API health tests.
-- Create: `tests/web/test_static_shell.py` - static UI shell tests.
+- Create: `tests/web/test_frontend_build.py` - static frontend build integration tests.
 - Create: `scripts/dev.sh` - local development launcher.
 - Create: `Dockerfile` - container image with FFmpeg.
 - Modify: `README.md` - local start, Docker start, config, phase scope.
@@ -170,9 +190,6 @@ autovideo = "autovideo.main:main"
 [tool.setuptools.packages.find]
 include = ["autovideo*"]
 
-[tool.setuptools.package-data]
-autovideo = ["web/*.html", "web/assets/*.css", "web/assets/*.js"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -194,6 +211,8 @@ venv/
 !.env.example
 data/
 outputs/
+frontend/dist/
+frontend/node_modules/
 *.log
 dist/
 build/
@@ -713,8 +732,8 @@ from fastapi.staticfiles import StaticFiles
 from autovideo.api.routes.health import router as health_router
 from autovideo.core.settings import Settings
 
-PACKAGE_DIR = Path(__file__).resolve().parents[1]
-WEB_DIR = PACKAGE_DIR / "web"
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+FRONTEND_DIST_DIR = PROJECT_DIR / "frontend" / "dist"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -722,19 +741,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=active_settings.app_name)
     app.state.settings = active_settings
     app.include_router(health_router)
-    assets_dir = WEB_DIR / "assets"
+    assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse | JSONResponse:
-        index_file = WEB_DIR / "index.html"
+        index_file = FRONTEND_DIST_DIR / "index.html"
         if index_file.exists():
             return FileResponse(index_file)
         return JSONResponse(
             {
                 "app": active_settings.app_name,
-                "message": "AutoVideo web shell is not installed",
+                "message": "AutoVideo frontend build is not installed",
             }
         )
 
@@ -780,154 +799,429 @@ git add autovideo/api autovideo/main.py tests/conftest.py tests/api/test_health.
 git commit -m "feat: add FastAPI health skeleton"
 ```
 
-## Task 5: Static Chinese Workbench Shell
+## Task 5: React + Vite Chinese Workbench Shell
 
 **Files:**
-- Create: `autovideo/web/index.html`
-- Create: `autovideo/web/assets/styles.css`
-- Create: `autovideo/web/assets/app.js`
-- Create: `tests/web/test_static_shell.py`
+- Create: `frontend/package.json`
+- Create: `frontend/tsconfig.json`
+- Create: `frontend/tsconfig.node.json`
+- Create: `frontend/vite.config.ts`
+- Create: `frontend/index.html`
+- Create: `frontend/src/main.tsx`
+- Create: `frontend/src/App.tsx`
+- Create: `frontend/src/api/health.ts`
+- Create: `frontend/src/styles.css`
+- Create: `frontend/src/App.test.tsx`
+- Create: `frontend/src/test/setup.ts`
+- Create: `frontend/src/vite-env.d.ts`
+- Create: `tests/web/test_frontend_build.py`
 
-- [ ] **Step 1: Write the failing static shell tests**
+- [ ] **Step 1: Create frontend package and failing React tests**
 
-Create `tests/web/test_static_shell.py`:
+Create `frontend/package.json`:
 
-```python
-from pathlib import Path
-
-
-WEB_ROOT = Path("autovideo/web")
-
-
-def test_index_contains_chinese_product_shell() -> None:
-    html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-
-    assert "AutoVideo" in html
-    assert "混剪工作台" in html
-    assert "素材库" in html
-    assert "字幕模板" in html
-    assert "BGM 管理" in html
-    assert "音色中心" in html
-    assert "任务与输出" in html
-    assert "系统设置" in html
-
-
-def test_index_does_not_include_removed_auth_or_netdisk_copy() -> None:
-    html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-
-    forbidden = ["登录", "退出登录", "权限", "个人网盘", "NAS 登录", "token"]
-    for text in forbidden:
-        assert text not in html
-
-
-def test_static_assets_define_mobile_layout() -> None:
-    css = (WEB_ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
-
-    assert "@media (max-width: 760px)" in css
-    assert ".app-shell" in css
-    assert ".mobile-tabs" in css
-
-
-def test_root_page_serves_static_shell(client) -> None:
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-    assert "混剪工作台" in response.text
+```json
+{
+  "name": "autovideo-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^24.1.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}
 ```
 
-- [ ] **Step 2: Run static and API tests to verify they fail**
+Create `frontend/tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+Create `frontend/tsconfig.node.json`:
+
+```json
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+```
+
+Create `frontend/vite.config.ts`:
+
+```ts
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      "/api": "http://127.0.0.1:8090",
+    },
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["src/test/setup.ts"],
+    globals: true,
+  },
+});
+```
+
+Create `frontend/src/App.test.tsx`:
+
+```tsx
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import App from "./App";
+import { fetchHealth } from "./api/health";
+
+vi.mock("./api/health", () => ({
+  fetchHealth: vi.fn(),
+}));
+
+const mockedFetchHealth = vi.mocked(fetchHealth);
+
+function renderApp() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>,
+  );
+}
+
+describe("AutoVideo shell", () => {
+  beforeEach(() => {
+    mockedFetchHealth.mockResolvedValue({
+      app: "AutoVideo",
+      status: "degraded",
+      environment: "development",
+      data_dir: "/tmp/autovideo",
+      checks: {
+        ffmpeg: {
+          name: "ffmpeg",
+          ok: false,
+          required: true,
+          message: "未找到 FFmpeg，可执行文件：ffmpeg",
+        },
+        fish_speech: {
+          name: "fish_speech",
+          ok: false,
+          required: false,
+          message: "Fish Speech 未配置，音色复刻功能将保持禁用",
+        },
+      },
+    });
+  });
+
+  it("renders the Chinese product navigation", async () => {
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "混剪工作台" })).toBeInTheDocument();
+    expect(screen.getByText("素材库")).toBeInTheDocument();
+    expect(screen.getByText("字幕模板")).toBeInTheDocument();
+    expect(screen.getByText("BGM 管理")).toBeInTheDocument();
+    expect(screen.getByText("音色中心")).toBeInTheDocument();
+    expect(screen.getByText("任务与输出")).toBeInTheDocument();
+    expect(screen.getByText("系统设置")).toBeInTheDocument();
+  });
+
+  it("does not render removed auth or netdisk copy", async () => {
+    renderApp();
+    await screen.findByRole("heading", { name: "混剪工作台" });
+
+    expect(screen.queryByText(/退出登录|个人网盘|NAS 登录|token/i)).not.toBeInTheDocument();
+  });
+
+  it("shows runtime check feedback", async () => {
+    renderApp();
+
+    expect(await screen.findByText("运行环境需检查")).toBeInTheDocument();
+    expect(screen.getByText("未找到 FFmpeg，可执行文件：ffmpeg")).toBeInTheDocument();
+  });
+});
+```
+
+Create `frontend/src/test/setup.ts`:
+
+```ts
+import "@testing-library/jest-dom/vitest";
+```
+
+- [ ] **Step 2: Run frontend tests to verify they fail**
 
 Run:
 
 ```bash
-pytest tests/web/test_static_shell.py tests/api/test_health.py -v
+cd frontend
+npm install
+npm test -- --run
 ```
 
-Expected: FAIL with missing `autovideo/web/index.html` or missing `autovideo/web/assets`.
+Expected: FAIL with `Failed to resolve import "./App"` or equivalent missing component error.
 
-- [ ] **Step 3: Create the static workbench shell**
+- [ ] **Step 3: Create the React workbench shell**
 
-Create `autovideo/web/index.html`:
+Create `frontend/index.html`:
 
 ```html
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AutoVideo</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar" aria-label="主导航">
-        <div class="brand">
-          <span class="brand-mark">AV</span>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+Create `frontend/src/vite-env.d.ts`:
+
+```ts
+/// <reference types="vite/client" />
+```
+
+Create `frontend/src/api/health.ts`:
+
+```ts
+export interface RuntimeCheck {
+  name: string;
+  ok: boolean;
+  required: boolean;
+  message: string;
+}
+
+export interface HealthPayload {
+  app: string;
+  status: "ok" | "degraded";
+  environment: string;
+  data_dir: string;
+  checks: Record<string, RuntimeCheck>;
+}
+
+export async function fetchHealth(): Promise<HealthPayload> {
+  const response = await fetch("/api/health");
+  if (!response.ok) {
+    throw new Error(`health request failed: ${response.status}`);
+  }
+  return response.json() as Promise<HealthPayload>;
+}
+```
+
+Create `frontend/src/main.tsx`:
+
+```tsx
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React from "react";
+import ReactDOM from "react-dom/client";
+
+import App from "./App";
+import "./styles.css";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
+
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <React.StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
+  </React.StrictMode>,
+);
+```
+
+Create `frontend/src/App.tsx`:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import {
+  Captions,
+  Clapperboard,
+  FolderVideo,
+  Music,
+  Settings,
+  Sparkles,
+  SquarePlay,
+  Volume2,
+} from "lucide-react";
+
+import { fetchHealth } from "./api/health";
+
+const navItems = [
+  { label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard },
+  { label: "素材库", shortLabel: "素材", icon: FolderVideo },
+  { label: "字幕模板", shortLabel: "字幕", icon: Captions },
+  { label: "BGM 管理", shortLabel: "BGM", icon: Music },
+  { label: "音色中心", shortLabel: "音色", icon: Volume2 },
+  { label: "任务与输出", shortLabel: "任务", icon: SquarePlay },
+  { label: "系统设置", shortLabel: "设置", icon: Settings },
+];
+
+function RuntimeStatus() {
+  const query = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
+  });
+
+  if (query.isLoading) {
+    return <div className="runtime-status">正在检查运行环境</div>;
+  }
+
+  if (query.isError || !query.data) {
+    return <div className="runtime-status degraded">无法读取运行状态</div>;
+  }
+
+  const checks = Object.values(query.data.checks);
+  const statusText = query.data.status === "ok" ? "运行环境正常" : "运行环境需检查";
+
+  return (
+    <aside className="panel status-panel" aria-label="运行检查">
+      <div className={`runtime-status ${query.data.status}`}>{statusText}</div>
+      <h2>运行检查</h2>
+      <dl>
+        {checks.map((check) => (
+          <div key={check.name}>
+            <dt>{check.name}</dt>
+            <dd>{check.message}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
+  );
+}
+
+export default function App() {
+  return (
+    <div className="app-shell">
+      <aside className="sidebar" aria-label="主导航">
+        <div className="brand">
+          <span className="brand-mark">AV</span>
           <div>
             <strong>AutoVideo</strong>
             <small>视频混剪工作台</small>
           </div>
         </div>
-        <nav class="nav-list">
-          <a class="active" href="#mix">混剪工作台</a>
-          <a href="#materials">素材库</a>
-          <a href="#subtitles">字幕模板</a>
-          <a href="#bgm">BGM 管理</a>
-          <a href="#voices">音色中心</a>
-          <a href="#tasks">任务与输出</a>
-          <a href="#settings">系统设置</a>
+        <nav className="nav-list">
+          {navItems.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <a className={index === 0 ? "active" : ""} href={`#${index}`} key={item.label}>
+                <Icon aria-hidden="true" size={18} />
+                <span>{item.label}</span>
+              </a>
+            );
+          })}
         </nav>
       </aside>
 
-      <main class="workspace">
-        <header class="topbar">
+      <main className="workspace">
+        <header className="topbar">
           <div>
-            <p class="eyebrow">本地自托管</p>
+            <p className="eyebrow">本地自托管</p>
             <h1>混剪工作台</h1>
           </div>
-          <div class="runtime-status" id="runtime-status" aria-live="polite">正在检查运行环境</div>
+          <div className="topbar-summary">
+            <Sparkles aria-hidden="true" size={18} />
+            <span>React + Vite 产品骨架</span>
+          </div>
         </header>
 
-        <nav class="mobile-tabs" aria-label="移动端导航">
-          <a class="active" href="#mix">混剪</a>
-          <a href="#materials">素材</a>
-          <a href="#subtitles">字幕</a>
-          <a href="#bgm">BGM</a>
-          <a href="#voices">音色</a>
-          <a href="#tasks">任务</a>
+        <nav className="mobile-tabs" aria-label="移动端导航">
+          {navItems.slice(0, 6).map((item, index) => (
+            <a className={index === 0 ? "active" : ""} href={`#${index}`} key={item.shortLabel}>
+              {item.shortLabel}
+            </a>
+          ))}
         </nav>
 
-        <section class="content-grid" id="mix">
-          <article class="panel primary-panel">
-            <div class="panel-heading">
+        <section className="content-grid" id="0">
+          <article className="panel primary-panel">
+            <div className="panel-heading">
               <h2>新建混剪任务</h2>
-              <span>阶段 1 已搭建产品骨架，功能模块将在后续阶段接入。</span>
+              <span>阶段 1 先搭建产品骨架，后续阶段接入素材、字幕模板、BGM 和音色资源。</span>
             </div>
-            <div class="empty-state">
+            <div className="empty-state">
               <strong>工作台已就绪</strong>
-              <p>下一阶段将接入素材、字幕模板、BGM 和音色资源。</p>
+              <p>下一阶段将接入资源中心和混剪任务流。</p>
             </div>
           </article>
 
-          <aside class="panel status-panel">
-            <h2>运行检查</h2>
-            <dl id="check-list">
-              <div>
-                <dt>服务状态</dt>
-                <dd>等待检查</dd>
-              </div>
-            </dl>
-          </aside>
+          <RuntimeStatus />
         </section>
       </main>
     </div>
-    <script src="/assets/app.js" type="module"></script>
-  </body>
-</html>
+  );
+}
 ```
 
-Create `autovideo/web/assets/styles.css`:
+Create `frontend/src/styles.css`:
 
 ```css
 :root {
@@ -941,8 +1235,7 @@ Create `autovideo/web/assets/styles.css`:
   --accent: #176b87;
   --accent-strong: #0f4c5c;
   --success: #257a4f;
-  --warning: #a15c05;
-  --danger: #b42318;
+  --warning: #9a5b00;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -962,7 +1255,7 @@ a {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 248px 1fr;
 }
@@ -973,10 +1266,15 @@ a {
   padding: 24px 18px;
 }
 
-.brand {
+.brand,
+.topbar-summary,
+.nav-list a {
   display: flex;
-  gap: 12px;
   align-items: center;
+}
+
+.brand {
+  gap: 12px;
   margin-bottom: 28px;
 }
 
@@ -1003,6 +1301,8 @@ a {
 }
 
 .nav-list a {
+  min-height: 44px;
+  gap: 10px;
   padding: 11px 12px;
   border-radius: 8px;
   color: #dbe4ea;
@@ -1049,13 +1349,21 @@ h2 {
   font-size: 18px;
 }
 
+.topbar-summary,
 .runtime-status {
-  min-width: 180px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   padding: 10px 12px;
   color: var(--muted);
+}
+
+.topbar-summary {
+  gap: 8px;
+}
+
+.runtime-status {
+  margin-bottom: 14px;
   text-align: center;
 }
 
@@ -1171,7 +1479,7 @@ h2 {
 
   .mobile-tabs a {
     flex: 0 0 auto;
-    min-height: 40px;
+    min-height: 44px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface);
@@ -1199,61 +1507,78 @@ h2 {
 }
 ```
 
-Create `autovideo/web/assets/app.js`:
+Create `tests/web/test_frontend_build.py`:
 
-```javascript
-const statusEl = document.querySelector("#runtime-status");
-const checkListEl = document.querySelector("#check-list");
+```python
+from pathlib import Path
 
-function renderChecks(payload) {
-  statusEl.textContent = payload.status === "ok" ? "运行环境正常" : "运行环境需检查";
-  statusEl.classList.toggle("ok", payload.status === "ok");
-  statusEl.classList.toggle("degraded", payload.status !== "ok");
 
-  checkListEl.innerHTML = "";
-  Object.values(payload.checks).forEach((check) => {
-    const row = document.createElement("div");
-    const title = document.createElement("dt");
-    const body = document.createElement("dd");
-    title.textContent = check.name;
-    body.textContent = check.message;
-    row.append(title, body);
-    checkListEl.append(row);
-  });
-}
+FRONTEND_ROOT = Path("frontend")
 
-async function loadHealth() {
-  try {
-    const response = await fetch("/api/health");
-    if (!response.ok) {
-      throw new Error(`health request failed: ${response.status}`);
-    }
-    renderChecks(await response.json());
-  } catch (error) {
-    statusEl.textContent = "无法读取运行状态";
-    statusEl.classList.add("degraded");
-    checkListEl.innerHTML = "<div><dt>服务状态</dt><dd>请确认后端服务已启动</dd></div>";
-  }
-}
 
-loadHealth();
+def test_frontend_source_contains_chinese_product_shell() -> None:
+    app_source = (FRONTEND_ROOT / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "混剪工作台" in app_source
+    assert "素材库" in app_source
+    assert "字幕模板" in app_source
+    assert "BGM 管理" in app_source
+    assert "音色中心" in app_source
+    assert "任务与输出" in app_source
+    assert "系统设置" in app_source
+
+
+def test_frontend_source_does_not_include_removed_auth_or_netdisk_copy() -> None:
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (FRONTEND_ROOT / "src").rglob("*")
+        if path.suffix in {".ts", ".tsx", ".css"}
+    )
+
+    forbidden = ["退出登录", "个人网盘", "NAS 登录", "token"]
+    for value in forbidden:
+        assert value not in text
+
+
+def test_frontend_build_outputs_static_assets() -> None:
+    index_file = FRONTEND_ROOT / "dist" / "index.html"
+    assets_dir = FRONTEND_ROOT / "dist" / "assets"
+
+    assert index_file.exists()
+    assert 'id="root"' in index_file.read_text(encoding="utf-8")
+    assert assets_dir.exists()
+    assert any(path.suffix == ".js" for path in assets_dir.iterdir())
+    assert any(path.suffix == ".css" for path in assets_dir.iterdir())
+
+
+def test_fastapi_serves_built_frontend(client) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "AutoVideo" in response.text
+    assert 'id="root"' in response.text
 ```
 
-- [ ] **Step 4: Run static and API tests to verify they pass**
+- [ ] **Step 4: Run frontend tests and build**
 
 Run:
 
 ```bash
-pytest tests/web/test_static_shell.py tests/api/test_health.py -v
+cd frontend
+npm test -- --run
+npm run build
+cd ..
+pytest tests/web/test_frontend_build.py tests/api/test_health.py -v
 ```
 
-Expected: 6 passed.
+Expected: frontend tests pass, Vite build succeeds, and 6 Python tests pass.
 
 - [ ] **Step 5: Commit Task 5**
 
 ```bash
-git add autovideo/web tests/web/test_static_shell.py
-git commit -m "feat: add static AutoVideo workbench shell"
+git add frontend tests/web/test_frontend_build.py
+git commit -m "feat: add React AutoVideo workbench shell"
 ```
 
 ## Task 6: Local Launch, Docker, And README
@@ -1286,7 +1611,10 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     content = Path("Dockerfile").read_text(encoding="utf-8")
 
+    assert "node:20" in content
     assert "python:3.12-slim" in content
+    assert "npm run build" in content
+    assert "frontend/dist" in content
     assert "ffmpeg" in content
     assert 'CMD ["python", "-m", "autovideo.main"]' in content
 
@@ -1295,6 +1623,9 @@ def test_readme_documents_phase_one_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
     assert "阶段 1：产品骨架" in content
+    assert "React + Vite" in content
+    assert "npm install" in content
+    assert "npm run build" in content
     assert "python -m autovideo.main" in content
     assert "docker build -t autovideo ." in content
     assert "AGPL-3.0-only" in content
@@ -1334,6 +1665,16 @@ chmod +x scripts/dev.sh
 Create `Dockerfile`:
 
 ```dockerfile
+FROM node:20-bookworm-slim AS frontend-builder
+
+WORKDIR /frontend
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -1350,6 +1691,7 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md LICENSE ./
 COPY autovideo ./autovideo
+COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
 RUN pip install --no-cache-dir .
 
@@ -1372,7 +1714,7 @@ AutoVideo 是一个个人自托管的视频混剪工作台。项目会从产品�
 阶段 1：产品骨架
 
 - FastAPI 后端服务
-- 中文静态工作台首页
+- React + Vite 中文工作台首页
 - 环境变量配置
 - 数据目录初始化
 - FFmpeg 与可选 Fish Speech 运行检查
@@ -1386,17 +1728,30 @@ AutoVideo 是一个个人自托管的视频混剪工作台。项目会从产品�
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+cd frontend
+npm install
+npm run build
+cd ..
 cp .env.example .env
 python -m autovideo.main
 ```
 
 打开 `http://127.0.0.1:8090`。
 
-也可以使用脚本启动：
+开发时建议分别启动后端和前端：
 
 ```bash
 ./scripts/dev.sh
 ```
+
+另开一个终端：
+
+```bash
+cd frontend
+npm run dev
+```
+
+打开 `http://127.0.0.1:5173`，Vite 会把 `/api` 代理到 FastAPI。
 
 ## Docker 启动
 
@@ -1442,10 +1797,14 @@ Expected: 3 passed.
 Run:
 
 ```bash
+cd frontend
+npm test -- --run
+npm run build
+cd ..
 pytest -v
 ```
 
-Expected: all tests pass.
+Expected: frontend tests pass, Vite build succeeds, and all Python tests pass.
 
 - [ ] **Step 7: Commit Task 6**
 
@@ -1465,11 +1824,27 @@ Run:
 
 ```bash
 python -m pip install -e ".[dev]"
+cd frontend
+npm install
+cd ..
 ```
 
-Expected: package installs successfully.
+Expected: Python package installs successfully and frontend dependencies install successfully.
 
-- [ ] **Step 2: Run full test suite**
+- [ ] **Step 2: Run frontend tests and build**
+
+Run:
+
+```bash
+cd frontend
+npm test -- --run
+npm run build
+cd ..
+```
+
+Expected: Vitest passes and Vite writes `frontend/dist/index.html`.
+
+- [ ] **Step 3: Run full Python test suite**
 
 Run:
 
@@ -1479,7 +1854,7 @@ pytest -v
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Start the local service**
+- [ ] **Step 4: Start the local service**
 
 Run:
 
@@ -1489,7 +1864,7 @@ AUTOVIDEO_PORT=8090 python -m autovideo.main
 
 Expected: Uvicorn starts and listens on `http://0.0.0.0:8090`.
 
-- [ ] **Step 4: Verify health endpoint from another terminal**
+- [ ] **Step 5: Verify health endpoint from another terminal**
 
 Run:
 
@@ -1516,7 +1891,7 @@ Expected response includes:
 }
 ```
 
-- [ ] **Step 5: Verify browser shell**
+- [ ] **Step 6: Verify browser shell**
 
 Open `http://127.0.0.1:8090` in the browser.
 
@@ -1528,7 +1903,7 @@ Expected:
 - The page does not show login, permission, personal netdisk, or NAS copy.
 - On mobile-width viewport, horizontal tabs are visible and content remains readable.
 
-- [ ] **Step 6: Build Docker image**
+- [ ] **Step 7: Build Docker image**
 
 Run:
 
@@ -1538,13 +1913,14 @@ docker build -t autovideo .
 
 Expected: image builds successfully.
 
-- [ ] **Step 7: Commit only if verification required file fixes**
+- [ ] **Step 8: Commit only if verification required file fixes**
 
 If Step 1 through Step 6 pass without file changes, do not create a commit.
 
 If a file fix was needed, run:
 
 ```bash
+cd frontend && npm test -- --run && npm run build && cd ..
 pytest -v
 git add <changed-files>
 git commit -m "fix: stabilize AutoVideo skeleton verification"
