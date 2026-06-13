@@ -7,7 +7,7 @@
 - 回复内容不要折叠。
 - 所有 UI 设计任务必须调用 `ui-ux-pro-max` 技能；涉及页面、组件、交互、视觉、布局、可访问性、响应式或移动端适配时，也必须按该技能要求进行设计、实现和 review。
 
-## 开发与部署约束
+## 开发约束
 
 - 修复 bug、新增功能、继续迭代现有功能时，默认必须先创建 git 分支，不要直接在 `main` 上开发。
 - 这类开发任务完成后，默认使用“推送远端分支 + 创建 Pull Request”的方式交付，不要直接推送到 `main`。
@@ -25,7 +25,6 @@
 - 每个任务完成、PR 已转成正式 PR 后，必须开启 Codex review 监控：每隔 2 分钟检查一次 PR 的 review、review thread 和评论；如果 Codex 提出新问题，完成修复、测试、提交、推送并用包含 `@codex` 的评论触发复查后，继续每隔 2 分钟检查；直到 Codex 明确回复没有问题，或只以无建议的通过信号结束，才停止监控并结束任务。
 - 2 分钟 Codex review 监控必须由当前 Codex 会话自己执行，不要创建 Codex automation、heartbeat 或任何自动化任务来代替监控；自动化监控会导致本地工作区变成只读，影响后续修复、提交和推送。
 - Codex 对 PR 评论添加 thumbs up / 👍 reaction，也视为“没有问题 / 无建议”的通过信号；记录到结果后即可停止 review 监控。
-- 如果本次 PR 属于 bug 修复，Codex review 监控确认没有问题后，默认直接合并 PR，并按部署约束将最新 `main` 部署到本机 Docker；合并和部署仍必须遵守先更新本地 `main`、确认工作区干净和本机 Docker 验证要求。
 - 处理 GitHub review feedback 时，完成本地修复、测试和推送后，必须在对应 PR 评论中包含 `@codex`，用于通知或触发 Codex 复查。
 
 - 新增功能或继续迭代现有功能时，默认优先做模块化拆分，不要把新业务逻辑继续堆进单个大文件。
@@ -35,14 +34,6 @@
 - 新增代码时，尽量复用已有模块；如果一段逻辑已经可以独立测试、独立复用或独立理解，就应该提取成单独模块。
 - 任何用户可见功能发生新增、调整或删除时，必须同步更新对应帮助文档和帮助入口；如果暂不更新帮助，必须在交付说明中明确原因。
 
-
-- 执行任何真实部署前，必须先把本地 `main` 更新到远端最新版本，再从最新 `main` 部署：
-  - `git switch main`
-  - `git fetch origin main`
-  - `git pull --ff-only origin main`
-  - `git status --short --branch`
-- 本仓每次部署默认直接部署到本机 Docker，不走远程服务器流程。更新到最新 `main` 后，使用 `docker-compose up -d --build --remove-orphans` 部署，并用 `docker-compose ps`、`curl -sS -i http://127.0.0.1:8000/`、`curl -sS -i http://127.0.0.1:8000/api/admin/health` 验证本机 Docker 服务状态。
-- 如果无法切到 `main`、无法快进更新，或 `git status` 显示有未提交变更，先停止并处理，不要部署旧版本或脏工作区。
 - 不要把密码、私钥、token、`.env` 实际值写入仓库；凭据应通过 SSH config、ssh-agent 或环境变量提供。
 
 
