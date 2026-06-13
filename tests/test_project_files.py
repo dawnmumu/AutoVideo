@@ -19,7 +19,9 @@ def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     assert "python:3.12-slim" in content
     assert "npm ci" in content
     assert "npm run build" in content
+    assert "fonts-noto-cjk" in content
     assert "frontend/dist" in content
+    assert "COPY --from=frontend-builder /frontend/dist ./frontend/dist" in content
     assert "ffmpeg" in content
     assert 'CMD ["python", "-m", "autovideo.main"]' in content
 
@@ -27,8 +29,25 @@ def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
 def test_dockerignore_excludes_local_build_and_dependency_outputs() -> None:
     content = Path(".dockerignore").read_text(encoding="utf-8")
 
-    assert "frontend/node_modules/" in content
-    assert "frontend/dist/" in content
+    required_patterns = [
+        ".git",
+        ".env",
+        ".env.*",
+        "!.env.example",
+        ".venv/",
+        "venv/",
+        "__pycache__/",
+        ".pytest_cache/",
+        ".ruff_cache/",
+        ".mypy_cache/",
+        "data/",
+        "outputs/",
+        "frontend/node_modules/",
+        "frontend/dist/",
+        "*.log",
+    ]
+    for pattern in required_patterns:
+        assert pattern in content
 
 
 def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
@@ -37,6 +56,9 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
     assert 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' in content
     assert 'REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"' in content
     assert 'cd "${REPO_ROOT}"' in content
+    assert "AUTOVIDEO_HOST:-0.0.0.0" in content
+    assert "AUTOVIDEO_PORT:-8090" in content
+    assert "AUTOVIDEO_DATA_DIR:-./data" in content
     assert '"${PYTHON_BIN:-python}" -m autovideo.main' in content
 
 
@@ -49,4 +71,12 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "npm run build" in content
     assert "python -m autovideo.main" in content
     assert "docker build -t autovideo ." in content
+    assert "docker run --rm -p 8090:8090" in content
+    assert "AUTOVIDEO_DATA_DIR" in content
+    assert "AUTOVIDEO_FFMPEG_PATH" in content
+    assert "AUTOVIDEO_FISH_SPEECH_URL" in content
+    assert "尚未接入登录" in content
+    assert "权限管理" in content
+    assert "个人网盘导入" in content
+    assert "真实混剪渲染" in content
     assert "AGPL-3.0-only" in content
