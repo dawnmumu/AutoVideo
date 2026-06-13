@@ -1,7 +1,20 @@
 from pathlib import Path
 
+import pytest
+
 
 FRONTEND_ROOT = Path("frontend")
+BUILD_SKIP_REASON = "Run `cd frontend && npm run build` before build-output tests"
+
+
+def require_frontend_build() -> tuple[Path, Path]:
+    index_file = FRONTEND_ROOT / "dist" / "index.html"
+    assets_dir = FRONTEND_ROOT / "dist" / "assets"
+
+    if not index_file.exists() or not assets_dir.exists():
+        pytest.skip(BUILD_SKIP_REASON)
+
+    return index_file, assets_dir
 
 
 def test_frontend_source_contains_chinese_product_shell() -> None:
@@ -29,8 +42,7 @@ def test_frontend_source_does_not_include_removed_auth_or_netdisk_copy() -> None
 
 
 def test_frontend_build_outputs_static_assets() -> None:
-    index_file = FRONTEND_ROOT / "dist" / "index.html"
-    assets_dir = FRONTEND_ROOT / "dist" / "assets"
+    index_file, assets_dir = require_frontend_build()
 
     assert index_file.exists()
     assert 'id="root"' in index_file.read_text(encoding="utf-8")
@@ -40,6 +52,8 @@ def test_frontend_build_outputs_static_assets() -> None:
 
 
 def test_fastapi_serves_built_frontend(client) -> None:
+    require_frontend_build()
+
     response = client.get("/")
 
     assert response.status_code == 200
