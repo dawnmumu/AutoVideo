@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 
 
@@ -51,7 +52,8 @@ def test_dockerignore_excludes_local_build_and_dependency_outputs() -> None:
 
 
 def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
-    content = Path("scripts/dev.sh").read_text(encoding="utf-8")
+    script_path = Path("scripts/dev.sh")
+    content = script_path.read_text(encoding="utf-8")
 
     assert 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' in content
     assert 'REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"' in content
@@ -60,6 +62,7 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
     assert "AUTOVIDEO_PORT:-8090" in content
     assert "AUTOVIDEO_DATA_DIR:-./data" in content
     assert '"${PYTHON_BIN:-python}" -m autovideo.main' in content
+    assert script_path.stat().st_mode & stat.S_IXUSR
 
 
 def test_readme_documents_phase_one_startup() -> None:
