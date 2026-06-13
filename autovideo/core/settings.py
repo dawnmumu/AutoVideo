@@ -1,7 +1,7 @@
 from functools import cached_property
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("fish_speech_url", mode="before")
+    @classmethod
+    def empty_fish_speech_url_is_disabled(cls, value: str | None) -> str | None:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     @cached_property
     def resolved_data_dir(self) -> Path:
