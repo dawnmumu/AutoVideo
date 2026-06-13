@@ -72,6 +72,18 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("系统设置")).toBeInTheDocument();
   });
 
+  it("marks the active desktop and mobile navigation items", async () => {
+    renderApp();
+
+    await screen.findByRole("heading", { name: "混剪工作台" });
+
+    expect(screen.getByRole("link", { name: "混剪工作台" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "混剪" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("does not render removed auth or netdisk copy", async () => {
     renderApp();
     await screen.findByRole("heading", { name: "混剪工作台" });
@@ -82,7 +94,10 @@ describe("AutoVideo shell", () => {
   it("shows runtime check feedback", async () => {
     renderApp();
 
-    expect(await screen.findByText("运行环境需检查")).toBeInTheDocument();
+    await screen.findByText("运行环境需检查");
+    const runtimeStatus = screen.getByRole("status");
+
+    expect(runtimeStatus).toHaveTextContent("运行环境需检查");
     expect(screen.getByText("未找到 FFmpeg，可执行文件：ffmpeg")).toBeInTheDocument();
   });
 });

@@ -29,11 +29,19 @@ function RuntimeStatus() {
   });
 
   if (query.isLoading) {
-    return <div className="runtime-status">正在检查运行环境</div>;
+    return (
+      <div aria-live="polite" className="runtime-status" role="status">
+        正在检查运行环境
+      </div>
+    );
   }
 
   if (query.isError || !query.data) {
-    return <div className="runtime-status degraded">无法读取运行状态</div>;
+    return (
+      <div aria-live="polite" className="runtime-status degraded" role="status">
+        无法读取运行状态
+      </div>
+    );
   }
 
   const checks = Object.values(query.data.checks);
@@ -41,7 +49,9 @@ function RuntimeStatus() {
 
   return (
     <aside className="panel status-panel" aria-label="运行检查">
-      <div className={`runtime-status ${query.data.status}`}>{statusText}</div>
+      <div aria-live="polite" className={`runtime-status ${query.data.status}`} role="status">
+        {statusText}
+      </div>
       <h2>运行检查</h2>
       <dl>
         {checks.map((check) => (
@@ -70,7 +80,12 @@ export default function App() {
           {navItems.map((item, index) => {
             const Icon = item.icon;
             return index === 0 ? (
-              <a className={index === 0 ? "active" : ""} href={`#${index}`} key={item.label}>
+              <a
+                aria-current="page"
+                className={index === 0 ? "active" : ""}
+                href={`#${index}`}
+                key={item.label}
+              >
                 <Icon aria-hidden="true" size={18} />
                 <span>{item.label}</span>
               </a>
@@ -99,7 +114,7 @@ export default function App() {
         <nav className="mobile-tabs" aria-label="移动端导航">
           {navItems.map((item, index) =>
             index === 0 ? (
-              <a className="active" href="#0" key={item.shortLabel}>
+              <a aria-current="page" className="active" href="#0" key={item.shortLabel}>
                 {item.shortLabel}
               </a>
             ) : (
