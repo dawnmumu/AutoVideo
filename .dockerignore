@@ -1,0 +1,16 @@
+.git
+.DS_Store
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+outputs/
+frontend/node_modules/
+frontend/dist/
+*.log

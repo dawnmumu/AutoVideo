@@ -17,10 +17,27 @@ def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
 
     assert "node:20" in content
     assert "python:3.12-slim" in content
+    assert "npm ci" in content
     assert "npm run build" in content
     assert "frontend/dist" in content
     assert "ffmpeg" in content
     assert 'CMD ["python", "-m", "autovideo.main"]' in content
+
+
+def test_dockerignore_excludes_local_build_and_dependency_outputs() -> None:
+    content = Path(".dockerignore").read_text(encoding="utf-8")
+
+    assert "frontend/node_modules/" in content
+    assert "frontend/dist/" in content
+
+
+def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
+    content = Path("scripts/dev.sh").read_text(encoding="utf-8")
+
+    assert 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' in content
+    assert 'REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"' in content
+    assert 'cd "${REPO_ROOT}"' in content
+    assert '"${PYTHON_BIN:-python}" -m autovideo.main' in content
 
 
 def test_readme_documents_phase_one_startup() -> None:
