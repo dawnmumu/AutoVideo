@@ -52,7 +52,7 @@ node --version
 npm --version
 ```
 
-Expected: Node.js 20 or newer is available, and npm prints a version.
+Expected: Node.js 20.19+ or 22.12+ is available, and npm prints a version.
 
 ## File Structure
 
@@ -826,8 +826,12 @@ Create `frontend/package.json`:
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 5173",
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev:host": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -843,13 +847,15 @@ Create `frontend/package.json`:
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22.19.21",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "esbuild": "^0.28.1",
     "jsdom": "^24.1.1",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2",
-    "vitest": "^2.0.5"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   }
 }
 ```
@@ -1614,7 +1620,7 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     content = Path("Dockerfile").read_text(encoding="utf-8")
 
-    assert "node:20" in content
+    assert "node:22" in content
     assert "python:3.12-slim" in content
     assert "npm run build" in content
     assert "frontend/dist" in content
@@ -1627,6 +1633,7 @@ def test_readme_documents_phase_one_startup() -> None:
 
     assert "阶段 1：产品骨架" in content
     assert "React + Vite" in content
+    assert "Node.js 20.19+ 或 22.12+" in content
     assert "npm install" in content
     assert "npm run build" in content
     assert "python -m autovideo.main" in content
@@ -1668,7 +1675,7 @@ chmod +x scripts/dev.sh
 Create `Dockerfile`:
 
 ```dockerfile
-FROM node:20-bookworm-slim AS frontend-builder
+FROM node:22-bookworm-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -1725,6 +1732,13 @@ AutoVideo 是一个个人自托管的视频混剪工作台。项目会从产品�
 - 本地启动和 Docker 启动
 
 尚未接入登录、权限管理、个人网盘导入、BGM 上传、字幕模板编辑、音色复刻、功能提取处理和真实混剪渲染。
+
+## 运行要求
+
+- Python 3.12
+- Node.js 20.19+ 或 22.12+
+- npm
+- FFmpeg
 
 ## 本地启动
 
