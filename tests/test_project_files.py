@@ -40,7 +40,7 @@ def test_dockerfile_supports_optional_build_mirrors() -> None:
         "PIP_INDEX_URL",
         "PIP_TRUSTED_HOST",
     ]:
-        assert f"ARG {build_arg}" in content
+        assert f'ARG {build_arg}=""' in content
 
     assert "npm config set registry" in content
     assert "deb.debian.org/debian" in content
@@ -102,7 +102,7 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
 def test_readme_documents_phase_one_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
-    assert "阶段 1：产品骨架" in content
+    assert "阶段 1.5：产品骨架 + 视频任务 API 骨架" in content
     assert "React + Vite" in content
     assert "Node.js 20.19+ 或 22.12+" in content
     assert "npm install" in content
@@ -112,9 +112,16 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "NPM_REGISTRY=https://registry.npmmirror.com" in content
     assert "APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian" in content
     assert "PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple" in content
+    assert "PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn" in content
+    assert "`PIP_TRUSTED_HOST` 是可选参数" in content
+    assert "只传 `PIP_INDEX_URL` 也支持构建" in content
     assert "docker run --rm -p 8090:8090" in content
+    assert "POST /api/materials" in content
+    assert "POST /api/tasks" in content
+    assert "GET /api/tasks/{task_id}/output" in content
     assert "AUTOVIDEO_DATA_DIR" in content
     assert "AUTOVIDEO_FFMPEG_PATH" in content
+    assert "AUTOVIDEO_MAX_UPLOAD_BYTES" in content
     assert "AUTOVIDEO_FISH_SPEECH_URL" in content
     assert "尚未接入登录" in content
     assert "权限管理" in content

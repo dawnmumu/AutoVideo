@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("data"))
     ffmpeg_path: str = "ffmpeg"
     fish_speech_url: str | None = None
+    max_upload_bytes: int = 2 * 1024 * 1024 * 1024
 
     model_config = SettingsConfigDict(
         env_prefix="AUTOVIDEO_",

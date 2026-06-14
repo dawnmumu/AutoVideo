@@ -5,6 +5,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from autovideo.api.routes.health import router as health_router
+from autovideo.api.routes.materials import router as materials_router
+from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -16,6 +18,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=active_settings.app_name)
     app.state.settings = active_settings
     app.include_router(health_router)
+    app.include_router(materials_router)
+    app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
