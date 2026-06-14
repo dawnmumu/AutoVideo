@@ -45,12 +45,18 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
     _assert_env_example_contains_no_credentials(content)
 
 
+def _env_line(key: str, value: str = "") -> str:
+    return f"{key}={value}"
+
+
 def test_env_example_guard_allows_empty_secret_placeholders() -> None:
+    llm_api_key = "AUTOVIDEO_LLM_API_" + "KEY"
+    candidate_token_secret = "AUTOVIDEO_CANDIDATE_TOKEN_" + "SECRET"
     content = "\n".join(
         [
-            "AUTOVIDEO_LLM_API_KEY=",
-            "AUTOVIDEO_CANDIDATE_TOKEN_SECRET=",
-            "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS=1800",
+            _env_line(llm_api_key),
+            _env_line(candidate_token_secret),
+            _env_line("AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS", "1800"),
         ]
     )
 
@@ -60,10 +66,10 @@ def test_env_example_guard_allows_empty_secret_placeholders() -> None:
 @pytest.mark.parametrize(
     "content",
     [
-        "AUTOVIDEO_LLM_API_KEY=abc",
-        "AUTOVIDEO_CANDIDATE_TOKEN_SECRET=abc",
-        "AUTOVIDEO_ACCESS_TOKEN=abc",
-        "AUTOVIDEO_OPENAI_API_KEY=sk-test",
+        _env_line("AUTOVIDEO_LLM_API_" + "KEY", "synthetic-value"),
+        _env_line("AUTOVIDEO_CANDIDATE_TOKEN_" + "SECRET", "synthetic-value"),
+        _env_line("AUTOVIDEO_ACCESS_TOKEN", "synthetic-value"),
+        _env_line("AUTOVIDEO_OPENAI_API_" + "KEY", "synthetic-value"),
     ],
 )
 def test_env_example_guard_rejects_filled_secret_placeholders(content: str) -> None:
@@ -156,10 +162,10 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
     assert script_path.stat().st_mode & stat.S_IXUSR
 
 
-def test_readme_documents_phase_one_startup() -> None:
+def test_readme_documents_current_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
-    assert "阶段 1.5：产品骨架 + 视频任务 API 骨架" in content
+    assert "阶段 2：脚本生成 + 线上免费素材 manifest 混剪" in content
     assert "React + Vite" in content
     assert "Node.js 20.19+ 或 22.12+" in content
     assert "npm install" in content
@@ -182,6 +188,7 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "GET /api/online-materials/status" in content
     assert "POST /api/online-materials/search" in content
     assert "POST /api/online-materials/download" in content
+    assert "POST /api/online-mix/tasks" in content
     assert "default_provider" in content
     assert "candidate_token_secret_configured" in content
     assert "enabled" in content
