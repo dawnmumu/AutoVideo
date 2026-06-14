@@ -471,6 +471,26 @@ def test_open_validated_download_response_respects_max_redirects() -> None:
     assert requested_urls == ["https://videos.pexels.com/file.mp4"]
 
 
+def test_open_validated_download_response_rejects_missing_connected_address() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "video/mp4"},
+            content=b"video-bytes",
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        with open_validated_download_response(
+            http_client,
+            "https://videos.pexels.com/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: ["93.184.216.34"],
+        ):
+            raise AssertionError("response without connection evidence must fail")
+
+
 def test_validate_connection_addresses_rejects_dns_rebinding_drift() -> None:
     with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
         validate_connection_addresses(

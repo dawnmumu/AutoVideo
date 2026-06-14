@@ -262,8 +262,11 @@ def _validate_response_connection(
     preflight_addresses: Iterable[str],
 ) -> None:
     connected_address = _connected_address_from_response(response)
-    if connected_address is not None:
-        validate_connection_addresses(hostname, preflight_addresses, connected_address)
+    if connected_address is None:
+        raise OnlineMaterialDownloadUrlNotAllowedError(
+            "download response did not expose a connected address"
+        )
+    validate_connection_addresses(hostname, preflight_addresses, connected_address)
 
 
 @contextmanager

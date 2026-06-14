@@ -106,7 +106,7 @@ def create_online_mix_video_task(
     needs_online_assets = bool(shot_assets) or request_body.asset_strategy == "auto"
     providers = _provider_registry(request, settings)
     if needs_online_assets:
-        if request_body.provider != "auto":
+        if request_body.asset_strategy == "auto" and request_body.provider != "auto":
             provider = providers.get(request_body.provider)
             if provider is None or not _provider_is_enabled(provider):
                 raise structured_error(

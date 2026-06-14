@@ -197,6 +197,35 @@ def test_online_mix_requires_secret_for_user_candidate_token(tmp_path) -> None:
     )
 
 
+def test_online_mix_user_candidate_secret_check_ignores_requested_provider(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "候选任务",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "provider": "pixabay",
+                "shot_assets": [{"shot_index": 1, "candidate_token": "token"}],
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == (
+        "ONLINE_MATERIAL_TOKEN_SECRET_NOT_CONFIGURED"
+    )
+
+
 def test_online_mix_requested_disabled_provider_is_not_available(tmp_path) -> None:
     from tests.api.test_online_materials import DisabledProvider
 
@@ -253,6 +282,7 @@ def test_online_mix_downloads_user_candidate_and_creates_task(tmp_path) -> None:
                 200,
                 headers={"content-type": "video/mp4"},
                 content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
             )
         )
     )
@@ -334,6 +364,7 @@ def test_online_mix_auto_searches_downloads_and_creates_shot_materials(
                 200,
                 headers={"content-type": "video/mp4"},
                 content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
             )
         )
     )
