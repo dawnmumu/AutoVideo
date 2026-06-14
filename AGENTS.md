@@ -20,12 +20,12 @@
   - 如果 review 子代理发现 bug、遗漏测试、行为回归或规则违背，必须启动一个独立修复子代理处理这些问题；修复完成后，当前会话复核 diff，并运行相关测试或验证命令。
   - 修复后再次启动 review 子代理复审；只要仍有 actionable bug 或回归风险，就继续“review 子代理 -> 修复子代理 -> 当前会话复核与测试”的循环。
   - 只有当 review 子代理明确没有 bug、没有 actionable findings，且当前会话完成必要测试后，才进入提交、推送、创建 PR 或更新 PR 流程。
-  - 本地子代理 review 不能替代 GitHub PR 上的 Codex review 监控；PR 创建或更新后仍必须按下面的 2 分钟监控规则执行。
-- 每个任务完成并创建或更新 PR 后，如果 PR 仍是 Draft，必须先转成正式 PR（Ready for review），再进入后续交付或监控流程；不要把已完成任务停留在 Draft PR 状态。
-- 每个任务完成、PR 已转成正式 PR 后，必须开启 Codex review 监控：每隔 2 分钟检查一次 PR 的 review、review thread 和评论；如果 Codex 提出新问题，完成修复、测试、提交、推送并用包含 `@codex` 的评论触发复查后，继续每隔 2 分钟检查；直到 Codex 明确回复没有问题，或只以无建议的通过信号结束，才停止监控并结束任务。
-- 2 分钟 Codex review 监控必须由当前 Codex 会话自己执行，不要创建 Codex automation、heartbeat 或任何自动化任务来代替监控；自动化监控会导致本地工作区变成只读，影响后续修复、提交和推送。
-- Codex 对 PR 评论添加 thumbs up / 👍 reaction，也视为“没有问题 / 无建议”的通过信号；记录到结果后即可停止 review 监控。
-- 处理 GitHub review feedback 时，完成本地修复、测试和推送后，必须在对应 PR 评论中包含 `@codex`，用于通知或触发 Codex 复查。
+  - 本地子代理 review 是正式提交、推送和创建 PR 前的必需门禁；PR 创建或更新后仍必须按下面的 PR 后复审规则执行。
+- 每个任务完成并创建或更新 PR 后，如果 PR 仍是 Draft，必须先转成正式 PR（Ready for review），再进入后续交付或 PR 后复审流程；不要把已完成任务停留在 Draft PR 状态。
+- 每个任务完成、PR 已转成正式 PR 后，必须再次使用并遵守 `superpowers:requesting-code-review`，发起一个只读 review 子代理，对最终 PR 差异、测试覆盖和潜在回归进行审核；上下文应包含 PR 摘要、需求或计划、当前分支与目标分支信息，以及可审查的 diff。
+- PR 后 review 子代理如果发现 bug、遗漏测试、行为回归或规则违背，必须完成修复、运行相关测试或验证命令、提交并推送；修复后再次使用 `superpowers:requesting-code-review` 复审，直到 review 子代理明确没有 bug、没有 actionable findings。
+- 不再要求定时监控 GitHub PR 上的 Codex review、review thread 或评论，也不要创建 Codex automation、heartbeat 或任何自动化任务来代替审核；PR 后审核以当前会话发起的 `superpowers:requesting-code-review` 子代理结果为准。
+- 处理 GitHub PR review feedback 时，完成本地修复、测试、提交和推送后，必要时在对应评论中说明修复范围；不再以包含 `@codex` 的评论触发复查作为必需步骤。
 
 - 新增功能或继续迭代现有功能时，默认优先做模块化拆分，不要把新业务逻辑继续堆进单个大文件。
 - 当一个文件已经明显偏大，或本次修改会继续增加一段独立职责时，优先先抽出模块，再接线；至少要按职责拆到 `service`、`helper`、`view`、`route`、`handler` 等合适边界，而不是继续在原文件里横向堆叠。

@@ -491,4 +491,4 @@ LLM 未配置时，后端使用本地启发式脚本 fallback。Pexels/Pixabay k
 3. 前端测试覆盖线上混剪入口和关键状态。
 4. `PYENV_VERSION=3.12.13 python -m pytest -q` 通过。
 5. `npm test -- --run` 和 `npm run build` 通过。
-6. PR 创建后按仓库规则完成本地子代理 review 和 GitHub Codex review 监控。
+6. PR 创建后按仓库规则完成本地子代理 review，并在 PR Ready 后执行 PR 级只读 review 子代理复审。

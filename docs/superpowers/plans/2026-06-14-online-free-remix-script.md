@@ -4882,7 +4882,7 @@ git add README.md .env.example docs/superpowers/plans/2026-06-14-online-free-rem
 git commit -m "docs: document online remix workflow"
 ```
 
-- [ ] **Step 8: Create or update PR and monitor**
+- [ ] **Step 8: Create or update PR and run PR review**
 
 Run:
 
@@ -4892,7 +4892,7 @@ git push -u origin codex/online-free-remix-script-design
 gh pr create --title "[codex] Add online free remix workflow" --body "Implements the first manifest-based online free material remix workflow and script generation plan." --base main --head codex/online-free-remix-script-design
 ```
 
-Expected: PR URL is created. Per `AGENTS.md`, make the PR ready for review if it is draft, then monitor Codex review every 2 minutes until Codex has no actionable findings or gives a thumbs-up/pass signal.
+Expected: PR URL is created. Per `AGENTS.md`, make the PR ready for review if it is draft, then run a PR-level read-only review subagent with `superpowers:requesting-code-review`; fix, test, commit, push, and repeat review until there are no actionable findings.
 
 ## Self-Review Checklist
 
@@ -4915,4 +4915,4 @@ Expected: PR URL is created. Per `AGENTS.md`, make the PR ready for review if it
   - `cd frontend && npm test -- --run`
   - `cd frontend && npm run build`
   - local subagent review loop before commit/push/PR updates
-  - GitHub Codex PR review monitoring after PR is ready
+  - PR-level read-only subagent review after PR is ready

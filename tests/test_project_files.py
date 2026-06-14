@@ -162,6 +162,29 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
     assert script_path.stat().st_mode & stat.S_IXUSR
 
 
+def test_review_process_docs_do_not_restore_legacy_pr_monitoring_rules() -> None:
+    checked_paths = [
+        Path("AGENTS.md"),
+        Path("docs/superpowers/plans/2026-06-14-online-free-remix-script.md"),
+        Path("docs/superpowers/specs/2026-06-14-online-free-remix-script-design.md"),
+    ]
+    forbidden_phrases = [
+        "每隔 2 分钟",
+        "2 分钟 Codex review 监控",
+        "thumbs up",
+        "thumbs-up",
+        "GitHub Codex review 监控",
+        "GitHub Codex PR review monitoring",
+        "monitor Codex review every 2 minutes",
+        "用于通知或触发 Codex 复查",
+    ]
+
+    for path in checked_paths:
+        content = path.read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            assert phrase not in content, f"{phrase!r} must not appear in {path}"
+
+
 def test_readme_documents_current_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
