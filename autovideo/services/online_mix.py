@@ -49,9 +49,12 @@ def _shot_indexes(script: dict[str, Any]) -> set[int]:
         shots = script.get("shots", [])
         if not isinstance(shots, list):
             return set()
-        return {int(shot["index"]) for shot in shots}
+        indexes = [int(shot["index"]) for shot in shots]
     except (KeyError, TypeError, ValueError):
         return set()
+    if len(indexes) != len(set(indexes)):
+        return set()
+    return set(indexes)
 
 
 def _selection_indexes(selections: list[dict[str, Any]]) -> list[int]:
@@ -169,7 +172,8 @@ def _material_manifest_item(
         "shot_index": int(selection["shot_index"]),
         "material_id": str(selection["material_id"]),
         "selection_mode": mode,
-        "selection_reason": reasons.get(mode, "用户选择已有本地素材"),
+        "selection_reason": selection.get("selection_reason")
+        or reasons.get(mode, "用户选择已有本地素材"),
     }
     if material.get("source_provider") and material.get("source_url"):
         item.update(
@@ -201,6 +205,28 @@ def sanitized_online_mix_options(options: dict[str, Any]) -> dict[str, Any]:
     return sanitized if isinstance(sanitized, dict) else {}
 
 
+def _online_asset_key_from_payload(payload: dict[str, Any]) -> tuple[str, str]:
+    return (_token_text(payload, "provider"), _token_text(payload, "asset_id"))
+
+
+def _online_asset_key_from_material(
+    material: dict[str, Any] | None,
+) -> tuple[str, str] | None:
+    if material is None:
+        return None
+    provider = material.get("source_provider")
+    asset_id = material.get("source_asset_id")
+    if not isinstance(provider, str) or not provider:
+        return None
+    if not isinstance(asset_id, str) or not asset_id:
+        return None
+    return (provider, asset_id)
+
+
+def _online_asset_key_from_candidate(candidate: Any) -> tuple[str, str]:
+    return (str(candidate.provider), str(candidate.asset_id))
+
+
 def create_online_mix_task(
     store: AutoVideoStore,
     *,
@@ -218,11 +244,18 @@ def create_online_mix_task(
     timeout: float | None,
     results_per_query: int,
     options: dict[str, Any],
+    provider_status_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     validate_shot_selection(script, shot_assets, shot_materials)
     if (shot_assets or asset_strategy == "auto") and token_service is None:
         raise RuntimeError("candidate token service is required for online assets")
 
+    used_online_assets: set[tuple[str, str]] = set()
+    for item in shot_materials:
+        material = store.get_material(str(item.get("material_id", "")))
+        material_key = _online_asset_key_from_material(material)
+        if material_key is not None:
+            used_online_assets.add(material_key)
     resolved_materials = [
         {
             "shot_index": int(item["shot_index"]),
@@ -235,6 +268,7 @@ def create_online_mix_task(
     for item in shot_assets:
         assert token_service is not None
         payload = token_service.verify(str(item["candidate_token"]))
+        used_online_assets.add(_online_asset_key_from_payload(payload))
         token_provider = _token_text(payload, "provider")
         provider = providers.get(token_provider)
         if provider is None or not _provider_is_enabled(provider):
@@ -301,7 +335,17 @@ def create_online_mix_task(
             if not candidates:
                 raise OnlineMixNoMaterialMatchError()
 
-            candidate = candidates[0]
+            candidate = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if _online_asset_key_from_candidate(candidate)
+                    not in used_online_assets
+                ),
+                candidates[0],
+            )
+            candidate_key = _online_asset_key_from_candidate(candidate)
+            reused_online_asset = candidate_key in used_online_assets
             try:
                 candidate_token = token_service.sign(
                     {
@@ -334,8 +378,14 @@ def create_online_mix_task(
                     "shot_index": shot_index,
                     "material_id": material["id"],
                     "selection_mode": "auto",
+                    "selection_reason": (
+                        "候选不足，复用已下载的线上素材"
+                        if reused_online_asset
+                        else "系统按分镜关键词自动搜索并下载"
+                    ),
                 }
             )
+            used_online_assets.add(candidate_key)
             selected_indexes.add(shot_index)
 
     material_ids: list[str] = []
@@ -372,5 +422,6 @@ def create_online_mix_task(
                 "status": "manifest_only",
                 "renderer": "not_enabled",
             },
+            "provider_status_snapshot": provider_status_snapshot,
         },
     )

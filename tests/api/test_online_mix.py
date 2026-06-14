@@ -36,6 +36,13 @@ def _script() -> dict:
     }
 
 
+def _single_shot_script() -> dict:
+    script = _script()
+    script["shots"] = [script["shots"][0]]
+    script["duration_seconds"] = 5
+    return script
+
+
 def test_online_mix_rejects_duplicate_or_conflicting_shot_selection(client) -> None:
     material_response = client.post(
         "/api/materials",
@@ -71,6 +78,29 @@ def test_online_mix_rejects_duplicate_material_selection(client) -> None:
                 {"shot_index": 1, "material_id": material["id"]},
                 {"shot_index": 1, "material_id": material["id"]},
             ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "ONLINE_MIX_SHOT_SELECTION_INVALID"
+
+
+def test_online_mix_rejects_script_with_duplicate_shot_indexes(client) -> None:
+    material_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = material_response.json()
+    script = _script()
+    script["shots"][1]["index"] = 1
+
+    response = client.post(
+        "/api/online-mix/tasks",
+        json={
+            "title": "重复镜头脚本",
+            "script": script,
+            "asset_strategy": "manual",
+            "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
         },
     )
 
@@ -129,7 +159,7 @@ def test_online_mix_creates_manifest_with_user_materials(client) -> None:
     assert output["shot_materials"][0]["selection_mode"] == "user_material"
     serialized = json.dumps(output, ensure_ascii=False)
     assert "storage_path" not in serialized
-    assert "candidate_token" not in serialized
+    assert '"candidate_token":' not in serialized
     assert "<OLD_PROJECT_DEPLOY_PATH>" not in serialized
 
 
@@ -334,6 +364,14 @@ def test_online_mix_downloads_user_candidate_and_creates_task(tmp_path) -> None:
             "query": "relaxing bedroom night",
         }
     ]
+    assert output["provider_status_snapshot"] == {
+        "default_provider": "auto",
+        "candidate_token_secret_configured": True,
+        "providers": [
+            {"provider": "pexels", "configured": True, "enabled": True},
+            {"provider": "pixabay", "configured": False, "enabled": False},
+        ],
+    }
 
 
 def test_online_mix_auto_searches_downloads_and_creates_shot_materials(
@@ -390,6 +428,396 @@ def test_online_mix_auto_searches_downloads_and_creates_shot_materials(
     )
     assert all(item["provider"] == "pexels" for item in output["shot_materials"])
     assert len(output["source_attribution"]) == 1
+
+
+def test_online_mix_auto_prefers_unused_provider_assets(tmp_path) -> None:
+    import httpx
+
+    from autovideo.services.online_materials import OnlineMaterialCandidate
+
+    class DuplicateFirstProvider:
+        name = "pexels"
+        enabled = True
+        allowed_download_hosts = {"videos.pexels.com"}
+
+        def search(
+            self,
+            query: str,
+            aspect_ratio: str,
+            min_duration_seconds: int,
+            limit: int,
+        ):
+            return [
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="123",
+                    query=query,
+                    source_url="https://www.pexels.com/video/123/",
+                    preview_url="https://images.pexels.com/videos/123/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="456",
+                    query=query,
+                    source_url="https://www.pexels.com/video/456/",
+                    preview_url="https://images.pexels.com/videos/456/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+            ]
+
+        def resolve_download_url(self, asset_id: str, file_variant: str) -> str:
+            return f"https://videos.pexels.com/video-files/{asset_id}/clip.mp4"
+
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+            candidate_token_secret="secret",
+        )
+    )
+    app.state.online_material_providers = {"pexels": DuplicateFirstProvider()}
+    app.state.online_download_http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "video/mp4"},
+                content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
+            )
+        )
+    )
+    app.state.online_download_resolver = lambda host: ["93.184.216.34"]
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "自动素材去重",
+                "script": _script(),
+                "asset_strategy": "auto",
+                "provider": "pexels",
+            },
+        )
+        output = client.get(response.json()["output"]["download_url"]).json()
+
+    assert response.status_code == 201
+    assert [
+        item["source_asset_id"] for item in output["shot_materials"]
+    ] == ["123", "456"]
+    assert [
+        item["source_asset_id"] for item in output["source_attribution"]
+    ] == ["123", "456"]
+
+
+def test_online_mix_auto_avoids_user_candidate_asset(tmp_path) -> None:
+    import httpx
+
+    from autovideo.services.online_materials import (
+        CandidateTokenService,
+        OnlineMaterialCandidate,
+    )
+
+    class DuplicateFirstProvider:
+        name = "pexels"
+        enabled = True
+        allowed_download_hosts = {"videos.pexels.com"}
+
+        def search(
+            self,
+            query: str,
+            aspect_ratio: str,
+            min_duration_seconds: int,
+            limit: int,
+        ):
+            return [
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="123",
+                    query=query,
+                    source_url="https://www.pexels.com/video/123/",
+                    preview_url="https://images.pexels.com/videos/123/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="456",
+                    query=query,
+                    source_url="https://www.pexels.com/video/456/",
+                    preview_url="https://images.pexels.com/videos/456/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+            ]
+
+        def resolve_download_url(self, asset_id: str, file_variant: str) -> str:
+            return f"https://videos.pexels.com/video-files/{asset_id}/clip.mp4"
+
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+            candidate_token_secret="secret",
+        )
+    )
+    app.state.online_material_providers = {"pexels": DuplicateFirstProvider()}
+    app.state.online_download_http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "video/mp4"},
+                content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
+            )
+        )
+    )
+    app.state.online_download_resolver = lambda host: ["93.184.216.34"]
+    token = CandidateTokenService(secret="secret", ttl_seconds=1800).sign(
+        {
+            "provider": "pexels",
+            "asset_id": "123",
+            "query": "relaxing bedroom night",
+            "file_variant": "hd",
+            "source_url": "https://www.pexels.com/video/123/",
+        }
+    )
+    script = _script()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "用户候选后自动去重",
+                "script": script,
+                "asset_strategy": "auto",
+                "provider": "pexels",
+                "shot_assets": [{"shot_index": 1, "candidate_token": token}],
+            },
+        )
+        output = client.get(response.json()["output"]["download_url"]).json()
+
+    assert response.status_code == 201
+    assert [
+        item["source_asset_id"] for item in output["shot_materials"]
+    ] == ["123", "456"]
+
+
+def test_online_mix_auto_avoids_existing_online_material_asset(tmp_path) -> None:
+    import httpx
+
+    from autovideo.services.materials import record_material_file
+    from autovideo.services.online_materials import OnlineMaterialCandidate
+    from autovideo.storage.database import AutoVideoStore
+
+    class DuplicateFirstProvider:
+        name = "pexels"
+        enabled = True
+        allowed_download_hosts = {"videos.pexels.com"}
+
+        def search(
+            self,
+            query: str,
+            aspect_ratio: str,
+            min_duration_seconds: int,
+            limit: int,
+        ):
+            return [
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="123",
+                    query=query,
+                    source_url="https://www.pexels.com/video/123/",
+                    preview_url="https://images.pexels.com/videos/123/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="456",
+                    query=query,
+                    source_url="https://www.pexels.com/video/456/",
+                    preview_url="https://images.pexels.com/videos/456/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                ),
+            ]
+
+        def resolve_download_url(self, asset_id: str, file_variant: str) -> str:
+            return f"https://videos.pexels.com/video-files/{asset_id}/clip.mp4"
+
+    settings = Settings(
+        data_dir=tmp_path,
+        ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        pexels_api_key="pexels-key",
+        candidate_token_secret="secret",
+    )
+    store = AutoVideoStore(settings)
+    existing_path = tmp_path / "materials" / "pexels-123.mp4"
+    existing_path.write_bytes(b"existing")
+    existing = record_material_file(
+        store,
+        "pexels-123.mp4",
+        "video/mp4",
+        existing_path.stat().st_size,
+        existing_path,
+        {
+            "source_type": "online",
+            "source_provider": "pexels",
+            "source_asset_id": "123",
+            "source_url": "https://www.pexels.com/video/123/",
+            "license_note": "pexels source metadata retained",
+            "query": "relaxing bedroom night",
+        },
+    )
+    app = create_app(settings)
+    app.state.online_material_providers = {"pexels": DuplicateFirstProvider()}
+    app.state.online_download_http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "video/mp4"},
+                content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
+            )
+        )
+    )
+    app.state.online_download_resolver = lambda host: ["93.184.216.34"]
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "已有线上素材后自动去重",
+                "script": _script(),
+                "asset_strategy": "auto",
+                "provider": "pexels",
+                "shot_materials": [{"shot_index": 1, "material_id": existing["id"]}],
+            },
+        )
+        output = client.get(response.json()["output"]["download_url"]).json()
+
+    assert response.status_code == 201
+    assert [
+        item["source_asset_id"] for item in output["shot_materials"]
+    ] == ["123", "456"]
+
+
+def test_online_mix_auto_records_reason_when_reusing_exhausted_asset(tmp_path) -> None:
+    import httpx
+
+    from autovideo.services.materials import record_material_file
+    from autovideo.services.online_materials import OnlineMaterialCandidate
+    from autovideo.storage.database import AutoVideoStore
+
+    class SingleAssetProvider:
+        name = "pexels"
+        enabled = True
+        allowed_download_hosts = {"videos.pexels.com"}
+
+        def search(
+            self,
+            query: str,
+            aspect_ratio: str,
+            min_duration_seconds: int,
+            limit: int,
+        ):
+            return [
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="123",
+                    query=query,
+                    source_url="https://www.pexels.com/video/123/",
+                    preview_url="https://images.pexels.com/videos/123/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                )
+            ]
+
+        def resolve_download_url(self, asset_id: str, file_variant: str) -> str:
+            return f"https://videos.pexels.com/video-files/{asset_id}/clip.mp4"
+
+    settings = Settings(
+        data_dir=tmp_path,
+        ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        pexels_api_key="pexels-key",
+        candidate_token_secret="secret",
+    )
+    store = AutoVideoStore(settings)
+    existing_path = tmp_path / "materials" / "pexels-123.mp4"
+    existing_path.write_bytes(b"existing")
+    existing = record_material_file(
+        store,
+        "pexels-123.mp4",
+        "video/mp4",
+        existing_path.stat().st_size,
+        existing_path,
+        {
+            "source_type": "online",
+            "source_provider": "pexels",
+            "source_asset_id": "123",
+            "source_url": "https://www.pexels.com/video/123/",
+            "license_note": "pexels source metadata retained",
+            "query": "relaxing bedroom night",
+        },
+    )
+    app = create_app(settings)
+    app.state.online_material_providers = {"pexels": SingleAssetProvider()}
+    app.state.online_download_http_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "video/mp4"},
+                content=b"video",
+                extensions={"connected_address": "93.184.216.34"},
+            )
+        )
+    )
+    app.state.online_download_resolver = lambda host: ["93.184.216.34"]
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "候选耗尽后复用",
+                "script": _script(),
+                "asset_strategy": "auto",
+                "provider": "pexels",
+                "shot_materials": [{"shot_index": 1, "material_id": existing["id"]}],
+            },
+        )
+        output = client.get(response.json()["output"]["download_url"]).json()
+
+    assert response.status_code == 201
+    assert output["shot_materials"][1]["source_asset_id"] == "123"
+    assert output["shot_materials"][1]["selection_reason"] == (
+        "候选不足，复用已下载的线上素材"
+    )
 
 
 def test_online_mix_auto_rejects_provider_direct_media_source_url(

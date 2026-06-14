@@ -148,6 +148,23 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("候选签名密钥未配置")).toBeInTheDocument();
   });
 
+  it("shows material provider missing when only candidate secret is configured", async () => {
+    mockedFetchOnlineMaterialStatus.mockResolvedValue({
+      providers: [{ provider: "pexels", configured: false, enabled: false }],
+      default_provider: "auto",
+      candidate_token_secret_configured: true,
+    });
+    renderApp();
+
+    expect(await screen.findByText("素材源未配置")).toBeInTheDocument();
+  });
+
+  it("shows online material ready when provider and candidate secret are configured", async () => {
+    renderApp();
+
+    expect(await screen.findByText("线上素材源就绪")).toBeInTheDocument();
+  });
+
   it("generates script and shows per-shot candidate actions", async () => {
     const user = userEvent.setup();
     mockedGenerateScript.mockResolvedValue({

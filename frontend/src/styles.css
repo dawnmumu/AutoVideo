@@ -187,6 +187,17 @@ h2 {
   line-height: 1.6;
 }
 
+.status-inline {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+}
+
+.status-inline span {
+  margin-top: 0;
+}
+
 .empty-state {
   margin-top: 22px;
   min-height: 260px;
@@ -492,6 +503,15 @@ button:disabled,
   .panel-heading span {
     display: block;
     margin-top: 8px;
+  }
+
+  .status-inline {
+    justify-content: flex-start;
+    margin-top: 8px;
+  }
+
+  .panel-heading .status-inline span {
+    margin-top: 0;
   }
 
   .online-remix-form,

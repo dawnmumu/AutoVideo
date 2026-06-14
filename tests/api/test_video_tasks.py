@@ -378,6 +378,12 @@ def test_create_task_merges_sanitized_manifest_payload(client) -> None:
             "token": "must-not-leak",
             "storage_path": "/tmp/must-not-leak.mp4",
             "provider_download_url": "https://download.example.test/file.mp4",
+            "provider_status_snapshot": {
+                "candidate_token_secret_configured": True,
+                "unsafe_status": {
+                    "candidate_token_secret_configured": "must-not-leak"
+                },
+            },
             "old_project": "<OLD_PROJECT_DEPLOY_PATH>",
             "old_project_internal": "<OLD_PROJECT_INTERNAL_ADDRESS>",
         },
@@ -388,6 +394,10 @@ def test_create_task_merges_sanitized_manifest_payload(client) -> None:
     assert output["source_attribution"] == [
         {"source_url": "https://www.pexels.com/video/123/"}
     ]
+    assert output["provider_status_snapshot"] == {
+        "candidate_token_secret_configured": True,
+        "unsafe_status": {},
+    }
     serialized = json.dumps(output, ensure_ascii=False)
     assert "must-not-leak" not in serialized
     assert "storage_path" not in serialized

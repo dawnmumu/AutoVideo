@@ -159,10 +159,15 @@ export function OnlineRemixWorkbench() {
     },
   });
 
-  const secretStatusText =
-    status.data?.candidate_token_secret_configured === true
-      ? "线上素材源就绪"
-      : "候选签名密钥未配置";
+  const providerReady = status.data?.providers.some((item) => item.enabled) === true;
+  const secretReady = status.data?.candidate_token_secret_configured === true;
+  const providerStatusMessages =
+    providerReady && secretReady
+      ? ["线上素材源就绪"]
+      : [
+          providerReady ? null : "素材源未配置",
+          secretReady ? null : "候选签名密钥未配置",
+        ].filter((item): item is string => item !== null);
   const selectedCount =
     Object.keys(selectedByShot).length + Object.keys(localMaterialByShot).length;
   const requiredShotCount = script?.shots.length ?? 0;
@@ -212,7 +217,11 @@ export function OnlineRemixWorkbench() {
     >
       <div className="panel-heading">
         <h2>线上混剪</h2>
-        <span>{secretStatusText}</span>
+        <div className="status-inline" aria-live="polite">
+          {providerStatusMessages.map((message) => (
+            <span key={message}>{message}</span>
+          ))}
+        </div>
       </div>
 
       <form

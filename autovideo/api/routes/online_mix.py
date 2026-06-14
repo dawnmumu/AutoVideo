@@ -22,6 +22,7 @@ from autovideo.services.online_materials import (
     CandidateTokenInvalidError,
     CandidateTokenService,
     build_provider_registry,
+    provider_status,
 )
 from autovideo.services.online_mix import (
     OnlineMaterialProviderNotAvailableError,
@@ -169,6 +170,7 @@ def create_online_mix_video_task(
             timeout=settings.online_material_download_timeout_seconds,
             results_per_query=settings.online_material_results_per_query,
             options=request_body.options,
+            provider_status_snapshot=provider_status(settings, providers),
         )
         return public_task(task)
     except OnlineMixShotSelectionInvalidError as exc:
