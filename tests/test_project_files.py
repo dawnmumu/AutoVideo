@@ -2,6 +2,39 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
+
+FORBIDDEN_ENV_EXAMPLE_MARKERS = ("sk-", "akia", "password=")
+SENSITIVE_ENV_KEY_SUFFIXES = ("KEY", "SECRET", "TOKEN")
+
+
+def _env_example_assignments(content: str) -> list[tuple[str, str]]:
+    assignments: list[tuple[str, str]] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+
+        key, value = stripped.split("=", 1)
+        assignments.append((key.strip(), value.strip()))
+
+    return assignments
+
+
+def _is_sensitive_placeholder_key(key: str) -> bool:
+    return key.upper().split("_")[-1] in SENSITIVE_ENV_KEY_SUFFIXES
+
+
+def _assert_env_example_contains_no_credentials(content: str) -> None:
+    lowered_content = content.lower()
+    for marker in FORBIDDEN_ENV_EXAMPLE_MARKERS:
+        assert marker not in lowered_content
+
+    for key, value in _env_example_assignments(content):
+        if _is_sensitive_placeholder_key(key):
+            assert value == "", f"{key} must be empty in .env.example"
+
 
 def test_env_example_contains_only_documented_autovideo_keys() -> None:
     content = Path(".env.example").read_text(encoding="utf-8")
@@ -9,9 +42,33 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
     assert "AUTOVIDEO_DATA_DIR=./data" in content
     assert "AUTOVIDEO_FFMPEG_PATH=ffmpeg" in content
     assert "AUTOVIDEO_FISH_SPEECH_URL=" in content
-    forbidden = ["sk-", "akia", "password=", "token=", "secret="]
-    for text in forbidden:
-        assert text not in content.lower()
+    _assert_env_example_contains_no_credentials(content)
+
+
+def test_env_example_guard_allows_empty_secret_placeholders() -> None:
+    content = "\n".join(
+        [
+            "AUTOVIDEO_LLM_API_KEY=",
+            "AUTOVIDEO_CANDIDATE_TOKEN_SECRET=",
+            "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS=1800",
+        ]
+    )
+
+    _assert_env_example_contains_no_credentials(content)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "AUTOVIDEO_LLM_API_KEY=abc",
+        "AUTOVIDEO_CANDIDATE_TOKEN_SECRET=abc",
+        "AUTOVIDEO_ACCESS_TOKEN=abc",
+        "AUTOVIDEO_OPENAI_API_KEY=sk-test",
+    ],
+)
+def test_env_example_guard_rejects_filled_secret_placeholders(content: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_env_example_contains_no_credentials(content)
 
 
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
@@ -123,6 +180,17 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "AUTOVIDEO_FFMPEG_PATH" in content
     assert "AUTOVIDEO_MAX_UPLOAD_BYTES" in content
     assert "AUTOVIDEO_FISH_SPEECH_URL" in content
+    assert "AUTOVIDEO_LLM_PROVIDER" in content
+    assert "AUTOVIDEO_LLM_BASE_URL" in content
+    assert "AUTOVIDEO_LLM_API_KEY" in content
+    assert "AUTOVIDEO_LLM_MODEL" in content
+    assert "AUTOVIDEO_PEXELS_API_KEY" in content
+    assert "AUTOVIDEO_PIXABAY_API_KEY" in content
+    assert "AUTOVIDEO_ONLINE_MATERIAL_PROVIDER" in content
+    assert "AUTOVIDEO_CANDIDATE_TOKEN_SECRET" in content
+    assert "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS" in content
+    assert "AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES" in content
+    assert "AUTOVIDEO_MAX_ONLINE_MIX_REQUEST_BYTES" in content
     assert "尚未接入登录" in content
     assert "权限管理" in content
     assert "个人网盘导入" in content

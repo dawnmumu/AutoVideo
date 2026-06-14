@@ -124,6 +124,22 @@ curl -X POST http://127.0.0.1:8090/api/tasks \
 - `AUTOVIDEO_MAX_TASK_OPTIONS_BYTES`：单个任务 `options` JSON 编码大小上限，默认 `1048576`。
 - `AUTOVIDEO_MAX_TASK_REQUEST_BYTES`：创建任务请求体 `Content-Length` 上限，默认 `2097152`。
 - `AUTOVIDEO_FISH_SPEECH_URL`：可选 Fish Speech 服务地址，留空时音色复刻功能禁用。
+- `AUTOVIDEO_LLM_PROVIDER`：脚本生成 LLM provider，目前仅支持 `openai_compatible`，默认 `openai_compatible`。
+- `AUTOVIDEO_LLM_BASE_URL`：OpenAI-compatible LLM API 基础地址，留空时不启用 LLM。
+- `AUTOVIDEO_LLM_API_KEY`：OpenAI-compatible LLM API key，留空时不启用 LLM；不要提交真实 key。
+- `AUTOVIDEO_LLM_MODEL`：OpenAI-compatible LLM 模型名，留空时不启用 LLM。
+- `AUTOVIDEO_LLM_TIMEOUT_SECONDS`：LLM 请求超时时间，默认 `45`。
+- `AUTOVIDEO_LLM_TEMPERATURE`：LLM 生成温度，默认 `0.6`。
+- `AUTOVIDEO_PEXELS_API_KEY`：Pexels API key，留空时不启用 Pexels 在线素材；不要提交真实 key。
+- `AUTOVIDEO_PIXABAY_API_KEY`：Pixabay API key，留空时不启用 Pixabay 在线素材；不要提交真实 key。
+- `AUTOVIDEO_ONLINE_MATERIAL_PROVIDER`：在线素材 provider 选择策略，目前仅支持 `auto`，默认 `auto`。
+- `AUTOVIDEO_ONLINE_MATERIAL_RESULTS_PER_QUERY`：每个关键词返回的在线素材候选数量，默认 `8`。
+- `AUTOVIDEO_ONLINE_MATERIAL_DOWNLOAD_TIMEOUT_SECONDS`：在线素材下载超时时间，默认 `60`。
+- `AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES`：单个在线素材下载大小上限，默认 `524288000`。
+- `AUTOVIDEO_CANDIDATE_TOKEN_SECRET`：在线素材候选下载凭证签名密钥，留空时不能签发或验证可下载候选；不要提交真实 secret。
+- `AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS`：在线素材候选下载凭证有效期，默认 `1800`。
+- `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES`：脚本生成请求体 `Content-Length` 上限，默认 `65536`。
+- `AUTOVIDEO_MAX_ONLINE_MIX_REQUEST_BYTES`：在线混剪任务请求体 `Content-Length` 上限，默认 `2097152`。
 
 不要把真实 token、key、密码或内网地址提交到仓库。
 

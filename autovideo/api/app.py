@@ -33,12 +33,15 @@ def _content_length_exceeds(request: Request, max_request_bytes: int) -> bool:
     return int(content_length) > max_request_bytes
 
 
-def _request_too_large_response(max_request_bytes: int) -> JSONResponse:
+def _request_too_large_response(
+    max_request_bytes: int,
+    code: str = "REQUEST_TOO_LARGE",
+) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         content={
             "detail": {
-                "code": "REQUEST_TOO_LARGE",
+                "code": code,
                 "max_request_bytes": max_request_bytes,
             }
         },
@@ -53,17 +56,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def reject_oversized_request(request: Request, call_next):
         max_request_bytes: int | None = None
+        error_code = "REQUEST_TOO_LARGE"
         if request.method == "POST" and request.url.path == "/api/materials":
             max_request_bytes = active_settings.max_material_request_bytes
         elif request.method == "POST" and request.url.path == "/api/tasks":
             max_request_bytes = active_settings.max_task_request_bytes
+        elif request.method == "POST" and request.url.path == "/api/scripts/generate":
+            max_request_bytes = active_settings.max_script_payload_bytes
+            error_code = "SCRIPT_PAYLOAD_TOO_LARGE"
+        elif request.method == "POST" and request.url.path == "/api/online-mix/tasks":
+            max_request_bytes = active_settings.max_online_mix_request_bytes
 
         if max_request_bytes is not None:
             request_length_error = _request_length_error_response(request)
             if request_length_error is not None:
                 return request_length_error
             if _content_length_exceeds(request, max_request_bytes):
-                return _request_too_large_response(max_request_bytes)
+                return _request_too_large_response(max_request_bytes, code=error_code)
 
         return await call_next(request)
 

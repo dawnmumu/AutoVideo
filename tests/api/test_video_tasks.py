@@ -365,6 +365,56 @@ def test_task_creation_rejects_request_content_length_before_json_parse(
     assert payload["detail"]["max_request_bytes"] == 8
 
 
+def test_script_generation_rejects_request_content_length_before_route_handling(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            fish_speech_url=None,
+            max_script_payload_bytes=8,
+        )
+    )
+
+    with TestClient(app) as limited_client:
+        response = limited_client.post(
+            "/api/scripts/generate",
+            content=b'{"topic":"too large"}',
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    payload = response.json()
+    assert payload["detail"]["code"] == "SCRIPT_PAYLOAD_TOO_LARGE"
+    assert payload["detail"]["max_request_bytes"] == 8
+
+
+def test_online_mix_rejects_request_content_length_before_route_handling(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            fish_speech_url=None,
+            max_online_mix_request_bytes=8,
+        )
+    )
+
+    with TestClient(app) as limited_client:
+        response = limited_client.post(
+            "/api/online-mix/tasks",
+            content=b'{"script":{"shots":[]}}',
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    payload = response.json()
+    assert payload["detail"]["code"] == "REQUEST_TOO_LARGE"
+    assert payload["detail"]["max_request_bytes"] == 8
+
+
 def test_task_creation_rejects_too_many_material_ids(tmp_path) -> None:
     app = create_app(
         Settings(
