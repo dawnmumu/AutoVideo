@@ -361,6 +361,61 @@ def test_online_mix_auto_searches_downloads_and_creates_shot_materials(
     assert len(output["source_attribution"]) == 1
 
 
+def test_online_mix_auto_rejects_provider_direct_media_source_url(
+    tmp_path,
+) -> None:
+    from autovideo.services.online_materials import OnlineMaterialCandidate
+    from tests.api.test_online_materials import FakeProvider
+
+    class DirectMediaSourceProvider(FakeProvider):
+        def search(
+            self,
+            query: str,
+            aspect_ratio: str,
+            min_duration_seconds: int,
+            limit: int,
+        ):
+            return [
+                OnlineMaterialCandidate(
+                    provider="pexels",
+                    asset_id="123",
+                    query=query,
+                    source_url="https://videos.pexels.com/video-files/123/clip.mp4",
+                    preview_url="https://images.pexels.com/videos/123/preview.jpg",
+                    file_variant="hd",
+                    duration=8.5,
+                    width=1080,
+                    height=1920,
+                    license_note="Pexels source metadata retained",
+                )
+            ]
+
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+            candidate_token_secret="secret",
+        )
+    )
+    app.state.online_material_providers = {"pexels": DirectMediaSourceProvider()}
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "污染来源素材混剪",
+                "script": _script(),
+                "asset_strategy": "auto",
+                "provider": "pexels",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "ONLINE_MATERIAL_SEARCH_FAILED"
+    assert list((tmp_path / "materials").iterdir()) == []
+
+
 def test_online_mix_auto_resolve_failure_returns_structured_error(tmp_path) -> None:
     from tests.api.test_online_materials import FakeProvider
 

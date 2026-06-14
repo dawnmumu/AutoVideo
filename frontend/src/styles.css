@@ -365,17 +365,25 @@ button:disabled,
 
 .candidate-row {
   display: grid;
-  grid-template-columns: minmax(84px, max-content) minmax(0, 1fr) max-content max-content max-content;
+  grid-template-columns: 96px minmax(84px, max-content) minmax(0, 1fr) max-content max-content max-content;
   align-items: center;
   gap: 12px;
   background: var(--surface);
 }
 
-.candidate-row span:first-child {
+.candidate-row img {
+  width: 96px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-strong);
+}
+
+.candidate-row span:nth-child(2) {
   font-weight: 700;
 }
 
-.candidate-row span:nth-child(2),
+.candidate-row span:nth-child(3),
 .selected-material {
   color: var(--muted);
   font-size: 14px;
@@ -505,11 +513,17 @@ button:disabled,
 
   .candidate-row a,
   .candidate-row button,
+  .candidate-row img,
   .inline-error button,
   .shot-actions button,
   .create-task-row button,
   .create-task-row a {
     width: 100%;
+  }
+
+  .candidate-row img {
+    height: auto;
+    aspect-ratio: 16 / 9;
   }
 
   .shot-list {

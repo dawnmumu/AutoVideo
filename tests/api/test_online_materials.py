@@ -461,6 +461,27 @@ def test_download_requires_secret_before_token_parse(tmp_path) -> None:
     )
 
 
+def test_download_requires_provider_before_secret_when_none_configured(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            candidate_token_secret=None,
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/online-materials/download", json={})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == (
+        "ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED"
+    )
+
+
 def test_download_rejects_invalid_candidate_token(tmp_path) -> None:
     app = create_app(
         Settings(

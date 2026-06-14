@@ -430,6 +430,11 @@ export function OnlineRemixWorkbench() {
 
                 {(candidatesByShot[shot.index] ?? []).map((candidate) => (
                   <div className="candidate-row" key={candidate.candidate_token}>
+                    <img
+                      alt={`${providerLabel(candidate.provider)} 预览`}
+                      loading="lazy"
+                      src={candidate.preview_url}
+                    />
                     <span>{providerLabel(candidate.provider)}</span>
                     <span>
                       {candidate.duration} 秒 · {candidate.width}×{candidate.height} ·{" "}

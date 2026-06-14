@@ -11,6 +11,8 @@ from autovideo.services.online_downloads import (
 from autovideo.services.online_materials import (
     CandidateTokenInvalidError,
     CandidateTokenService,
+    OnlineMaterialPublicUrlInvalidError,
+    public_candidate,
     rank_candidates,
 )
 from autovideo.services.tasks import (
@@ -300,11 +302,8 @@ def create_online_mix_task(
                 raise OnlineMixNoMaterialMatchError()
 
             candidate = candidates[0]
-            provider = providers.get(candidate.provider)
-            if provider is None or not _provider_is_enabled(provider):
-                raise OnlineMaterialProviderNotAvailableError(candidate.provider)
-            payload = token_service.verify(
-                token_service.sign(
+            try:
+                candidate_token = token_service.sign(
                     {
                         "provider": candidate.provider,
                         "asset_id": candidate.asset_id,
@@ -313,7 +312,14 @@ def create_online_mix_task(
                         "source_url": candidate.source_url,
                     }
                 )
-            )
+                public_payload = public_candidate(candidate, candidate_token)
+            except OnlineMaterialPublicUrlInvalidError as exc:
+                raise OnlineMaterialSearchFailedError(query) from exc
+
+            provider = providers.get(candidate.provider)
+            if provider is None or not _provider_is_enabled(provider):
+                raise OnlineMaterialProviderNotAvailableError(candidate.provider)
+            payload = token_service.verify(str(public_payload["candidate_token"]))
             material = _download_candidate_payload(
                 store,
                 provider=provider,

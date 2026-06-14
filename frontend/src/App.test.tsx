@@ -194,6 +194,10 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByRole("button", { name: "选择候选" })).toBeInTheDocument();
     expect(screen.getByText("Pexels")).toBeInTheDocument();
     expect(screen.getByText("8.5 秒 · 1080×1920 · hd")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Pexels 预览" })).toHaveAttribute(
+      "src",
+      "https://images.pexels.com/videos/123/preview.jpg",
+    );
     expect(screen.getByRole("button", { name: "替换候选" })).toBeInTheDocument();
   });
 

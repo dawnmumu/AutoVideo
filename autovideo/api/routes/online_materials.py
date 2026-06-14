@@ -165,6 +165,13 @@ def download_online_material(
     settings: Settings = Depends(get_settings),
     store: AutoVideoStore = Depends(get_store),
 ) -> dict[str, Any]:
+    providers = _provider_registry(request)
+    if not any(_provider_is_enabled(provider) for provider in providers.values()):
+        raise structured_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED",
+        )
+
     if not settings.candidate_token_secret:
         raise structured_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -200,7 +207,7 @@ def download_online_material(
             "ONLINE_MATERIAL_CANDIDATE_TOKEN_INVALID",
         ) from exc
 
-    provider = _provider_registry(request).get(provider_name)
+    provider = providers.get(provider_name)
     if provider is None or not _provider_is_enabled(provider):
         raise structured_error(
             status.HTTP_400_BAD_REQUEST,

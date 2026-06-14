@@ -396,6 +396,46 @@ def test_create_task_merges_sanitized_manifest_payload(client) -> None:
     assert "<OLD_PROJECT_INTERNAL_ADDRESS>" not in serialized
 
 
+def test_create_task_sanitizes_options_in_response_and_manifest(client) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+    response = client.post(
+        "/api/tasks",
+        json={
+            "title": "普通任务 options 脱敏",
+            "material_ids": [material["id"]],
+            "options": {
+                "aspect_ratio": "9:16",
+                "candidate_token": "signed-token",
+                "provider_download_url": (
+                    "https://videos.pexels.com/video-files/123/clip.mp4"
+                ),
+                "notes": [
+                    "https://cdn.example.com/audio.mp3",
+                    "public note",
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    task = response.json()
+    assert task["options"] == {
+        "aspect_ratio": "9:16",
+        "notes": ["[redacted]", "public note"],
+    }
+    output = client.get(task["output"]["download_url"]).json()
+    assert output["options"] == task["options"]
+    serialized = json.dumps(output, ensure_ascii=False)
+    assert "signed-token" not in serialized
+    assert "provider_download_url" not in serialized
+    assert "videos.pexels.com" not in serialized
+    assert "cdn.example.com" not in serialized
+
+
 def test_manifest_payload_cannot_override_core_output_fields(client) -> None:
     upload_response = client.post(
         "/api/materials",

@@ -182,6 +182,9 @@ def create_task(
             options_bytes,
             store.settings.max_task_options_bytes,
         )
+    sanitized_options = sanitize_manifest_payload(options)
+    if not isinstance(sanitized_options, dict):
+        sanitized_options = {}
 
     materials = []
     for material_id in material_ids:
@@ -207,7 +210,7 @@ def create_task(
             }
             for material in materials
         ],
-        "options": options,
+        "options": sanitized_options,
         "note": PLACEHOLDER_OUTPUT_NOTE,
     }
     if manifest_payload:
@@ -225,7 +228,7 @@ def create_task(
             "title": title,
             "status": "succeeded",
             "material_ids": material_ids,
-            "options": options,
+            "options": sanitized_options,
             "output": {
                 "path": str(output_path),
                 "download_url": f"/api/tasks/{task_id}/output",
