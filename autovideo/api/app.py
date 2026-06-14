@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from autovideo.api.routes.health import router as health_router
 from autovideo.api.routes.materials import router as materials_router
+from autovideo.api.routes.scripts import router as scripts_router
 from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
 
@@ -37,14 +38,16 @@ def _request_too_large_response(
     max_request_bytes: int,
     code: str = "REQUEST_TOO_LARGE",
 ) -> JSONResponse:
+    detail = {
+        "code": code,
+        "max_request_bytes": max_request_bytes,
+    }
+    if code == "SCRIPT_PAYLOAD_TOO_LARGE":
+        detail["max_script_payload_bytes"] = max_request_bytes
+
     return JSONResponse(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-        content={
-            "detail": {
-                "code": code,
-                "max_request_bytes": max_request_bytes,
-            }
-        },
+        content={"detail": detail},
     )
 
 
@@ -78,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(materials_router)
+    app.include_router(scripts_router)
     app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():

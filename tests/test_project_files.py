@@ -175,6 +175,10 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "docker run --rm -p 8090:8090" in content
     assert "POST /api/materials" in content
     assert "POST /api/tasks" in content
+    assert "POST /api/scripts/generate" in content
+    assert "provider" in content
+    assert "LLM_GENERATION_FAILED" in content
+    assert "SCRIPT_PAYLOAD_TOO_LARGE" in content
     assert "GET /api/tasks/{task_id}/output" in content
     assert "AUTOVIDEO_DATA_DIR" in content
     assert "AUTOVIDEO_FFMPEG_PATH" in content

@@ -101,6 +101,22 @@ docker build \
 - `GET /api/tasks?limit=50&offset=0`：分页查看任务列表，`limit` 最大为 `200`。
 - `GET /api/tasks/{task_id}`：查看单个任务状态。
 - `GET /api/tasks/{task_id}/output`：下载任务占位输出清单。
+- `POST /api/scripts/generate`：生成短视频脚本。默认 `provider=auto`，配置了
+  `AUTOVIDEO_LLM_BASE_URL`、`AUTOVIDEO_LLM_API_KEY` 和 `AUTOVIDEO_LLM_MODEL`
+  时优先调用 OpenAI-compatible LLM，失败时回退启发式生成；`provider=llm_only`
+  只使用 LLM，失败时返回结构化错误；`provider=heuristic` 只使用本地启发式生成。
+  请求体 `Content-Length` 和解析后的 JSON 编码大小都受
+  `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES` 限制。
+
+`POST /api/scripts/generate` 请求字段：
+
+- `topic`：必填，视频主题，不能为空白。
+- `provider`：可选，`auto`、`llm_only` 或 `heuristic`，默认 `auto`。
+- `duration_seconds`：可选，目标时长，范围 `5` 到 `300`，默认 `30`。
+- `aspect_ratio`：可选，画幅，默认 `9:16`。
+- `tone`：可选，语气或风格提示。
+- `target_audience`：可选，目标受众。
+- `selling_points`：可选，卖点列表。
 
 示例：
 
@@ -110,7 +126,38 @@ curl -F "file=@/path/to/clip.mp4" http://127.0.0.1:8090/api/materials
 curl -X POST http://127.0.0.1:8090/api/tasks \
   -H "Content-Type: application/json" \
   -d '{"title":"测试混剪任务","material_ids":["上一步返回的素材ID"],"options":{"aspect_ratio":"16:9"}}'
+
+curl -X POST http://127.0.0.1:8090/api/scripts/generate \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"咖啡店早高峰","provider":"auto","duration_seconds":20,"aspect_ratio":"9:16","selling_points":["新品拿铁","通勤提神"]}'
 ```
+
+脚本生成成功响应包含：
+
+- `id`：脚本 ID。
+- `title`、`topic`、`aspect_ratio`、`duration_seconds`：脚本基础信息。
+- `provider`：实际生成来源，`llm` 或 `heuristic`。
+- `shots`：镜头数组，每个镜头包含 `index`、`duration`、`narration`、`subtitle`、
+  `visual_description` 和 `keywords`。
+- `created_at`：创建时间。
+
+脚本生成主要错误码：
+
+```json
+{
+  "detail": {
+    "code": "SCRIPT_TOPIC_REQUIRED",
+    "message": "请输入视频主题"
+  }
+}
+```
+
+- `400 SCRIPT_TOPIC_REQUIRED`：`topic` 为空。
+- `413 SCRIPT_PAYLOAD_TOO_LARGE`：请求体或脚本 JSON 超过
+  `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES`，响应会包含 `max_script_payload_bytes`，
+  service 校验路径还会包含 `payload_bytes`。
+- `503 LLM_NOT_CONFIGURED`：`provider=llm_only` 但未完整配置 LLM。
+- `502 LLM_GENERATION_FAILED`：`provider=llm_only` 时 LLM HTTP 请求、响应解析或结构校验失败。
 
 ## 配置
 
