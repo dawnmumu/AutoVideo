@@ -306,6 +306,7 @@ def _best_video_file(files: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 class PexelsProvider:
     name = "pexels"
+    allowed_download_hosts = {"videos.pexels.com"}
 
     def __init__(
         self,
@@ -404,6 +405,7 @@ def _best_pixabay_video(
 
 class PixabayProvider:
     name = "pixabay"
+    allowed_download_hosts = {"cdn.pixabay.com"}
 
     def __init__(
         self,

@@ -116,6 +116,10 @@ docker build \
   成功响应返回安全的 `source_url`、`preview_url`、`license_note` 和
   `candidate_token`，不会暴露真实下载 URL；未配置素材源、未配置候选签名密钥、
   provider 不可用或 provider 搜索失败时分别返回结构化错误码。
+- `POST /api/online-materials/download`：使用 `candidate_token` 让服务端重新向
+  provider 解析真实下载 URL，校验 provider allowlist、DNS、重定向链、连接地址、
+  MIME 与扩展名匹配后下载到素材库。响应复用公开素材字段，不暴露本地
+  `storage_path` 或真实下载 URL。
 
 `POST /api/scripts/generate` 请求字段：
 
@@ -143,6 +147,10 @@ curl -X POST http://127.0.0.1:8090/api/scripts/generate \
 curl -X POST http://127.0.0.1:8090/api/online-materials/search \
   -H "Content-Type: application/json" \
   -d '{"query":"coffee shop morning","aspect_ratio":"9:16","provider":"auto","min_duration_seconds":4}'
+
+curl -X POST http://127.0.0.1:8090/api/online-materials/download \
+  -H "Content-Type: application/json" \
+  -d '{"candidate_token":"上一步返回的候选 token"}'
 ```
 
 脚本生成成功响应包含：
@@ -175,6 +183,11 @@ curl -X POST http://127.0.0.1:8090/api/online-materials/search \
 - `503 ONLINE_MATERIAL_TOKEN_SECRET_NOT_CONFIGURED`：未配置 `AUTOVIDEO_CANDIDATE_TOKEN_SECRET`。
 - `400 ONLINE_MATERIAL_PROVIDER_NOT_AVAILABLE`：请求的线上素材 provider 当前不可用。
 - `502 ONLINE_MATERIAL_SEARCH_FAILED`：线上素材 provider 搜索失败，或返回了不安全的公开 URL。
+- `400 ONLINE_MATERIAL_CANDIDATE_TOKEN_INVALID`：候选 token 缺失、格式错误或签名无效。
+- `400 ONLINE_MATERIAL_CANDIDATE_TOKEN_EXPIRED`：候选 token 已过期。
+- `400 ONLINE_MATERIAL_REDIRECT_NOT_ALLOWED`：下载 URL、重定向、DNS、连接地址或 MIME/扩展名校验失败。
+- `413 ONLINE_MATERIAL_TOO_LARGE`：线上素材下载超过 `AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES`。
+- `502 ONLINE_MATERIAL_DOWNLOAD_FAILED`：provider 解析或下载请求失败。
 
 ## 配置
 

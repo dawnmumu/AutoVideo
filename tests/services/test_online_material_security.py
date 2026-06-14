@@ -3,6 +3,16 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from autovideo.services.online_downloads import (
+    OnlineMaterialContentTypeNotAllowedError,
+    OnlineMaterialDownloadUrlNotAllowedError,
+    content_type_matches_extension,
+    open_validated_download_response,
+    safe_download_suffix,
+    validate_connection_addresses,
+    validate_download_url,
+    validate_redirect_chain,
+)
 from autovideo.services.online_materials import (
     CandidateTokenExpiredError,
     CandidateTokenInvalidError,
@@ -350,3 +360,172 @@ def test_pixabay_provider_uses_injected_http_client_and_settings_key() -> None:
     assert candidates[0].provider == "pixabay"
     assert candidates[0].file_variant == "large"
     assert candidates[0].preview_url == "https://i.vimeocdn.com/video/987654321_640x360.jpg"
+
+
+def test_validate_download_url_rejects_non_allowlist_host() -> None:
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_download_url(
+            "https://evil.example.test/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: ["93.184.216.34"],
+        )
+
+
+def test_validate_download_url_rejects_private_dns_result() -> None:
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_download_url(
+            "https://videos.pexels.com/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: ["127.0.0.1"],
+        )
+
+
+def test_validate_download_url_rejects_direct_ip_host_without_dns_lookup() -> None:
+    def resolver(hostname: str) -> list[str]:
+        raise AssertionError("direct IP hosts must be rejected before DNS lookup")
+
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_download_url(
+            "https://93.184.216.34/file.mp4",
+            allowed_hosts={"93.184.216.34"},
+            resolver=resolver,
+        )
+
+
+def test_validate_download_url_accepts_allowed_public_host() -> None:
+    parsed = validate_download_url(
+        "https://videos.pexels.com/file.mp4",
+        allowed_hosts={"videos.pexels.com"},
+        resolver=lambda host: ["93.184.216.34"],
+    )
+
+    assert parsed.hostname == "videos.pexels.com"
+
+
+def test_validate_redirect_chain_rejects_private_redirect_target() -> None:
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_redirect_chain(
+            [
+                "https://videos.pexels.com/file.mp4",
+                "https://127.0.0.1/file.mp4",
+            ],
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: (
+                ["93.184.216.34"]
+                if host == "videos.pexels.com"
+                else ["127.0.0.1"]
+            ),
+        )
+
+
+def test_open_validated_download_response_rejects_private_redirect_without_next_hop() -> None:
+    requested_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        if request.url.host != "videos.pexels.com":
+            raise AssertionError("private redirect target must not be requested")
+        return httpx.Response(
+            302,
+            headers={"location": "https://127.0.0.1/private.mp4"},
+            extensions={"connected_address": "93.184.216.34"},
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        with open_validated_download_response(
+            http_client,
+            "https://videos.pexels.com/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: ["93.184.216.34"],
+        ):
+            raise AssertionError("unsafe redirect must not yield a response")
+
+    assert requested_urls == ["https://videos.pexels.com/file.mp4"]
+
+
+def test_open_validated_download_response_respects_max_redirects() -> None:
+    requested_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        return httpx.Response(
+            302,
+            headers={"location": "https://videos.pexels.com/next.mp4"},
+            extensions={"connected_address": "93.184.216.34"},
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        with open_validated_download_response(
+            http_client,
+            "https://videos.pexels.com/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=lambda host: ["93.184.216.34"],
+            max_redirects=0,
+        ):
+            raise AssertionError("redirect limit must prevent yielding a response")
+
+    assert requested_urls == ["https://videos.pexels.com/file.mp4"]
+
+
+def test_validate_connection_addresses_rejects_dns_rebinding_drift() -> None:
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_connection_addresses(
+            hostname="videos.pexels.com",
+            preflight_addresses=["93.184.216.34"],
+            connected_address="127.0.0.1",
+        )
+
+
+def test_validate_download_url_rejects_resolution_drift_between_checks() -> None:
+    calls = 0
+
+    def resolver(hostname: str) -> list[str]:
+        nonlocal calls
+        calls += 1
+        return ["93.184.216.34"] if calls == 1 else ["10.0.0.2"]
+
+    with pytest.raises(OnlineMaterialDownloadUrlNotAllowedError):
+        validate_download_url(
+            "https://videos.pexels.com/file.mp4",
+            allowed_hosts={"videos.pexels.com"},
+            resolver=resolver,
+            verify_stable_resolution=True,
+        )
+
+
+def test_content_type_matches_extension_allowlist() -> None:
+    assert content_type_matches_extension("video/mp4", ".mp4")
+    assert content_type_matches_extension("video/mp4; charset=binary", ".m4v")
+    assert content_type_matches_extension("video/quicktime", ".mov")
+    assert content_type_matches_extension("video/webm", ".webm")
+    assert not content_type_matches_extension("application/octet-stream", ".mp4")
+    assert not content_type_matches_extension("video/mp4", ".webm")
+
+
+def test_safe_download_suffix_rejects_unknown_or_mismatched_media_identity() -> None:
+    assert (
+        safe_download_suffix(
+            "https://videos.pexels.com/video-files/123/clip.mp4",
+            "video/mp4",
+        )
+        == ".mp4"
+    )
+    with pytest.raises(OnlineMaterialContentTypeNotAllowedError):
+        safe_download_suffix(
+            "https://videos.pexels.com/video-files/123/clip.bin",
+            "video/mp4",
+        )
+    with pytest.raises(OnlineMaterialContentTypeNotAllowedError):
+        safe_download_suffix(
+            "https://videos.pexels.com/video-files/123/clip.mp4",
+            "application/octet-stream",
+        )
+    with pytest.raises(OnlineMaterialContentTypeNotAllowedError):
+        safe_download_suffix(
+            "https://videos.pexels.com/video-files/123/clip.mp4",
+            "video/webm",
+        )
