@@ -8,6 +8,15 @@ from typing import Any
 from autovideo.core.paths import ensure_data_dirs
 from autovideo.core.settings import Settings
 
+MATERIAL_SOURCE_COLUMNS = {
+    "source_type": "TEXT",
+    "source_provider": "TEXT",
+    "source_asset_id": "TEXT",
+    "source_url": "TEXT",
+    "license_note": "TEXT",
+    "query": "TEXT",
+}
+
 
 class AutoVideoStore:
     def __init__(self, settings: Settings) -> None:
@@ -22,14 +31,25 @@ class AutoVideoStore:
         return connection
 
     def insert_material(self, material: dict[str, Any]) -> dict[str, Any]:
+        source_type = material.get("source_type") or "upload"
+        inserted_material = {
+            **material,
+            "source_type": source_type,
+            "source_provider": material.get("source_provider"),
+            "source_asset_id": material.get("source_asset_id"),
+            "source_url": material.get("source_url"),
+            "license_note": material.get("license_note"),
+            "query": material.get("query"),
+        }
         with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO materials (
                     id, original_filename, content_type, size_bytes,
-                    storage_path, created_at
+                    storage_path, created_at, source_type, source_provider,
+                    source_asset_id, source_url, license_note, query
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     material["id"],
@@ -38,9 +58,15 @@ class AutoVideoStore:
                     material["size_bytes"],
                     material["storage_path"],
                     material["created_at"],
+                    source_type,
+                    material.get("source_provider"),
+                    material.get("source_asset_id"),
+                    material.get("source_url"),
+                    material.get("license_note"),
+                    material.get("query"),
                 ),
             )
-        return material
+        return inserted_material
 
     def list_materials(
         self,
@@ -136,10 +162,17 @@ class AutoVideoStore:
                     content_type TEXT,
                     size_bytes INTEGER NOT NULL,
                     storage_path TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    source_type TEXT,
+                    source_provider TEXT,
+                    source_asset_id TEXT,
+                    source_url TEXT,
+                    license_note TEXT,
+                    query TEXT
                 )
                 """
             )
+            self._ensure_columns(connection, "materials", MATERIAL_SOURCE_COLUMNS)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -156,6 +189,22 @@ class AutoVideoStore:
             )
 
     @staticmethod
+    def _ensure_columns(
+        connection: sqlite3.Connection,
+        table: str,
+        columns: dict[str, str],
+    ) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for column, definition in columns.items():
+            if column not in existing:
+                connection.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                )
+
+    @staticmethod
     def _material_from_row(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -164,6 +213,12 @@ class AutoVideoStore:
             "size_bytes": row["size_bytes"],
             "storage_path": row["storage_path"],
             "created_at": row["created_at"],
+            "source_type": row["source_type"] or "upload",
+            "source_provider": row["source_provider"],
+            "source_asset_id": row["source_asset_id"],
+            "source_url": row["source_url"],
+            "license_note": row["license_note"],
+            "query": row["query"],
         }
 
     @staticmethod

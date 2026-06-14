@@ -175,6 +175,9 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "docker run --rm -p 8090:8090" in content
     assert "POST /api/materials" in content
     assert "POST /api/tasks" in content
+    assert "source_type" in content
+    assert "storage_path" in content
+    assert "manifest" in content
     assert "POST /api/scripts/generate" in content
     assert "provider" in content
     assert "LLM_GENERATION_FAILED" in content

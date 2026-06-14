@@ -95,9 +95,9 @@ docker build \
 
 当前后端已经提供最小视频任务闭环，便于后续接入真实混剪 pipeline：
 
-- `POST /api/materials`：上传素材文件，保存到 `AUTOVIDEO_DATA_DIR/materials`。服务端落盘文件名使用素材 ID 和受控后缀，原始文件名保存在 metadata 中；当 `Content-Length` 超过 `AUTOVIDEO_MAX_UPLOAD_BYTES + AUTOVIDEO_MAX_MULTIPART_OVERHEAD_BYTES` 时返回 `413` 和 `REQUEST_TOO_LARGE`，文件流读取过程中仍会按 `AUTOVIDEO_MAX_UPLOAD_BYTES` 二次限制。
-- `GET /api/materials?limit=50&offset=0`：分页查看已上传素材，`limit` 最大为 `200`。
-- `POST /api/tasks`：基于素材 ID 创建任务，保存任务快照。请求体 `Content-Length` 受 `AUTOVIDEO_MAX_TASK_REQUEST_BYTES` 限制，`material_ids` 数量受 `AUTOVIDEO_MAX_TASK_MATERIALS` 限制，`options` JSON 编码大小受 `AUTOVIDEO_MAX_TASK_OPTIONS_BYTES` 限制。
+- `POST /api/materials`：上传素材文件，保存到 `AUTOVIDEO_DATA_DIR/materials`。服务端落盘文件名使用素材 ID 和受控后缀，原始文件名保存在 metadata 中；当 `Content-Length` 超过 `AUTOVIDEO_MAX_UPLOAD_BYTES + AUTOVIDEO_MAX_MULTIPART_OVERHEAD_BYTES` 时返回 `413` 和 `REQUEST_TOO_LARGE`，文件流读取过程中仍会按 `AUTOVIDEO_MAX_UPLOAD_BYTES` 二次限制。响应会返回 `source_type`、`source_provider`、`source_asset_id`、`source_url`、`license_note` 和 `query` 等安全来源字段，但不会暴露本地 `storage_path`。
+- `GET /api/materials?limit=50&offset=0`：分页查看已上传素材，`limit` 最大为 `200`，返回字段同素材上传响应。
+- `POST /api/tasks`：基于素材 ID 创建任务，保存任务快照。请求体 `Content-Length` 受 `AUTOVIDEO_MAX_TASK_REQUEST_BYTES` 限制，`material_ids` 数量受 `AUTOVIDEO_MAX_TASK_MATERIALS` 限制，`options` JSON 编码大小受 `AUTOVIDEO_MAX_TASK_OPTIONS_BYTES` 限制。任务输出 manifest 支持后端服务附加已清洗的脚本、来源归因和渲染计划元数据。
 - `GET /api/tasks?limit=50&offset=0`：分页查看任务列表，`limit` 最大为 `200`。
 - `GET /api/tasks/{task_id}`：查看单个任务状态。
 - `GET /api/tasks/{task_id}/output`：下载任务占位输出清单。

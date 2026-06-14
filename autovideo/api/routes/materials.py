@@ -1,20 +1,14 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from autovideo.api.dependencies import get_store
-from autovideo.services.materials import MaterialTooLargeError, save_material
+from autovideo.services.materials import (
+    MaterialTooLargeError,
+    public_material,
+    save_material,
+)
 from autovideo.storage.database import AutoVideoStore
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
-
-
-def public_material(material: dict[str, object]) -> dict[str, object]:
-    return {
-        "id": material["id"],
-        "original_filename": material["original_filename"],
-        "content_type": material["content_type"],
-        "size_bytes": material["size_bytes"],
-        "created_at": material["created_at"],
-    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
