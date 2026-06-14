@@ -1620,12 +1620,36 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     content = Path("Dockerfile").read_text(encoding="utf-8")
 
+    assert "ARG NODE_IMAGE=node:22-bookworm-slim" in content
+    assert "ARG PYTHON_IMAGE=python:3.12-slim" in content
     assert "node:22" in content
     assert "python:3.12-slim" in content
     assert "npm run build" in content
     assert "frontend/dist" in content
     assert "ffmpeg" in content
     assert 'CMD ["python", "-m", "autovideo.main"]' in content
+
+
+def test_dockerfile_supports_optional_build_mirrors() -> None:
+    content = Path("Dockerfile").read_text(encoding="utf-8")
+
+    for build_arg in [
+        "NPM_REGISTRY",
+        "APT_DEBIAN_MIRROR",
+        "APT_SECURITY_MIRROR",
+        "PIP_INDEX_URL",
+        "PIP_TRUSTED_HOST",
+    ]:
+        assert f"ARG {build_arg}" in content
+
+    assert "npm config set registry" in content
+    assert "deb.debian.org/debian" in content
+    assert "deb.debian.org/debian-security" in content
+    security_sed_marker = "s|http://deb.debian.org/debian-security|"
+    debian_sed_marker = "s|http://deb.debian.org/debian|"
+    assert content.index(security_sed_marker) < content.index(debian_sed_marker)
+    assert "--index-url" in content
+    assert "--trusted-host" in content
 
 
 def test_readme_documents_phase_one_startup() -> None:
@@ -1638,6 +1662,9 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "npm run build" in content
     assert "python -m autovideo.main" in content
     assert "docker build -t autovideo ." in content
+    assert "NPM_REGISTRY=https://registry.npmmirror.com" in content
+    assert "APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian" in content
+    assert "PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple" in content
     assert "AGPL-3.0-only" in content
 ```
 
@@ -1675,17 +1702,29 @@ chmod +x scripts/dev.sh
 Create `Dockerfile`:
 
 ```dockerfile
-FROM node:22-bookworm-slim AS frontend-builder
+ARG NODE_IMAGE=node:22-bookworm-slim
+ARG PYTHON_IMAGE=python:3.12-slim
+
+FROM ${NODE_IMAGE} AS frontend-builder
+
+ARG NPM_REGISTRY
 
 WORKDIR /frontend
 
 COPY frontend/package*.json ./
-RUN npm install
+RUN set -eux; \
+    if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}"; fi; \
+    npm ci
 
 COPY frontend ./
 RUN npm run build
 
-FROM python:3.12-slim
+FROM ${PYTHON_IMAGE}
+
+ARG APT_DEBIAN_MIRROR
+ARG APT_SECURITY_MIRROR
+ARG PIP_INDEX_URL
+ARG PIP_TRUSTED_HOST
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -1695,7 +1734,19 @@ ENV AUTOVIDEO_DATA_DIR=/app/data
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN set -eux; \
+    if [ -n "${APT_DEBIAN_MIRROR}" ] || [ -n "${APT_SECURITY_MIRROR}" ]; then \
+        for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do \
+            [ -e "${source_file}" ] || continue; \
+            if [ -n "${APT_SECURITY_MIRROR}" ]; then \
+                sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "${source_file}"; \
+            fi; \
+            if [ -n "${APT_DEBIAN_MIRROR}" ]; then \
+                sed -i "s|http://deb.debian.org/debian|${APT_DEBIAN_MIRROR}|g; s|https://deb.debian.org/debian|${APT_DEBIAN_MIRROR}|g" "${source_file}"; \
+            fi; \
+        done; \
+    fi; \
+    apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
@@ -1703,7 +1754,11 @@ COPY pyproject.toml README.md LICENSE ./
 COPY autovideo ./autovideo
 COPY --from=frontend-builder /frontend/dist ./frontend/dist
 
-RUN pip install --no-cache-dir .
+RUN set -eux; \
+    pip_args=""; \
+    if [ -n "${PIP_INDEX_URL}" ]; then pip_args="${pip_args} --index-url ${PIP_INDEX_URL}"; fi; \
+    if [ -n "${PIP_TRUSTED_HOST}" ]; then pip_args="${pip_args} --trusted-host ${PIP_TRUSTED_HOST}"; fi; \
+    pip install --no-cache-dir ${pip_args} .
 
 EXPOSE 8090
 
@@ -1776,6 +1831,30 @@ npm run dev
 ```bash
 docker build -t autovideo .
 docker run --rm -p 8090:8090 -v "$PWD/data:/app/data" autovideo
+```
+
+国内网络可以显式使用镜像源构建：
+
+```bash
+docker build \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian \
+  --build-arg APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t autovideo .
+```
+
+如果 Docker Hub 拉取基础镜像超时，先在 Docker daemon 配置 registry mirror，或把 `NODE_IMAGE`、`PYTHON_IMAGE` 指向你自己的镜像代理：
+
+```bash
+docker build \
+  --build-arg NODE_IMAGE=your-mirror.example.com/library/node:22-bookworm-slim \
+  --build-arg PYTHON_IMAGE=your-mirror.example.com/library/python:3.12-slim \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian \
+  --build-arg APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t autovideo .
 ```
 
 ## 配置

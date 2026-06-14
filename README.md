@@ -61,6 +61,30 @@ docker build -t autovideo .
 docker run --rm -p 8090:8090 -v "$PWD/data:/app/data" autovideo
 ```
 
+国内网络可以显式使用镜像源构建：
+
+```bash
+docker build \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian \
+  --build-arg APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t autovideo .
+```
+
+如果 Docker Hub 拉取基础镜像超时，先在 Docker daemon 配置 registry mirror，或把 `NODE_IMAGE`、`PYTHON_IMAGE` 指向你自己的镜像代理：
+
+```bash
+docker build \
+  --build-arg NODE_IMAGE=your-mirror.example.com/library/node:22-bookworm-slim \
+  --build-arg PYTHON_IMAGE=your-mirror.example.com/library/python:3.12-slim \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian \
+  --build-arg APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t autovideo .
+```
+
 ## 配置
 
 所有配置通过环境变量提供。示例见 `.env.example`。

@@ -17,6 +17,8 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     content = Path("Dockerfile").read_text(encoding="utf-8")
 
+    assert "ARG NODE_IMAGE=node:22-bookworm-slim" in content
+    assert "ARG PYTHON_IMAGE=python:3.12-slim" in content
     assert "node:22" in content
     assert "python:3.12-slim" in content
     assert "npm ci" in content
@@ -26,6 +28,28 @@ def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
     assert "COPY --from=frontend-builder /frontend/dist ./frontend/dist" in content
     assert "ffmpeg" in content
     assert 'CMD ["python", "-m", "autovideo.main"]' in content
+
+
+def test_dockerfile_supports_optional_build_mirrors() -> None:
+    content = Path("Dockerfile").read_text(encoding="utf-8")
+
+    for build_arg in [
+        "NPM_REGISTRY",
+        "APT_DEBIAN_MIRROR",
+        "APT_SECURITY_MIRROR",
+        "PIP_INDEX_URL",
+        "PIP_TRUSTED_HOST",
+    ]:
+        assert f"ARG {build_arg}" in content
+
+    assert "npm config set registry" in content
+    assert "deb.debian.org/debian" in content
+    assert "deb.debian.org/debian-security" in content
+    security_sed_marker = "s|http://deb.debian.org/debian-security|"
+    debian_sed_marker = "s|http://deb.debian.org/debian|"
+    assert content.index(security_sed_marker) < content.index(debian_sed_marker)
+    assert "--index-url" in content
+    assert "--trusted-host" in content
 
 
 def test_frontend_package_declares_supported_node_runtime() -> None:
@@ -85,6 +109,9 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "npm run build" in content
     assert "python -m autovideo.main" in content
     assert "docker build -t autovideo ." in content
+    assert "NPM_REGISTRY=https://registry.npmmirror.com" in content
+    assert "APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian" in content
+    assert "PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple" in content
     assert "docker run --rm -p 8090:8090" in content
     assert "AUTOVIDEO_DATA_DIR" in content
     assert "AUTOVIDEO_FFMPEG_PATH" in content
