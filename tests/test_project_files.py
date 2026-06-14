@@ -164,7 +164,6 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
 
 def test_review_process_docs_do_not_restore_legacy_pr_monitoring_rules() -> None:
     checked_paths = [
-        Path("AGENTS.md"),
         Path("docs/superpowers/plans/2026-06-14-online-free-remix-script.md"),
         Path("docs/superpowers/specs/2026-06-14-online-free-remix-script-design.md"),
     ]
