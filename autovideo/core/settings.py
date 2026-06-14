@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("data"))
     ffmpeg_path: str = "ffmpeg"
     fish_speech_url: str | None = None
-    max_upload_bytes: int = 2 * 1024 * 1024 * 1024
+    max_upload_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
+    max_multipart_overhead_bytes: int = Field(default=1024 * 1024, ge=0)
+    max_task_materials: int = Field(default=100, ge=1)
+    max_task_options_bytes: int = Field(default=1024 * 1024, ge=1)
+    max_task_request_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
 
     model_config = SettingsConfigDict(
         env_prefix="AUTOVIDEO_",
@@ -32,3 +36,7 @@ class Settings(BaseSettings):
     @cached_property
     def resolved_data_dir(self) -> Path:
         return self.data_dir.expanduser().resolve()
+
+    @property
+    def max_material_request_bytes(self) -> int:
+        return self.max_upload_bytes + self.max_multipart_overhead_bytes

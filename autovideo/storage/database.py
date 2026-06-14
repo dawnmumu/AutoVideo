@@ -42,10 +42,20 @@ class AutoVideoStore:
             )
         return material
 
-    def list_materials(self) -> list[dict[str, Any]]:
+    def list_materials(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM materials ORDER BY created_at DESC"
+                """
+                SELECT * FROM materials
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
             ).fetchall()
         return [self._material_from_row(row) for row in rows]
 
@@ -88,10 +98,20 @@ class AutoVideoStore:
             ).fetchone()
         return self._task_from_row(row) if row else None
 
-    def list_tasks(self) -> list[dict[str, Any]]:
+    def list_tasks(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC"
+                """
+                SELECT * FROM tasks
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
             ).fetchall()
         return [self._task_from_row(row) for row in rows]
 

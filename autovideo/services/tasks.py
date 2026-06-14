@@ -16,6 +16,20 @@ class MaterialNotFoundError(Exception):
         super().__init__(material_id)
 
 
+class TaskMaterialLimitExceededError(Exception):
+    def __init__(self, material_count: int, max_task_materials: int) -> None:
+        self.material_count = material_count
+        self.max_task_materials = max_task_materials
+        super().__init__(str(material_count))
+
+
+class TaskOptionsTooLargeError(Exception):
+    def __init__(self, options_bytes: int, max_task_options_bytes: int) -> None:
+        self.options_bytes = options_bytes
+        self.max_task_options_bytes = max_task_options_bytes
+        super().__init__(str(options_bytes))
+
+
 class TaskNotFoundError(Exception):
     def __init__(self, task_id: str) -> None:
         self.task_id = task_id
@@ -28,6 +42,12 @@ class OutputNotFoundError(Exception):
         super().__init__(task_id)
 
 
+def encoded_json_size(value: Any) -> int:
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+
+
 def create_task(
     store: AutoVideoStore,
     *,
@@ -35,6 +55,20 @@ def create_task(
     material_ids: list[str],
     options: dict[str, Any],
 ) -> dict[str, Any]:
+    material_count = len(material_ids)
+    if material_count > store.settings.max_task_materials:
+        raise TaskMaterialLimitExceededError(
+            material_count,
+            store.settings.max_task_materials,
+        )
+
+    options_bytes = encoded_json_size(options)
+    if options_bytes > store.settings.max_task_options_bytes:
+        raise TaskOptionsTooLargeError(
+            options_bytes,
+            store.settings.max_task_options_bytes,
+        )
+
     materials = []
     for material_id in material_ids:
         material = store.get_material(material_id)

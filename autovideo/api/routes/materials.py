@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from autovideo.api.dependencies import get_store
 from autovideo.services.materials import MaterialTooLargeError, save_material
@@ -35,5 +35,12 @@ def upload_material(
 
 
 @router.get("")
-def list_materials(store: AutoVideoStore = Depends(get_store)) -> list[dict[str, object]]:
-    return [public_material(material) for material in store.list_materials()]
+def list_materials(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    store: AutoVideoStore = Depends(get_store),
+) -> list[dict[str, object]]:
+    return [
+        public_material(material)
+        for material in store.list_materials(limit=limit, offset=offset)
+    ]

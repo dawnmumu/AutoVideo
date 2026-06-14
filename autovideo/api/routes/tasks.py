@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -9,6 +9,8 @@ from autovideo.services.tasks import (
     MaterialNotFoundError,
     OutputNotFoundError,
     TaskNotFoundError,
+    TaskMaterialLimitExceededError,
+    TaskOptionsTooLargeError,
     create_task,
     require_output_path,
     require_task,
@@ -56,11 +58,33 @@ def create_video_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "MATERIAL_NOT_FOUND", "material_id": exc.material_id},
         ) from exc
+    except TaskMaterialLimitExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail={
+                "code": "TASK_MATERIAL_LIMIT_EXCEEDED",
+                "max_task_materials": exc.max_task_materials,
+                "material_count": exc.material_count,
+            },
+        ) from exc
+    except TaskOptionsTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail={
+                "code": "TASK_OPTIONS_TOO_LARGE",
+                "max_task_options_bytes": exc.max_task_options_bytes,
+                "options_bytes": exc.options_bytes,
+            },
+        ) from exc
 
 
 @router.get("")
-def list_video_tasks(store: AutoVideoStore = Depends(get_store)) -> list[dict[str, Any]]:
-    return [public_task(task) for task in store.list_tasks()]
+def list_video_tasks(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    store: AutoVideoStore = Depends(get_store),
+) -> list[dict[str, Any]]:
+    return [public_task(task) for task in store.list_tasks(limit=limit, offset=offset)]
 
 
 @router.get("/{task_id}")

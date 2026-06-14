@@ -95,10 +95,10 @@ docker build \
 
 当前后端已经提供最小视频任务闭环，便于后续接入真实混剪 pipeline：
 
-- `POST /api/materials`：上传素材文件，保存到 `AUTOVIDEO_DATA_DIR/materials`。
-- `GET /api/materials`：查看已上传素材。
-- `POST /api/tasks`：基于素材 ID 创建任务，保存任务快照。
-- `GET /api/tasks`：查看任务列表。
+- `POST /api/materials`：上传素材文件，保存到 `AUTOVIDEO_DATA_DIR/materials`。服务端落盘文件名使用素材 ID 和受控后缀，原始文件名保存在 metadata 中；当 `Content-Length` 超过 `AUTOVIDEO_MAX_UPLOAD_BYTES + AUTOVIDEO_MAX_MULTIPART_OVERHEAD_BYTES` 时返回 `413` 和 `REQUEST_TOO_LARGE`，文件流读取过程中仍会按 `AUTOVIDEO_MAX_UPLOAD_BYTES` 二次限制。
+- `GET /api/materials?limit=50&offset=0`：分页查看已上传素材，`limit` 最大为 `200`。
+- `POST /api/tasks`：基于素材 ID 创建任务，保存任务快照。请求体 `Content-Length` 受 `AUTOVIDEO_MAX_TASK_REQUEST_BYTES` 限制，`material_ids` 数量受 `AUTOVIDEO_MAX_TASK_MATERIALS` 限制，`options` JSON 编码大小受 `AUTOVIDEO_MAX_TASK_OPTIONS_BYTES` 限制。
+- `GET /api/tasks?limit=50&offset=0`：分页查看任务列表，`limit` 最大为 `200`。
 - `GET /api/tasks/{task_id}`：查看单个任务状态。
 - `GET /api/tasks/{task_id}/output`：下载任务占位输出清单。
 
@@ -119,6 +119,10 @@ curl -X POST http://127.0.0.1:8090/api/tasks \
 - `AUTOVIDEO_DATA_DIR`：运行数据目录。
 - `AUTOVIDEO_FFMPEG_PATH`：FFmpeg 可执行文件。
 - `AUTOVIDEO_MAX_UPLOAD_BYTES`：素材上传大小上限，默认 `2147483648`。
+- `AUTOVIDEO_MAX_MULTIPART_OVERHEAD_BYTES`：素材上传 multipart 请求允许的额外开销，默认 `1048576`。
+- `AUTOVIDEO_MAX_TASK_MATERIALS`：单个任务允许引用的素材 ID 数量上限，默认 `100`。
+- `AUTOVIDEO_MAX_TASK_OPTIONS_BYTES`：单个任务 `options` JSON 编码大小上限，默认 `1048576`。
+- `AUTOVIDEO_MAX_TASK_REQUEST_BYTES`：创建任务请求体 `Content-Length` 上限，默认 `2097152`。
 - `AUTOVIDEO_FISH_SPEECH_URL`：可选 Fish Speech 服务地址，留空时音色复刻功能禁用。
 
 不要把真实 token、key、密码或内网地址提交到仓库。

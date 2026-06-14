@@ -9,7 +9,29 @@ from starlette.datastructures import UploadFile
 
 from autovideo.storage.database import AutoVideoStore
 
-SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+SAFE_EXTENSION_RE = re.compile(r"^\.[A-Za-z0-9]{1,12}$")
+SAFE_MATERIAL_EXTENSIONS = {
+    ".aac",
+    ".avi",
+    ".bin",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".json",
+    ".m4a",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".png",
+    ".srt",
+    ".txt",
+    ".vtt",
+    ".wav",
+    ".webm",
+    ".webp",
+}
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
@@ -19,11 +41,22 @@ class MaterialTooLargeError(Exception):
         super().__init__(str(max_upload_bytes))
 
 
+def safe_material_extension(filename: str) -> str:
+    extension = Path(filename).suffix.lower()
+    if (
+        extension in SAFE_MATERIAL_EXTENSIONS
+        and SAFE_EXTENSION_RE.fullmatch(extension)
+    ):
+        return extension
+    return ".bin"
+
+
 def save_material(store: AutoVideoStore, upload: UploadFile) -> dict[str, object]:
     material_id = uuid.uuid4().hex
     original_filename = Path(upload.filename or "material.bin").name
-    safe_name = SAFE_FILENAME_RE.sub("_", original_filename).strip("._") or "material.bin"
-    storage_path = store.paths.materials / f"{material_id}_{safe_name}"
+    storage_path = store.paths.materials / (
+        f"{material_id}{safe_material_extension(original_filename)}"
+    )
     size_bytes = 0
     try:
         with storage_path.open("wb") as output_file:
