@@ -107,6 +107,15 @@ docker build \
   只使用 LLM，失败时返回结构化错误；`provider=heuristic` 只使用本地启发式生成。
   请求体 `Content-Length` 和解析后的 JSON 编码大小都受
   `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES` 限制。
+- `GET /api/online-materials/status`：查看默认线上素材源、Pexels/Pixabay
+  素材源状态和候选 token secret 是否已配置；响应包含 `default_provider`、
+  `candidate_token_secret_configured`，以及 `providers` 数组，每个元素包含
+  `provider`、`configured` 和 `enabled`，不返回真实 key 或 secret。
+- `POST /api/online-materials/search`：搜索线上免费素材候选。请求字段包含
+  `query`、`aspect_ratio`、`min_duration_seconds` 和 `provider=auto|pexels|pixabay`。
+  成功响应返回安全的 `source_url`、`preview_url`、`license_note` 和
+  `candidate_token`，不会暴露真实下载 URL；未配置素材源、未配置候选签名密钥、
+  provider 不可用或 provider 搜索失败时分别返回结构化错误码。
 
 `POST /api/scripts/generate` 请求字段：
 
@@ -130,6 +139,10 @@ curl -X POST http://127.0.0.1:8090/api/tasks \
 curl -X POST http://127.0.0.1:8090/api/scripts/generate \
   -H "Content-Type: application/json" \
   -d '{"topic":"咖啡店早高峰","provider":"auto","duration_seconds":20,"aspect_ratio":"9:16","selling_points":["新品拿铁","通勤提神"]}'
+
+curl -X POST http://127.0.0.1:8090/api/online-materials/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"coffee shop morning","aspect_ratio":"9:16","provider":"auto","min_duration_seconds":4}'
 ```
 
 脚本生成成功响应包含：
@@ -158,6 +171,10 @@ curl -X POST http://127.0.0.1:8090/api/scripts/generate \
   service 校验路径还会包含 `payload_bytes`。
 - `503 LLM_NOT_CONFIGURED`：`provider=llm_only` 但未完整配置 LLM。
 - `502 LLM_GENERATION_FAILED`：`provider=llm_only` 时 LLM HTTP 请求、响应解析或结构校验失败。
+- `503 ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED`：未配置可用 Pexels/Pixabay API key。
+- `503 ONLINE_MATERIAL_TOKEN_SECRET_NOT_CONFIGURED`：未配置 `AUTOVIDEO_CANDIDATE_TOKEN_SECRET`。
+- `400 ONLINE_MATERIAL_PROVIDER_NOT_AVAILABLE`：请求的线上素材 provider 当前不可用。
+- `502 ONLINE_MATERIAL_SEARCH_FAILED`：线上素材 provider 搜索失败，或返回了不安全的公开 URL。
 
 ## 配置
 

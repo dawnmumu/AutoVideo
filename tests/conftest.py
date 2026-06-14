@@ -16,10 +16,21 @@ LLM_ENV_VARS = (
     "AUTOVIDEO_LLM_TEMPERATURE",
 )
 
+ONLINE_MATERIAL_ENV_VARS = (
+    "AUTOVIDEO_PEXELS_API_KEY",
+    "AUTOVIDEO_PIXABAY_API_KEY",
+    "AUTOVIDEO_ONLINE_MATERIAL_PROVIDER",
+    "AUTOVIDEO_ONLINE_MATERIAL_RESULTS_PER_QUERY",
+    "AUTOVIDEO_ONLINE_MATERIAL_DOWNLOAD_TIMEOUT_SECONDS",
+    "AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES",
+    "AUTOVIDEO_CANDIDATE_TOKEN_SECRET",
+    "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS",
+)
+
 
 @pytest.fixture(autouse=True)
-def clean_llm_environment(monkeypatch) -> None:
-    for env_var in LLM_ENV_VARS:
+def clean_external_service_environment(monkeypatch) -> None:
+    for env_var in (*LLM_ENV_VARS, *ONLINE_MATERIAL_ENV_VARS):
         monkeypatch.delenv(env_var, raising=False)
 
 

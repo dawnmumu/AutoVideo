@@ -6,9 +6,11 @@ from fastapi.staticfiles import StaticFiles
 
 from autovideo.api.routes.health import router as health_router
 from autovideo.api.routes.materials import router as materials_router
+from autovideo.api.routes.online_materials import router as online_materials_router
 from autovideo.api.routes.scripts import router as scripts_router
 from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
+from autovideo.services.online_materials import build_provider_registry
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 FRONTEND_DIST_DIR = PROJECT_DIR / "frontend" / "dist"
@@ -55,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     active_settings = settings or Settings()
     app = FastAPI(title=active_settings.app_name)
     app.state.settings = active_settings
+    app.state.online_material_providers = build_provider_registry(active_settings)
 
     @app.middleware("http")
     async def reject_oversized_request(request: Request, call_next):
@@ -81,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(materials_router)
+    app.include_router(online_materials_router)
     app.include_router(scripts_router)
     app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"

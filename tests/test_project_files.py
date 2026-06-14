@@ -179,6 +179,13 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "storage_path" in content
     assert "manifest" in content
     assert "POST /api/scripts/generate" in content
+    assert "GET /api/online-materials/status" in content
+    assert "POST /api/online-materials/search" in content
+    assert "default_provider" in content
+    assert "candidate_token_secret_configured" in content
+    assert "enabled" in content
+    assert "candidate_token" in content
+    assert "ONLINE_MATERIAL_SEARCH_FAILED" in content
     assert "provider" in content
     assert "LLM_GENERATION_FAILED" in content
     assert "SCRIPT_PAYLOAD_TOO_LARGE" in content
