@@ -37,7 +37,15 @@ def test_frontend_source_does_not_include_removed_auth_or_netdisk_copy() -> None
         if path.suffix in {".ts", ".tsx", ".css"}
     )
 
-    forbidden = ["退出登录", "个人网盘", "NAS 登录", "token"]
+    forbidden = [
+        "退出登录",
+        "个人网盘",
+        "NAS 登录",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "authorization",
+    ]
     for value in forbidden:
         assert value not in text
 
