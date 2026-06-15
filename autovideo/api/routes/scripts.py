@@ -14,6 +14,7 @@ from autovideo.services.scripts import (
     LlmNotConfiguredError,
     LlmResponseInvalidError,
     ScriptPayloadTooLargeError,
+    ScriptTextInvalidError,
     ScriptTopicRequiredError,
     generate_script,
 )
@@ -29,6 +30,8 @@ class GenerateScriptRequest(BaseModel):
     tone: str | None = None
     target_audience: str | None = None
     selling_points: list[str] = Field(default_factory=list)
+    script_text: str | None = None
+    max_single_duration: float | None = Field(default=None, ge=1, le=300)
 
 
 @router.post("/generate")
@@ -56,6 +59,12 @@ def generate_video_script(
             "脚本请求过大",
             max_script_payload_bytes=exc.max_bytes,
             payload_bytes=exc.payload_bytes,
+        ) from exc
+    except ScriptTextInvalidError as exc:
+        raise structured_error(
+            status.HTTP_400_BAD_REQUEST,
+            "SCRIPT_TEXT_INVALID",
+            "脚本中没有可用内容",
         ) from exc
     except LlmNotConfiguredError as exc:
         raise structured_error(

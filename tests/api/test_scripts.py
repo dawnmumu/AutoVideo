@@ -42,6 +42,737 @@ def test_generate_script_heuristic_returns_structured_shots(tmp_path) -> None:
     assert payload["shots"][0]["index"] == 1
     assert payload["shots"][0]["duration"] > 0
     assert payload["shots"][0]["keywords"]
+    assert payload["shots"][0]["delivery"]["style"]
+    selling_point_text = " ".join(
+        " ".join(
+            [
+                shot["narration"],
+                shot["subtitle"],
+                " ".join(shot["keywords"]),
+            ]
+        )
+        for shot in payload["shots"]
+    )
+    assert "舒缓" in selling_point_text or "睡前仪式感" in selling_point_text
+
+
+def test_generate_script_accepts_custom_script_text(client, monkeypatch) -> None:
+    from autovideo.services import script_generator
+
+    monkeypatch.setattr(
+        script_generator,
+        "_enrich_plain_text_script_with_llm",
+        lambda parts, topic: None,
+    )
+
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "topic": "疗愈型 SPA",
+            "provider": "heuristic",
+            "script_text": "顾客进店后明显放松。\n护理结束后，她的状态轻盈很多。",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert payload["title"] == "疗愈型 SPA"
+    assert [shot["narration"] for shot in payload["shots"]] == [
+        "顾客进店后明显放松。",
+        "护理结束后，她的状态轻盈很多。",
+    ]
+    assert payload["shots"][0]["delivery"]["style"] == "natural"
+    assert payload["script_text"].startswith("标题：疗愈型 SPA")
+
+
+@pytest.mark.parametrize("provider", ["auto", "llm_only"])
+def test_generate_script_with_script_text_uses_llm_enrichment_without_rewriting_narration(
+    tmp_path,
+    provider,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "LLM 补全标题",
+            "shots": [
+                {
+                    "index": 1,
+                    "narration": "LLM 不应改写第一句",
+                    "subtitle": "进店后放松",
+                    "visual_description": "顾客走进安静 SPA 前台",
+                    "keywords": ["SPA 前台", "顾客放松", "疗愈空间"],
+                    "delivery": {"style": "gentle", "speech_rate": -8},
+                },
+                {
+                    "index": 2,
+                    "narration": "LLM 不应改写第二句",
+                    "subtitle": "护理后更轻盈",
+                    "visual_description": "护理结束后顾客舒展肩颈",
+                    "keywords": ["护理结束", "肩颈放松", "轻盈状态"],
+                    "delivery": {"style": "gentle", "speech_rate": -8},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": provider,
+                "script_text": "顾客进店后明显放松。\n护理结束后，她的状态轻盈很多。",
+                "max_single_duration": 8,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "llm"
+    assert [shot["narration"] for shot in payload["shots"]] == [
+        "顾客进店后明显放松。",
+        "护理结束后，她的状态轻盈很多。",
+    ]
+    assert payload["shots"][0]["subtitle"] == "进店后放松"
+    assert payload["shots"][0]["visual_description"] == "顾客走进安静 SPA 前台"
+    assert payload["shots"][0]["keywords"] == ["SPA 前台", "顾客放松", "疗愈空间"]
+    assert payload["shots"][0]["delivery"]["style"] == "gentle"
+    assert payload["script_text"].startswith("标题：LLM 补全标题")
+    assert payload["analysis"]["shot_count"] == 2
+    assert payload["analysis"]["max_single_duration"] == 8
+
+
+def test_generate_script_auto_falls_back_when_script_text_llm_enrichment_is_invalid(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="secret-key-should-not-leak",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient({"shots": ["bad"]})
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "auto",
+                "script_text": "顾客进店后明显放松。",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert [shot["narration"] for shot in payload["shots"]] == ["顾客进店后明显放松。"]
+    assert "secret-key-should-not-leak" not in response.text
+
+
+def test_generate_script_llm_only_rejects_invalid_script_text_enrichment_payload(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="secret-key-should-not-leak",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient({"shots": ["bad"]})
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "llm_only",
+                "script_text": "顾客进店后明显放松。",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+    assert "secret-key-should-not-leak" not in response.text
+
+
+@pytest.mark.parametrize("provider", ["heuristic", "auto"])
+def test_generate_script_rejects_script_text_without_spoken_content(
+    client,
+    monkeypatch,
+    provider,
+) -> None:
+    from autovideo.services import script_generator
+
+    monkeypatch.setattr(
+        script_generator,
+        "_enrich_plain_text_script_with_llm",
+        lambda parts, topic: None,
+    )
+
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "topic": "疗愈型 SPA",
+            "provider": provider,
+            "script_text": "...\n——\n🙂",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "SCRIPT_TEXT_INVALID",
+        "message": "脚本中没有可用内容",
+    }
+
+
+@pytest.mark.parametrize("provider", ["auto", "llm_only"])
+def test_generate_script_rejects_invalid_script_text_before_llm(
+    tmp_path,
+    provider,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "不应被使用",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "这段 LLM 结果不应该被返回",
+                    "subtitle": "这段 LLM 结果不应该被返回",
+                    "visual_description": "valid llm shot",
+                    "keywords": ["valid"],
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": provider,
+                "script_text": "...\n——\n🙂",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        json.dumps(
+            {
+                "title": "疗愈型 SPA",
+                "shots": [
+                    {
+                        "index": 1,
+                        "duration": 3,
+                        "narration": "顾客进店后明显放松。",
+                        "subtitle": "顾客进店后明显放松。",
+                        "visual_description": "顾客进店后明显放松。",
+                        "keywords": ["视频"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        """标题：疗愈型 SPA
+总时长：3秒
+
+镜头1（3秒）
+旁白：顾客进店后明显放松。
+字幕：顾客进店后明显放松。
+画面：顾客进店后明显放松。
+关键词：视频
+""",
+    ],
+)
+def test_generate_script_repairs_low_quality_structured_script_text_metadata(
+    client,
+    script_text,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 200
+    shot = response.json()["shots"][0]
+    assert shot["visual_description"] != shot["narration"]
+    assert len(shot["keywords"]) >= 2
+    assert "视频" not in shot["keywords"]
+
+
+def test_generate_script_returns_heuristic_provider_for_structured_script_text_without_llm_repair(
+    tmp_path,
+) -> None:
+    class CountingLlmClient:
+        calls = 0
+
+        def generate(self, payload, settings):
+            self.calls += 1
+            return {"shots": ["should-not-be-used"]}
+
+    script_text = json.dumps(
+        {
+            "title": "疗愈型 SPA",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "顾客进店后明显放松。",
+                    "subtitle": "进店后放松",
+                    "visual_description": "顾客走进安静的 SPA 前台，肩颈逐渐放松",
+                    "keywords": ["SPA 前台", "顾客放松", "疗愈空间"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    llm_client = CountingLlmClient()
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = llm_client
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "auto",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert payload["shots"][0]["narration"] == "顾客进店后明显放松。"
+    assert llm_client.calls == 0
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": 1,
+                        "duration": -5,
+                        "narration": "这段脚本不应触发 500。",
+                        "subtitle": "这段脚本不应触发 500。",
+                        "visual_description": "invalid duration",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": "bad",
+                        "duration": 5,
+                        "narration": "这段脚本不应触发 500。",
+                        "subtitle": "这段脚本不应触发 500。",
+                        "visual_description": "invalid index",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        '{"title": "坏脚本", "shots": [',
+        '请使用：\n```json\n{"title": "坏脚本", "shots": [\n```',
+        '请使用：\n```json\n{"title": "坏脚本", "shots": [',
+        json.dumps({"title": "坏脚本"}, ensure_ascii=False),
+        json.dumps({"title": "坏脚本", "shots": []}, ensure_ascii=False),
+        '```json\n{"title": "坏脚本"}\n```',
+        json.dumps(
+            [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "顶层数组不是脚本 schema。",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": 1,
+                        "start_time": 5,
+                        "end_time": 3,
+                        "narration": "倒序时间不应被静默估算。",
+                        "subtitle": "倒序时间不应被静默估算。",
+                        "visual_description": "invalid time range",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    ],
+)
+def test_generate_script_returns_400_for_malformed_json_script_text(
+    tmp_path,
+    script_text,
+) -> None:
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "SCRIPT_TEXT_INVALID",
+        "message": "脚本中没有可用内容",
+    }
+
+
+@pytest.mark.parametrize("duration", [0, "0", "abc", "inf"])
+def test_generate_script_returns_400_for_json_script_text_with_invalid_duration(
+    tmp_path,
+    duration,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": duration,
+                    "narration": "这段脚本不应被静默估算时长。",
+                    "subtitle": "这段脚本不应被静默估算时长。",
+                    "visual_description": "invalid duration",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "shot_fields",
+    [
+        {"index": 0, "duration": 5},
+        {"index": False, "duration": 5},
+        {"index": None, "duration": 5},
+        {"index": "", "duration": 5},
+        {"duration": 5},
+        {"index": 1, "duration": None},
+        {"index": 1},
+    ],
+)
+def test_generate_script_returns_400_for_json_script_text_with_invalid_required_fields(
+    tmp_path,
+    shot_fields,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    **shot_fields,
+                    "narration": "这段脚本不应被静默修复必需字段。",
+                    "subtitle": "这段脚本不应被静默修复必需字段。",
+                    "visual_description": "invalid required fields",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "shot_fields",
+    [
+        {"start_time": -1, "end_time": 3},
+        {"start_time": 1, "end_time": -3},
+        {"duration": 5, "start_time": -1, "end_time": 3},
+    ],
+)
+def test_generate_script_returns_400_for_json_script_text_with_negative_time_points(
+    tmp_path,
+    shot_fields,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    "index": 1,
+                    **shot_fields,
+                    "narration": "这段脚本不应被静默估算时间点。",
+                    "subtitle": "这段脚本不应被静默估算时间点。",
+                    "visual_description": "invalid time point",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        """标题：坏脚本
+
+镜头1（0秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """标题：坏脚本
+总时长：0秒
+
+镜头1（3秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """00:05-00:03 | 倒序镜头
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """-1-3 秒 | 负数开始
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """3--1 秒 | 负数结束
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """00:aa-00:03 | 非法时间
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """镜头1（abc秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+    ],
+)
+def test_generate_script_returns_400_for_editor_script_with_invalid_explicit_duration(
+    client,
+    script_text,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        "3-A 计划上线。团队要先确认素材方向。",
+        "3A-4B 版本对比。顾客反馈更偏好轻柔节奏。",
+        "3-A | 计划上线。团队要先确认素材方向。",
+        "3A-4B | 版本对比。顾客反馈更偏好轻柔节奏。",
+        "3-1 | 计划上线。团队要先确认素材方向。",
+        "3.1-3.0 | 版本回退计划。团队要保留旧版素材。",
+        "3-1 | 秒杀活动排期。团队要先确认素材方向。",
+    ],
+)
+def test_generate_script_accepts_plain_text_that_looks_like_a_range_header(
+    client,
+    script_text,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "heuristic"
+
+
+@pytest.mark.parametrize(
+    ("script_text", "expected_fragment"),
+    [
+        ("[开场] 顾客进店后明显放松。", "顾客进店后明显放松。"),
+        ("[\"开场\"] 顾客进店后明显放松。", "顾客进店后明显放松。"),
+        ("[\"开场\"]", "开场"),
+        ("```\n顾客进店后明显放松。\n```", "顾客进店后明显放松。"),
+    ],
+)
+def test_generate_script_accepts_plain_text_that_only_looks_like_json(
+    client,
+    script_text,
+    expected_fragment,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert expected_fragment in payload["shots"][0]["narration"]
 
 
 def test_generate_script_auto_falls_back_without_llm(client) -> None:
@@ -153,6 +884,51 @@ def test_generate_script_llm_only_parses_fake_structured_response(tmp_path) -> N
     assert response.json()["provider"] == "llm"
 
 
+def test_generate_script_llm_repairs_missing_visual_metadata(tmp_path) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "疗愈型 SPA",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 4,
+                    "narration": "顾客进店后明显放松。",
+                    "subtitle": "顾客进店后明显放松。",
+                    "keywords": ["视频"],
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "llm_only",
+                "duration_seconds": 15,
+            },
+        )
+
+    assert response.status_code == 200
+    shot = response.json()["shots"][0]
+    assert shot["visual_description"] != shot["narration"]
+    assert len(shot["keywords"]) >= 2
+    assert "视频" not in shot["keywords"]
+
+
 def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -> None:
     from autovideo.services.scripts import FakeLlmClient
 
@@ -204,14 +980,13 @@ def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider"] == "llm"
-    assert payload["shots"][0] == {
-        "index": 1,
-        "duration": 2.5,
-        "narration": "咖啡机高压蒸汽声",
-        "subtitle": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
-        "visual_description": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
-        "keywords": ["咖啡店早高峰", "咖啡机蒸汽喷嘴喷出白色蒸汽"],
-    }
+    assert payload["shots"][0]["index"] == 1
+    assert payload["shots"][0]["duration"] == 2.5
+    assert payload["shots"][0]["narration"] == "咖啡机高压蒸汽声"
+    assert payload["shots"][0]["subtitle"] == "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
+    assert payload["shots"][0]["visual_description"] == "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
+    assert "咖啡机蒸汽喷嘴喷出白色蒸汽" in payload["shots"][0]["keywords"]
+    assert payload["shots"][0]["delivery"]["style"] == "natural"
     assert payload["shots"][1]["index"] == 2
     assert payload["shots"][1]["keywords"] == ["coffee queue", "takeaway coffee"]
 
@@ -249,6 +1024,81 @@ def test_generate_script_auto_falls_back_when_llm_http_or_parse_fails(
     assert payload["topic"] == "咖啡店早高峰"
 
 
+def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    llm_payload = {
+        "shots": [
+            {
+                "index": 1,
+                "duration": 1,
+                "narration": "...",
+                "subtitle": "...",
+                "visual_description": "ellipsis only shot",
+                "keywords": ["bad shot"],
+            },
+            {
+                "index": 2,
+                "duration": 1,
+                "narration": "……",
+                "subtitle": "……",
+                "visual_description": "chinese ellipsis only shot",
+                "keywords": ["bad shot"],
+            },
+            {
+                "index": 3,
+                "duration": 1,
+                "narration": "——",
+                "subtitle": "——",
+                "visual_description": "dash only shot",
+                "keywords": ["bad shot"],
+            },
+            {
+                "index": 4,
+                "duration": 1,
+                "narration": "🙂",
+                "subtitle": "🙂",
+                "visual_description": "emoji only shot",
+                "keywords": ["bad shot"],
+            },
+            {
+                "index": 5,
+                "duration": 3,
+                "narration": "正常旁白",
+                "subtitle": "正常旁白",
+                "visual_description": "normal shot",
+                "keywords": ["normal shot"],
+            },
+        ]
+    }
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="secret-key-should-not-leak",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(llm_payload)
+
+    with TestClient(app) as client:
+        llm_only_response = client.post(
+            "/api/scripts/generate",
+            json={"topic": "咖啡店早高峰", "provider": "llm_only"},
+        )
+        auto_response = client.post(
+            "/api/scripts/generate",
+            json={"topic": "咖啡店早高峰", "provider": "auto", "duration_seconds": 20},
+        )
+
+    assert llm_only_response.status_code == 502
+    assert llm_only_response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+    assert auto_response.status_code == 200
+    assert auto_response.json()["provider"] == "heuristic"
+
+
 @pytest.mark.parametrize(
     "llm_payload",
     [
@@ -256,10 +1106,317 @@ def test_generate_script_auto_falls_back_when_llm_http_or_parse_fails(
         {
             "shots": [
                 {
+                    "index": 1.5,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 0,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": False,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": None,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "0",
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": 5,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": True,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("inf"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("nan"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10**400,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "9" * 400,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "total_duration": float("inf"),
+            "shots": [
+                {
                     "index": 1,
                     "duration": 5,
                     "narration": "旁白",
                     "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": float("nan"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": 10**400,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": "9" * 400,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": [123],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": 123,
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": True,
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": {"primary": "coffee"},
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": ["字幕"],
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": {"scene": "coffee shop morning"},
                     "keywords": ["coffee"],
                 }
             ]
@@ -272,8 +1429,39 @@ def test_generate_script_auto_falls_back_when_llm_http_or_parse_fails(
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",
-                    "keywords": "coffee",
+                    "keywords": ["coffee"],
+                    "delivery": "fast",
                 }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "shot_id": 1,
+                    "start_time": 0,
+                    "end_time": 5,
+                    "description": "coffee shop morning",
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 2,
+                    "narration": "！！！",
+                    "subtitle": "！！！",
+                    "visual_description": "bad punctuation only shot",
+                    "keywords": ["bad shot"],
+                },
+                {
+                    "index": 2,
+                    "duration": 3,
+                    "narration": "正常旁白",
+                    "subtitle": "正常旁白",
+                    "visual_description": "normal shot",
+                    "keywords": ["normal shot"],
+                },
             ]
         },
     ],
@@ -316,31 +1504,130 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
         {
             "shots": [
                 {
-                    "index": 1,
-                    "duration": 5,
-                    "narration": "旁白",
-                    "subtitle": "字幕",
-                    "visual_description": "coffee shop morning",
-                }
-            ]
-        },
-        {
-            "shots": [
-                {
-                    "index": 1,
-                    "duration": 5,
-                    "narration": "旁白",
-                    "subtitle": "字幕",
-                    "visual_description": "coffee shop morning",
-                    "keywords": "coffee",
-                }
-            ]
-        },
-        {
-            "shots": [
-                {
                     "index": 1.5,
                     "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 0,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": False,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": None,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "0",
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": 5,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "start_time": -1,
+                    "end_time": 3,
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",
@@ -364,6 +1651,106 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
             "shots": [
                 {
                     "index": 1,
+                    "duration": float("inf"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("nan"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10**400,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "9" * 400,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "total_duration": float("inf"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": float("nan"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": 10**400,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": "9" * 400,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "duration": 5,
                     "narration": "旁白",
                     "subtitle": "字幕",
@@ -375,11 +1762,104 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
         {
             "shots": [
                 {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": 123,
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": True,
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": {"primary": "coffee"},
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": ["字幕"],
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": {"scene": "coffee shop morning"},
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                    "delivery": "fast",
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
                     "shot_id": 1,
                     "start_time": 0,
                     "end_time": 5,
                     "description": "coffee shop morning",
                 }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 2,
+                    "narration": "！！！",
+                    "subtitle": "！！！",
+                    "visual_description": "bad punctuation only shot",
+                    "keywords": ["bad shot"],
+                },
+                {
+                    "index": 2,
+                    "duration": 3,
+                    "narration": "正常旁白",
+                    "subtitle": "正常旁白",
+                    "visual_description": "normal shot",
+                    "keywords": ["normal shot"],
+                },
             ]
         },
     ],

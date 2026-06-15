@@ -5,6 +5,19 @@ export interface ScriptShot {
   subtitle: string;
   visual_description: string;
   keywords: string[];
+  delivery?: {
+    style: string;
+    emotion?: string | null;
+    emotion_scale: number;
+    speech_rate: number;
+    loudness_rate: number;
+    pitch?: number | null;
+    pause_profile: string;
+    voice_instruction?: string | null;
+    context_reference?: string | null;
+    voice_tag?: string | null;
+    ssml?: string | null;
+  };
 }
 
 export interface GeneratedScript {
@@ -13,9 +26,25 @@ export interface GeneratedScript {
   topic: string;
   aspect_ratio: string;
   duration_seconds: number;
+  total_duration?: number;
   provider: string;
   created_at: string;
   shots: ScriptShot[];
+  script_text?: string;
+  analysis?: {
+    title: string;
+    shot_count: number;
+    total_duration: number;
+    max_single_duration?: number | null;
+    segment_count: number;
+    segments: Array<{
+      segment_index: number;
+      shot_range_start: number;
+      shot_range_end: number;
+      shot_count: number;
+      duration: number;
+    }>;
+  };
 }
 
 export interface OnlineMaterialStatus {
@@ -58,13 +87,15 @@ export interface LocalMaterial {
 }
 
 export interface GenerateScriptInput {
-  topic: string;
+  topic?: string;
   duration_seconds: number;
   aspect_ratio: string;
   tone: string;
   target_audience: string;
   selling_points: string[];
   provider: "auto" | "llm_only" | "heuristic";
+  script_text?: string;
+  max_single_duration?: number;
 }
 
 export interface SearchOnlineMaterialsInput {

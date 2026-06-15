@@ -108,9 +108,13 @@ docker build \
   `AUTOVIDEO_LLM_BASE_URL`、`AUTOVIDEO_LLM_API_KEY` 和 `AUTOVIDEO_LLM_MODEL`
   时优先调用 OpenAI-compatible LLM，失败时回退启发式生成；`provider=llm_only`
   只使用 LLM，失败时返回结构化错误；`provider=heuristic` 只使用本地启发式生成。
+  生成逻辑对齐 `junxincode` 的混剪脚本生成器：支持主题生成，也支持通过
+  `script_text` 输入已有口播稿、编辑器格式脚本或 JSON 分镜，并自动整理为结构化分镜。
   LLM 响应会被规范化为 AutoVideo 分镜 schema：每个镜头包含 `index`、`duration`、
-  `narration`、`subtitle`、`visual_description` 和 `keywords`；常见的
-  `shot_id`、`start_time`、`end_time`、`description`、`audio_cue` 等字段会在可安全映射时转换。
+  `narration`、`subtitle`、`visual_description`、`keywords` 和 `delivery`；
+  常见的 `shot_id`、`start_time`、`end_time`、`description`、`audio_cue`、
+  `voiceover` 等字段会在可安全映射时转换。缺少画面描述或关键词时会按主题和旁白补全；
+  非法镜头索引、布尔时长、非字符串关键词或没有可朗读旁白的响应仍会被拒绝。
   请求体 `Content-Length` 和解析后的 JSON 编码大小都受
   `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES` 限制。
 - `GET /api/online-materials/status`：查看默认线上素材源、Pexels/Pixabay
@@ -135,13 +139,15 @@ docker build \
 
 `POST /api/scripts/generate` 请求字段：
 
-- `topic`：必填，视频主题，不能为空白。
+- `topic`：视频主题；主题生成时必填，提供 `script_text` 时可选。
 - `provider`：可选，`auto`、`llm_only` 或 `heuristic`，默认 `auto`。
 - `duration_seconds`：可选，目标时长，范围 `5` 到 `300`，默认 `30`。
 - `aspect_ratio`：可选，画幅，默认 `9:16`。
 - `tone`：可选，语气或风格提示。
 - `target_audience`：可选，目标受众。
 - `selling_points`：可选，卖点列表。
+- `script_text`：可选，已有脚本、口播稿、编辑器格式脚本或 JSON 分镜；传入后会优先整理这段文案。
+- `max_single_duration`：可选，脚本分析时单段预览的最大时长，范围 `1` 到 `300` 秒。
 
 示例：
 
@@ -155,6 +161,10 @@ curl -X POST http://127.0.0.1:8090/api/tasks \
 curl -X POST http://127.0.0.1:8090/api/scripts/generate \
   -H "Content-Type: application/json" \
   -d '{"topic":"咖啡店早高峰","provider":"auto","duration_seconds":20,"aspect_ratio":"9:16","selling_points":["新品拿铁","通勤提神"]}'
+
+curl -X POST http://127.0.0.1:8090/api/scripts/generate \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"疗愈型 SPA","provider":"heuristic","script_text":"顾客进店后明显放松。\n护理结束后，她的状态轻盈很多。","max_single_duration":8}'
 
 curl -X POST http://127.0.0.1:8090/api/online-materials/search \
   -H "Content-Type: application/json" \
@@ -172,10 +182,11 @@ curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
 脚本生成成功响应包含：
 
 - `id`：脚本 ID。
-- `title`、`topic`、`aspect_ratio`、`duration_seconds`：脚本基础信息。
+- `title`、`topic`、`aspect_ratio`、`duration_seconds`、`total_duration`：脚本基础信息和归一化总时长。
 - `provider`：实际生成来源，`llm` 或 `heuristic`。
 - `shots`：镜头数组，每个镜头包含 `index`、`duration`、`narration`、`subtitle`、
-  `visual_description` 和 `keywords`。
+  `visual_description`、`keywords` 和 `delivery`。
+- `script_text`、`analysis`：当请求包含 `script_text` 时返回，分别用于编辑器文本回显和分段分析。
 - `created_at`：创建时间。
 
 脚本生成主要错误码：
@@ -189,7 +200,8 @@ curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
 }
 ```
 
-- `400 SCRIPT_TOPIC_REQUIRED`：`topic` 为空。
+- `400 SCRIPT_TOPIC_REQUIRED`：`topic` 和 `script_text` 都为空。
+- `400 SCRIPT_TEXT_INVALID`：`script_text` 中没有可用的可朗读内容。
 - `413 SCRIPT_PAYLOAD_TOO_LARGE`：请求体或脚本 JSON 超过
   `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES`，响应会包含 `max_script_payload_bytes`，
   service 校验路径还会包含 `payload_bytes`。
