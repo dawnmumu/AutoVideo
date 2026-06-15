@@ -548,6 +548,59 @@ def test_generate_script_returns_400_for_json_script_text_with_invalid_duration(
 @pytest.mark.parametrize(
     "shot_fields",
     [
+        {"index": 0, "duration": 5},
+        {"index": False, "duration": 5},
+        {"index": None, "duration": 5},
+        {"index": "", "duration": 5},
+        {"duration": 5},
+        {"index": 1, "duration": None},
+        {"index": 1},
+    ],
+)
+def test_generate_script_returns_400_for_json_script_text_with_invalid_required_fields(
+    tmp_path,
+    shot_fields,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    **shot_fields,
+                    "narration": "这段脚本不应被静默修复必需字段。",
+                    "subtitle": "这段脚本不应被静默修复必需字段。",
+                    "visual_description": "invalid required fields",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "shot_fields",
+    [
         {"start_time": -1, "end_time": 3},
         {"start_time": 1, "end_time": -3},
         {"duration": 5, "start_time": -1, "end_time": 3},
@@ -1065,8 +1118,66 @@ def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -
         {
             "shots": [
                 {
+                    "index": 0,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": False,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
                     "index": 1,
                     "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": None,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",
@@ -1405,8 +1516,66 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
         {
             "shots": [
                 {
+                    "index": 0,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": False,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
                     "index": 1,
                     "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": None,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",

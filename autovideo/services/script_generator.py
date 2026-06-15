@@ -331,6 +331,16 @@ def _parse_positive_int(value: Any) -> int:
     return resolved
 
 
+def _resolve_shot_index(item: dict[str, Any], fallback_index: int, *, strict: bool) -> int:
+    if "index" in item:
+        return _parse_positive_int(item["index"])
+    if "shot_id" in item:
+        return _parse_positive_int(item["shot_id"])
+    if strict:
+        raise ValueError("镜头缺少 index")
+    return fallback_index
+
+
 def format_seconds(value: float) -> str:
     rounded = round(float(value or 0), 1)
     if abs(rounded - int(rounded)) < 0.05:
@@ -958,6 +968,7 @@ def build_script_from_data(
                 raise ValueError("镜头必须是对象")
             continue
 
+        shot_index = _resolve_shot_index(item, index, strict=strict)
         _validate_explicit_text_fields(
             item,
             "narration",
@@ -1042,6 +1053,8 @@ def build_script_from_data(
             )
             if (end_time or 0.0) <= (start_time or 0.0):
                 raise ValueError("镜头 start_time/end_time 必须形成正时长")
+        if strict and duration <= 0:
+            raise ValueError("镜头 duration 必须大于 0 或 start_time/end_time 必须形成正时长")
         raw_keywords = item.get("keywords")
         if strict:
             _validate_keywords(raw_keywords, present="keywords" in item)
@@ -1060,8 +1073,8 @@ def build_script_from_data(
 
         parsed_shots.append(
             SceneShot(
-                index=_parse_positive_int(item.get("index") or item.get("shot_id") or index),
-                duration=duration or estimate_narration_duration(narration),
+                index=shot_index,
+                duration=duration if duration > 0 else estimate_narration_duration(narration),
                 narration=narration,
                 subtitle=subtitle,
                 visual_description=visual_description,
@@ -1120,9 +1133,11 @@ def _validate_explicit_number_fields(
     if not strict:
         return
     for field in fields:
+        if field not in item:
+            continue
         value = item.get(field)
         if value is None:
-            continue
+            raise ValueError(f"镜头 {field} 必须是有限数字")
         number = _parse_strict_finite_number(value, field=field)
         if field == "duration" and number <= 0:
             raise ValueError("镜头 duration 必须大于 0")
