@@ -261,6 +261,44 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     return number
 
 
+def _parse_strict_finite_number(value: Any, *, field: str) -> float:
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        if isinstance(value, (int, float)):
+            number = float(value)
+        elif isinstance(value, str):
+            token = value.strip().replace("：", ":")
+            if not re.fullmatch(TIME_TOKEN_RE, value.strip()):
+                raise ValueError
+            if ":" not in token:
+                number = float(token)
+            else:
+                parts = token.split(":")
+                if len(parts) not in (2, 3, 4) or any(part == "" for part in parts):
+                    raise ValueError
+                values = [float(part) for part in parts]
+                if any(not math.isfinite(item) or item < 0 for item in values):
+                    raise ValueError
+                if len(values) == 2:
+                    minutes, seconds = values
+                    number = minutes * 60 + seconds
+                elif len(values) == 3:
+                    hours, minutes, seconds = values
+                    number = hours * 3600 + minutes * 60 + seconds
+                else:
+                    hours, minutes, seconds, _frames = values
+                    number = hours * 3600 + minutes * 60 + seconds
+        else:
+            raise ValueError
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"镜头 {field} 必须是有限数字") from exc
+
+    if not math.isfinite(number):
+        raise ValueError(f"镜头 {field} 必须是有限数字")
+    return number
+
+
 def _parse_positive_int(value: Any) -> int:
     if isinstance(value, bool):
         raise ValueError("必须是正整数")
@@ -926,18 +964,7 @@ def _validate_explicit_number_fields(
         value = item.get(field)
         if value is None:
             continue
-        if isinstance(value, bool):
-            raise ValueError(f"镜头 {field} 不能是 bool")
-        if isinstance(value, (int, float)):
-            if not math.isfinite(float(value)):
-                raise ValueError(f"镜头 {field} 必须是有限数字")
-            continue
-        if isinstance(value, str) and re.fullmatch(TIME_TOKEN_RE, value.strip()):
-            parsed = _parse_time_range_value(value)
-            if parsed is None or not math.isfinite(parsed):
-                raise ValueError(f"镜头 {field} 必须是有限数字")
-            continue
-        raise ValueError(f"镜头 {field} 必须是数字")
+        _parse_strict_finite_number(value, field=field)
 
 
 def try_parse_json_script(
