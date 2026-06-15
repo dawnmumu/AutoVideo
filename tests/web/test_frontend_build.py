@@ -37,9 +37,31 @@ def test_frontend_source_does_not_include_removed_auth_or_netdisk_copy() -> None
         if path.suffix in {".ts", ".tsx", ".css"}
     )
 
-    forbidden = ["退出登录", "个人网盘", "NAS 登录", "token"]
+    forbidden = [
+        "退出登录",
+        "个人网盘",
+        "NAS 登录",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "authorization",
+    ]
     for value in forbidden:
         assert value not in text
+
+
+def test_frontend_css_protects_tablet_width_online_remix_layout() -> None:
+    css = (FRONTEND_ROOT / "src" / "styles.css").read_text(encoding="utf-8")
+
+    assert "@media (max-width: 1100px)" in css
+    tablet_rules = css.split("@media (max-width: 1100px)", 1)[1].split(
+        "@media",
+        1,
+    )[0]
+    assert ".content-grid" in tablet_rules
+    assert "grid-template-columns: 1fr" in tablet_rules
+    assert ".candidate-row" in tablet_rules
+    assert ".online-remix-form" in tablet_rules
 
 
 def test_frontend_build_outputs_static_assets() -> None:

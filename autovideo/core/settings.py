@@ -1,5 +1,6 @@
 from functools import cached_property
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,23 @@ class Settings(BaseSettings):
     max_task_materials: int = Field(default=100, ge=1)
     max_task_options_bytes: int = Field(default=1024 * 1024, ge=1)
     max_task_request_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
+    llm_provider: Literal["openai_compatible"] = "openai_compatible"
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    llm_timeout_seconds: int = Field(default=45, ge=1)
+    llm_temperature: float = Field(default=0.6, ge=0, le=2)
+    pexels_api_key: str | None = None
+    pixabay_api_key: str | None = None
+    online_material_provider: Literal["auto"] = "auto"
+    online_material_results_per_query: int = Field(default=8, ge=1, le=25)
+    online_material_download_timeout_seconds: int = Field(default=60, ge=1)
+    online_material_max_download_bytes: int = Field(default=500 * 1024 * 1024, ge=1)
+    max_online_material_request_bytes: int = Field(default=65536, ge=1)
+    candidate_token_secret: str | None = None
+    candidate_token_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
+    max_script_payload_bytes: int = Field(default=65536, ge=1)
+    max_online_mix_request_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
 
     model_config = SettingsConfigDict(
         env_prefix="AUTOVIDEO_",
@@ -26,9 +44,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("fish_speech_url", mode="before")
+    @field_validator(
+        "fish_speech_url",
+        "llm_base_url",
+        "llm_api_key",
+        "llm_model",
+        "pexels_api_key",
+        "pixabay_api_key",
+        "candidate_token_secret",
+        mode="before",
+    )
     @classmethod
-    def empty_fish_speech_url_is_disabled(cls, value: str | None) -> str | None:
+    def empty_string_is_disabled(cls, value: str | None) -> str | None:
         if isinstance(value, str) and value.strip() == "":
             return None
         return value

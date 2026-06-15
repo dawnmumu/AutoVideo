@@ -2,6 +2,39 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
+
+FORBIDDEN_ENV_EXAMPLE_MARKERS = ("sk-", "akia", "password=")
+SENSITIVE_ENV_KEY_SUFFIXES = ("KEY", "SECRET", "TOKEN")
+
+
+def _env_example_assignments(content: str) -> list[tuple[str, str]]:
+    assignments: list[tuple[str, str]] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+
+        key, value = stripped.split("=", 1)
+        assignments.append((key.strip(), value.strip()))
+
+    return assignments
+
+
+def _is_sensitive_placeholder_key(key: str) -> bool:
+    return key.upper().split("_")[-1] in SENSITIVE_ENV_KEY_SUFFIXES
+
+
+def _assert_env_example_contains_no_credentials(content: str) -> None:
+    lowered_content = content.lower()
+    for marker in FORBIDDEN_ENV_EXAMPLE_MARKERS:
+        assert marker not in lowered_content
+
+    for key, value in _env_example_assignments(content):
+        if _is_sensitive_placeholder_key(key):
+            assert value == "", f"{key} must be empty in .env.example"
+
 
 def test_env_example_contains_only_documented_autovideo_keys() -> None:
     content = Path(".env.example").read_text(encoding="utf-8")
@@ -9,9 +42,39 @@ def test_env_example_contains_only_documented_autovideo_keys() -> None:
     assert "AUTOVIDEO_DATA_DIR=./data" in content
     assert "AUTOVIDEO_FFMPEG_PATH=ffmpeg" in content
     assert "AUTOVIDEO_FISH_SPEECH_URL=" in content
-    forbidden = ["sk-", "akia", "password=", "token=", "secret="]
-    for text in forbidden:
-        assert text not in content.lower()
+    _assert_env_example_contains_no_credentials(content)
+
+
+def _env_line(key: str, value: str = "") -> str:
+    return f"{key}={value}"
+
+
+def test_env_example_guard_allows_empty_secret_placeholders() -> None:
+    llm_api_key = "AUTOVIDEO_LLM_API_" + "KEY"
+    candidate_token_secret = "AUTOVIDEO_CANDIDATE_TOKEN_" + "SECRET"
+    content = "\n".join(
+        [
+            _env_line(llm_api_key),
+            _env_line(candidate_token_secret),
+            _env_line("AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS", "1800"),
+        ]
+    )
+
+    _assert_env_example_contains_no_credentials(content)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        _env_line("AUTOVIDEO_LLM_API_" + "KEY", "synthetic-value"),
+        _env_line("AUTOVIDEO_CANDIDATE_TOKEN_" + "SECRET", "synthetic-value"),
+        _env_line("AUTOVIDEO_ACCESS_TOKEN", "synthetic-value"),
+        _env_line("AUTOVIDEO_OPENAI_API_" + "KEY", "synthetic-value"),
+    ],
+)
+def test_env_example_guard_rejects_filled_secret_placeholders(content: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_env_example_contains_no_credentials(content)
 
 
 def test_dockerfile_installs_ffmpeg_and_runs_autovideo() -> None:
@@ -99,10 +162,32 @@ def test_dev_script_runs_from_repo_root_and_supports_python_bin() -> None:
     assert script_path.stat().st_mode & stat.S_IXUSR
 
 
-def test_readme_documents_phase_one_startup() -> None:
+def test_review_process_docs_do_not_restore_legacy_pr_monitoring_rules() -> None:
+    checked_paths = [
+        Path("docs/superpowers/plans/2026-06-14-online-free-remix-script.md"),
+        Path("docs/superpowers/specs/2026-06-14-online-free-remix-script-design.md"),
+    ]
+    forbidden_phrases = [
+        "每隔 2 分钟",
+        "2 分钟 Codex review 监控",
+        "thumbs up",
+        "thumbs-up",
+        "GitHub Codex review 监控",
+        "GitHub Codex PR review monitoring",
+        "monitor Codex review every 2 minutes",
+        "用于通知或触发 Codex 复查",
+    ]
+
+    for path in checked_paths:
+        content = path.read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            assert phrase not in content, f"{phrase!r} must not appear in {path}"
+
+
+def test_readme_documents_current_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
-    assert "阶段 1.5：产品骨架 + 视频任务 API 骨架" in content
+    assert "阶段 2：脚本生成 + 线上免费素材 manifest 混剪" in content
     assert "React + Vite" in content
     assert "Node.js 20.19+ 或 22.12+" in content
     assert "npm install" in content
@@ -118,11 +203,41 @@ def test_readme_documents_phase_one_startup() -> None:
     assert "docker run --rm -p 8090:8090" in content
     assert "POST /api/materials" in content
     assert "POST /api/tasks" in content
+    assert "source_type" in content
+    assert "storage_path" in content
+    assert "manifest" in content
+    assert "POST /api/scripts/generate" in content
+    assert "GET /api/online-materials/status" in content
+    assert "POST /api/online-materials/search" in content
+    assert "POST /api/online-materials/download" in content
+    assert "POST /api/online-mix/tasks" in content
+    assert "default_provider" in content
+    assert "candidate_token_secret_configured" in content
+    assert "enabled" in content
+    assert "candidate_token" in content
+    assert "ONLINE_MATERIAL_SEARCH_FAILED" in content
+    assert "ONLINE_MATERIAL_REDIRECT_NOT_ALLOWED" in content
+    assert "ONLINE_MATERIAL_TOO_LARGE" in content
+    assert "provider" in content
+    assert "LLM_GENERATION_FAILED" in content
+    assert "SCRIPT_PAYLOAD_TOO_LARGE" in content
     assert "GET /api/tasks/{task_id}/output" in content
     assert "AUTOVIDEO_DATA_DIR" in content
     assert "AUTOVIDEO_FFMPEG_PATH" in content
     assert "AUTOVIDEO_MAX_UPLOAD_BYTES" in content
     assert "AUTOVIDEO_FISH_SPEECH_URL" in content
+    assert "AUTOVIDEO_LLM_PROVIDER" in content
+    assert "AUTOVIDEO_LLM_BASE_URL" in content
+    assert "AUTOVIDEO_LLM_API_KEY" in content
+    assert "AUTOVIDEO_LLM_MODEL" in content
+    assert "AUTOVIDEO_PEXELS_API_KEY" in content
+    assert "AUTOVIDEO_PIXABAY_API_KEY" in content
+    assert "AUTOVIDEO_ONLINE_MATERIAL_PROVIDER" in content
+    assert "AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES" in content
+    assert "AUTOVIDEO_CANDIDATE_TOKEN_SECRET" in content
+    assert "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS" in content
+    assert "AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES" in content
+    assert "AUTOVIDEO_MAX_ONLINE_MIX_REQUEST_BYTES" in content
     assert "尚未接入登录" in content
     assert "权限管理" in content
     assert "个人网盘导入" in content

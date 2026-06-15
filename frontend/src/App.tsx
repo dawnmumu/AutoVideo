@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { fetchHealth } from "./api/health";
+import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
 
 const navItems = [
   { label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard },
@@ -127,17 +128,7 @@ export default function App() {
         </nav>
 
         <section className="content-grid" id="0">
-          <article className="panel primary-panel">
-            <div className="panel-heading">
-              <h2>新建混剪任务</h2>
-              <span>阶段 1 先搭建产品骨架，后续阶段接入素材、字幕模板、BGM、音色和功能提取处理。</span>
-            </div>
-            <div className="empty-state">
-              <strong>工作台已就绪</strong>
-              <p>下一阶段将接入资源中心、功能提取处理和混剪任务流。</p>
-            </div>
-          </article>
-
+          <OnlineRemixWorkbench />
           <RuntimeStatus />
         </section>
       </main>

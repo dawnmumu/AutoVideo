@@ -6,8 +6,12 @@ from fastapi.staticfiles import StaticFiles
 
 from autovideo.api.routes.health import router as health_router
 from autovideo.api.routes.materials import router as materials_router
+from autovideo.api.routes.online_materials import router as online_materials_router
+from autovideo.api.routes.online_mix import router as online_mix_router
+from autovideo.api.routes.scripts import router as scripts_router
 from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
+from autovideo.services.online_materials import build_provider_registry
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 FRONTEND_DIST_DIR = PROJECT_DIR / "frontend" / "dist"
@@ -33,15 +37,20 @@ def _content_length_exceeds(request: Request, max_request_bytes: int) -> bool:
     return int(content_length) > max_request_bytes
 
 
-def _request_too_large_response(max_request_bytes: int) -> JSONResponse:
+def _request_too_large_response(
+    max_request_bytes: int,
+    code: str = "REQUEST_TOO_LARGE",
+) -> JSONResponse:
+    detail = {
+        "code": code,
+        "max_request_bytes": max_request_bytes,
+    }
+    if code == "SCRIPT_PAYLOAD_TOO_LARGE":
+        detail["max_script_payload_bytes"] = max_request_bytes
+
     return JSONResponse(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-        content={
-            "detail": {
-                "code": "REQUEST_TOO_LARGE",
-                "max_request_bytes": max_request_bytes,
-            }
-        },
+        content={"detail": detail},
     )
 
 
@@ -49,26 +58,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     active_settings = settings or Settings()
     app = FastAPI(title=active_settings.app_name)
     app.state.settings = active_settings
+    app.state.online_material_providers = build_provider_registry(active_settings)
 
     @app.middleware("http")
     async def reject_oversized_request(request: Request, call_next):
         max_request_bytes: int | None = None
+        error_code = "REQUEST_TOO_LARGE"
         if request.method == "POST" and request.url.path == "/api/materials":
             max_request_bytes = active_settings.max_material_request_bytes
         elif request.method == "POST" and request.url.path == "/api/tasks":
             max_request_bytes = active_settings.max_task_request_bytes
+        elif request.method == "POST" and request.url.path == "/api/scripts/generate":
+            max_request_bytes = active_settings.max_script_payload_bytes
+            error_code = "SCRIPT_PAYLOAD_TOO_LARGE"
+        elif request.method == "POST" and request.url.path in {
+            "/api/online-materials/search",
+            "/api/online-materials/download",
+        }:
+            max_request_bytes = active_settings.max_online_material_request_bytes
+        elif request.method == "POST" and request.url.path == "/api/online-mix/tasks":
+            max_request_bytes = active_settings.max_online_mix_request_bytes
 
         if max_request_bytes is not None:
             request_length_error = _request_length_error_response(request)
             if request_length_error is not None:
                 return request_length_error
             if _content_length_exceeds(request, max_request_bytes):
-                return _request_too_large_response(max_request_bytes)
+                return _request_too_large_response(max_request_bytes, code=error_code)
 
         return await call_next(request)
 
     app.include_router(health_router)
     app.include_router(materials_router)
+    app.include_router(online_materials_router)
+    app.include_router(online_mix_router)
+    app.include_router(scripts_router)
     app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
