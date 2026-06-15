@@ -88,6 +88,7 @@ def _small_request_limit_app(tmp_path):
             max_upload_bytes=4,
             max_multipart_overhead_bytes=1,
             max_task_request_bytes=8,
+            max_online_material_request_bytes=8,
         )
     )
 
@@ -103,6 +104,16 @@ def _small_request_limit_app(tmp_path):
         (
             "/api/tasks",
             b'{"title":"missing length"}',
+            [(b"content-type", b"application/json")],
+        ),
+        (
+            "/api/online-materials/search",
+            b'{"query":"missing length"}',
+            [(b"content-type", b"application/json")],
+        ),
+        (
+            "/api/online-materials/download",
+            b'{"candidate_token":"missing length"}',
             [(b"content-type", b"application/json")],
         ),
     ],
@@ -136,6 +147,16 @@ def test_limited_post_requires_content_length_before_body_parse(
         (
             "/api/tasks",
             b'{"title":"invalid length"}',
+            [(b"content-type", b"application/json")],
+        ),
+        (
+            "/api/online-materials/search",
+            b'{"query":"invalid length"}',
+            [(b"content-type", b"application/json")],
+        ),
+        (
+            "/api/online-materials/download",
+            b'{"candidate_token":"invalid length"}',
             [(b"content-type", b"application/json")],
         ),
     ],
@@ -810,6 +831,40 @@ def test_online_mix_rejects_request_content_length_before_route_handling(
         response = limited_client.post(
             "/api/online-mix/tasks",
             content=b'{"script":{"shots":[]}}',
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    payload = response.json()
+    assert payload["detail"]["code"] == "REQUEST_TOO_LARGE"
+    assert payload["detail"]["max_request_bytes"] == 8
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/online-materials/search", b'{"query":"too large"}'),
+        ("/api/online-materials/download", b'{"candidate_token":"too large"}'),
+    ],
+)
+def test_online_materials_reject_request_content_length_before_route_handling(
+    tmp_path,
+    path: str,
+    body: bytes,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            fish_speech_url=None,
+            max_online_material_request_bytes=8,
+        )
+    )
+
+    with TestClient(app) as limited_client:
+        response = limited_client.post(
+            path,
+            content=body,
             headers={"content-type": "application/json"},
         )
 

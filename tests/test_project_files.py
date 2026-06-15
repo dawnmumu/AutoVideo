@@ -233,6 +233,7 @@ def test_readme_documents_current_startup() -> None:
     assert "AUTOVIDEO_PEXELS_API_KEY" in content
     assert "AUTOVIDEO_PIXABAY_API_KEY" in content
     assert "AUTOVIDEO_ONLINE_MATERIAL_PROVIDER" in content
+    assert "AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES" in content
     assert "AUTOVIDEO_CANDIDATE_TOKEN_SECRET" in content
     assert "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS" in content
     assert "AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES" in content

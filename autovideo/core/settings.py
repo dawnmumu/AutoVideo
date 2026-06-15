@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     online_material_results_per_query: int = Field(default=8, ge=1, le=25)
     online_material_download_timeout_seconds: int = Field(default=60, ge=1)
     online_material_max_download_bytes: int = Field(default=500 * 1024 * 1024, ge=1)
+    max_online_material_request_bytes: int = Field(default=65536, ge=1)
     candidate_token_secret: str | None = None
     candidate_token_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
     max_script_payload_bytes: int = Field(default=65536, ge=1)

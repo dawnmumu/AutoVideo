@@ -118,11 +118,13 @@ docker build \
   `query`、`aspect_ratio`、`min_duration_seconds` 和 `provider=auto|pexels|pixabay`。
   成功响应返回安全的 `source_url`、`preview_url`、`license_note` 和
   `candidate_token`，不会暴露真实下载 URL；未配置素材源、未配置候选签名密钥、
-  provider 不可用或 provider 搜索失败时分别返回结构化错误码。
+  provider 不可用或 provider 搜索失败时分别返回结构化错误码。请求体
+  `Content-Length` 受 `AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES` 限制。
 - `POST /api/online-materials/download`：使用 `candidate_token` 让服务端重新向
   provider 解析真实下载 URL，校验 provider allowlist、DNS、重定向链、连接地址、
   MIME 与扩展名匹配后下载到素材库。响应复用公开素材字段，不暴露本地
-  `storage_path` 或真实下载 URL。
+  `storage_path` 或真实下载 URL。请求体 `Content-Length` 受
+  `AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES` 限制。
 - `POST /api/online-mix/tasks`：基于结构化脚本、用户选择的线上候选或已有本地素材创建
   manifest 任务。线上候选只提交 `candidate_token`，服务端验签后重新解析 provider
   下载地址并保存素材；本地素材只提交真实 `material_id`。输出 manifest 包含
@@ -226,6 +228,7 @@ curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
 - `AUTOVIDEO_ONLINE_MATERIAL_RESULTS_PER_QUERY`：每个关键词返回的在线素材候选数量，默认 `8`。
 - `AUTOVIDEO_ONLINE_MATERIAL_DOWNLOAD_TIMEOUT_SECONDS`：在线素材下载超时时间，默认 `60`。
 - `AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES`：单个在线素材下载大小上限，默认 `524288000`。
+- `AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES`：在线素材搜索和下载请求体 `Content-Length` 上限，默认 `65536`。
 - `AUTOVIDEO_CANDIDATE_TOKEN_SECRET`：候选素材签名密钥；不配置时不能签发或验证可下载候选；不要提交真实 secret。
 - `AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS`：候选 token 有效期，默认 `1800`。
 - `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES`：脚本生成请求体 `Content-Length` 上限，默认 `65536`。

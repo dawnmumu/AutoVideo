@@ -71,6 +71,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         elif request.method == "POST" and request.url.path == "/api/scripts/generate":
             max_request_bytes = active_settings.max_script_payload_bytes
             error_code = "SCRIPT_PAYLOAD_TOO_LARGE"
+        elif request.method == "POST" and request.url.path in {
+            "/api/online-materials/search",
+            "/api/online-materials/download",
+        }:
+            max_request_bytes = active_settings.max_online_material_request_bytes
         elif request.method == "POST" and request.url.path == "/api/online-mix/tasks":
             max_request_bytes = active_settings.max_online_mix_request_bytes
 

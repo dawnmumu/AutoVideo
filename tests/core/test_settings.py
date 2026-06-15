@@ -30,6 +30,7 @@ AUTOVIDEO_ENV_VARS = [
     "AUTOVIDEO_ONLINE_MATERIAL_RESULTS_PER_QUERY",
     "AUTOVIDEO_ONLINE_MATERIAL_DOWNLOAD_TIMEOUT_SECONDS",
     "AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES",
+    "AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES",
     "AUTOVIDEO_CANDIDATE_TOKEN_SECRET",
     "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS",
     "AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES",
@@ -99,6 +100,7 @@ def test_online_remix_settings_have_safe_defaults() -> None:
     assert settings.online_material_results_per_query == 8
     assert settings.online_material_download_timeout_seconds == 60
     assert settings.online_material_max_download_bytes == 524288000
+    assert settings.max_online_material_request_bytes == 65536
     assert settings.candidate_token_secret is None
     assert settings.candidate_token_ttl_seconds == 1800
     assert settings.max_script_payload_bytes == 65536
