@@ -347,6 +347,62 @@ def test_generate_script_repairs_low_quality_structured_script_text_metadata(
     assert "视频" not in shot["keywords"]
 
 
+def test_generate_script_returns_heuristic_provider_for_structured_script_text_without_llm_repair(
+    tmp_path,
+) -> None:
+    class CountingLlmClient:
+        calls = 0
+
+        def generate(self, payload, settings):
+            self.calls += 1
+            return {"shots": ["should-not-be-used"]}
+
+    script_text = json.dumps(
+        {
+            "title": "疗愈型 SPA",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "顾客进店后明显放松。",
+                    "subtitle": "进店后放松",
+                    "visual_description": "顾客走进安静的 SPA 前台，肩颈逐渐放松",
+                    "keywords": ["SPA 前台", "顾客放松", "疗愈空间"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    llm_client = CountingLlmClient()
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = llm_client
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "auto",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert payload["shots"][0]["narration"] == "顾客进店后明显放松。"
+    assert llm_client.calls == 0
+
+
 @pytest.mark.parametrize(
     "script_text",
     [

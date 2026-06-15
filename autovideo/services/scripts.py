@@ -263,12 +263,13 @@ def _generate_script_from_text(
         return heuristic_script(payload)
 
     client = llm_client or OpenAICompatibleLlmClient()
+    enrich_state = {"used_llm": False}
     try:
         result = analyze_script_text(
             str(payload.get("script_text") or ""),
             topic=str(payload.get("topic") or "") or None,
             max_single_duration=payload.get("max_single_duration"),
-            plain_text_enricher=_build_plain_text_enricher(client, settings),
+            plain_text_enricher=_build_plain_text_enricher(client, settings, enrich_state),
         )
     except (
         httpx.HTTPError,
@@ -283,7 +284,7 @@ def _generate_script_from_text(
     return script_to_response(
         result["script"],
         payload,
-        provider="llm",
+        provider="llm" if enrich_state["used_llm"] else "heuristic",
         script_text=result["script_text"],
         analysis=result["analysis"],
     )
@@ -292,6 +293,7 @@ def _generate_script_from_text(
 def _build_plain_text_enricher(
     client: LlmClient,
     settings: Settings,
+    state: dict[str, bool],
 ):
     def enrich(parts: list[str], topic: str):
         llm_payload = client.generate(
@@ -303,9 +305,11 @@ def _build_plain_text_enricher(
             settings,
         )
         try:
-            return build_plain_text_enriched_script(parts, topic, llm_payload)
+            script = build_plain_text_enriched_script(parts, topic, llm_payload)
         except (TypeError, ValueError, ValidationError) as exc:
             raise LlmResponseInvalidError() from exc
+        state["used_llm"] = True
+        return script
 
     return enrich
 
