@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -151,6 +153,69 @@ def test_generate_script_llm_only_parses_fake_structured_response(tmp_path) -> N
     assert response.json()["provider"] == "llm"
 
 
+def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "咖啡店早高峰脚本",
+            "shots": [
+                {
+                    "shot_id": 1,
+                    "start_time": 0.0,
+                    "end_time": 2.5,
+                    "description": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
+                    "audio_cue": "咖啡机高压蒸汽声",
+                    "camera_movement": "微距推近",
+                },
+                {
+                    "shot_id": 2,
+                    "start_time": 2.5,
+                    "end_time": 5.0,
+                    "description": "顾客在柜台前排队等待，店员快速递出外带咖啡。",
+                    "voiceover": "顾客快速取到清晨的第一杯咖啡",
+                    "subtitle": "早高峰排队取咖啡",
+                    "keywords": ["coffee queue", "takeaway coffee"],
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "llm"
+    assert payload["shots"][0] == {
+        "index": 1,
+        "duration": 2.5,
+        "narration": "咖啡机高压蒸汽声",
+        "subtitle": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
+        "visual_description": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
+        "keywords": ["咖啡店早高峰", "咖啡机蒸汽喷嘴喷出白色蒸汽"],
+    }
+    assert payload["shots"][1]["index"] == 2
+    assert payload["shots"][1]["keywords"] == ["coffee queue", "takeaway coffee"]
+
+
 def test_generate_script_auto_falls_back_when_llm_http_or_parse_fails(
     tmp_path,
 ) -> None:
@@ -268,6 +333,52 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",
                     "keywords": "coffee",
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1.5,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": True,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": [123],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "shot_id": 1,
+                    "start_time": 0,
+                    "end_time": 5,
+                    "description": "coffee shop morning",
                 }
             ]
         },
@@ -390,6 +501,55 @@ def test_openai_llm_client_uses_context_manager_for_default_http_client(
     assert len(created_clients) == 1
     assert created_clients[0].entered is True
     assert created_clients[0].exited is True
+
+
+def test_openai_llm_client_requests_autovideo_schema() -> None:
+    from autovideo.services.scripts import OpenAICompatibleLlmClient
+
+    captured_request = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_request.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"title":"结构化脚本","shots":[{"index":1,'
+                                '"duration":5,"narration":"旁白",'
+                                '"subtitle":"字幕",'
+                                '"visual_description":"coffee shop morning",'
+                                '"keywords":["coffee"]}]}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    settings = Settings(
+        _env_file=None,
+        llm_base_url="https://llm.example.test/v1",
+        llm_api_key="test-key",
+        llm_model="test-model",
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        llm_client = OpenAICompatibleLlmClient(http_client=http_client)
+
+        llm_client.generate({"topic": "咖啡店早高峰"}, settings)
+
+    system_prompt = captured_request["messages"][0]["content"]
+    assert "AutoVideo" in system_prompt
+    assert "index" in system_prompt
+    assert "duration" in system_prompt
+    assert "narration" in system_prompt
+    assert "subtitle" in system_prompt
+    assert "visual_description" in system_prompt
+    assert "keywords" in system_prompt
+    assert "shot_id" not in system_prompt
 
 
 def test_generate_script_llm_only_returns_structured_error_on_llm_failure(

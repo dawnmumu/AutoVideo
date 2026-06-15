@@ -108,6 +108,9 @@ docker build \
   `AUTOVIDEO_LLM_BASE_URL`、`AUTOVIDEO_LLM_API_KEY` 和 `AUTOVIDEO_LLM_MODEL`
   时优先调用 OpenAI-compatible LLM，失败时回退启发式生成；`provider=llm_only`
   只使用 LLM，失败时返回结构化错误；`provider=heuristic` 只使用本地启发式生成。
+  LLM 响应会被规范化为 AutoVideo 分镜 schema：每个镜头包含 `index`、`duration`、
+  `narration`、`subtitle`、`visual_description` 和 `keywords`；常见的
+  `shot_id`、`start_time`、`end_time`、`description`、`audio_cue` 等字段会在可安全映射时转换。
   请求体 `Content-Length` 和解析后的 JSON 编码大小都受
   `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES` 限制。
 - `GET /api/online-materials/status`：查看默认线上素材源、Pexels/Pixabay
