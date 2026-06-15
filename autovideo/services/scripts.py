@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import uuid
 from copy import deepcopy
-from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 import httpx
@@ -13,6 +11,12 @@ from autovideo.services.script_schema import (
     AUTOVIDEO_SCRIPT_SCHEMA_PROMPT,
     LlmResponseInvalidError,
     normalize_llm_script,
+)
+from autovideo.services.script_generator import (
+    ScriptTextInvalidError,
+    analyze_script_text,
+    generate_fallback_script,
+    script_to_response,
 )
 from autovideo.services.tasks import encoded_json_size
 
@@ -98,51 +102,36 @@ def validate_script_request(payload: dict[str, Any], settings: Settings) -> None
             payload_bytes,
             settings.max_script_payload_bytes,
         )
-    if not str(payload.get("topic", "")).strip():
+    has_topic = bool(str(payload.get("topic", "")).strip())
+    has_script_text = bool(str(payload.get("script_text") or "").strip())
+    if not has_topic and not has_script_text:
         raise ScriptTopicRequiredError()
 
 
 def heuristic_script(payload: dict[str, Any]) -> dict[str, Any]:
-    topic = str(payload["topic"]).strip()
-    duration_seconds = int(payload.get("duration_seconds") or 30)
-    aspect_ratio = str(payload.get("aspect_ratio") or "9:16")
-    selling_points = [
-        str(item).strip()
-        for item in payload.get("selling_points", [])
-        if str(item).strip()
-    ]
-    base_keywords = selling_points or [topic]
-    shot_count = max(3, min(6, duration_seconds // 5 or 3))
-    base_duration = max(1, duration_seconds // shot_count)
-    extra_seconds = max(0, duration_seconds - base_duration * shot_count)
-    shots = []
-
-    for index in range(1, shot_count + 1):
-        keyword = base_keywords[(index - 1) % len(base_keywords)]
-        shot_duration = base_duration + (1 if index <= extra_seconds else 0)
-        shots.append(
-            {
-                "index": index,
-                "duration": shot_duration,
-                "narration": f"{topic}，镜头 {index} 展示{keyword}。",
-                "subtitle": f"{topic} · {keyword}",
-                "visual_description": (
-                    f"{topic} related scene, {keyword}, clean commercial video"
-                ),
-                "keywords": [topic, keyword, "commercial video"],
-            }
+    topic = str(payload.get("topic") or "").strip()
+    script_text = str(payload.get("script_text") or "").strip()
+    if script_text:
+        result = analyze_script_text(
+            script_text,
+            topic=topic or None,
+            max_single_duration=payload.get("max_single_duration"),
+        )
+        return script_to_response(
+            result["script"],
+            payload,
+            provider="heuristic",
+            script_text=result["script_text"],
+            analysis=result["analysis"],
         )
 
-    return {
-        "id": uuid.uuid4().hex,
-        "title": f"{topic}短视频",
-        "topic": topic,
-        "aspect_ratio": aspect_ratio,
-        "duration_seconds": duration_seconds,
-        "shots": shots,
-        "provider": "heuristic",
-        "created_at": datetime.now(UTC).isoformat(),
-    }
+    duration_seconds = int(payload.get("duration_seconds") or 30)
+    script = generate_fallback_script(
+        topic,
+        duration_seconds,
+        payload.get("selling_points") or [],
+    )
+    return script_to_response(script, payload, provider="heuristic")
 
 
 def _parse_openai_response(response: httpx.Response) -> dict[str, Any]:
