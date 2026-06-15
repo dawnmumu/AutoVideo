@@ -909,6 +909,74 @@ def test_online_mix_auto_resolve_failure_returns_structured_error(tmp_path) -> N
     assert response.json()["detail"]["code"] == "ONLINE_MATERIAL_DOWNLOAD_FAILED"
 
 
+def test_online_mix_validates_user_materials_before_online_downloads(
+    tmp_path,
+) -> None:
+    import httpx
+
+    from autovideo.services.online_materials import CandidateTokenService
+    from tests.api.test_online_materials import FakeProvider
+
+    class DownloadProvider(FakeProvider):
+        allowed_download_hosts = {"videos.pexels.com"}
+
+        def resolve_download_url(self, asset_id: str, file_variant: str) -> str:
+            return "https://videos.pexels.com/video-files/123/clip.mp4"
+
+    download_requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        download_requests.append(str(request.url))
+        return httpx.Response(
+            200,
+            headers={"content-type": "video/mp4"},
+            content=b"video",
+            extensions={"connected_address": "93.184.216.34"},
+        )
+
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+            candidate_token_secret="secret",
+        )
+    )
+    app.state.online_material_providers = {"pexels": DownloadProvider()}
+    app.state.online_download_http_client = httpx.Client(
+        transport=httpx.MockTransport(handler)
+    )
+    app.state.online_download_resolver = lambda host: ["93.184.216.34"]
+    token = CandidateTokenService(secret="secret", ttl_seconds=1800).sign(
+        {
+            "provider": "pexels",
+            "asset_id": "123",
+            "query": "relaxing bedroom night",
+            "file_variant": "hd",
+            "source_url": "https://www.pexels.com/video/123/",
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "缺失本地素材",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "shot_assets": [{"shot_index": 1, "candidate_token": token}],
+                "shot_materials": [
+                    {"shot_index": 2, "material_id": "missing-material"}
+                ],
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "MATERIAL_NOT_FOUND"
+    assert download_requests == []
+    assert list((tmp_path / "materials").iterdir()) == []
+
+
 def test_online_mix_auto_search_failure_returns_structured_error(tmp_path) -> None:
     from tests.api.test_online_materials import FakeProvider
 
@@ -1067,6 +1135,39 @@ def test_online_mix_selection_conflict_precedes_candidate_token_validation(
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "ONLINE_MIX_SHOT_SELECTION_INVALID"
+
+
+def test_online_mix_missing_material_precedes_candidate_token_validation(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            pexels_api_key="pexels-key",
+            candidate_token_secret="secret",
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "缺失素材优先",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "shot_assets": [{"shot_index": 1, "candidate_token": "invalid"}],
+                "shot_materials": [
+                    {"shot_index": 2, "material_id": "missing-material"}
+                ],
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "MATERIAL_NOT_FOUND",
+        "material_id": "missing-material",
+    }
 
 
 def test_online_mix_candidate_token_invalid_when_selection_is_valid(

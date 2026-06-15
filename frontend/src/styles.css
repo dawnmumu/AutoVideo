@@ -443,6 +443,35 @@ button:disabled,
   box-shadow: 0 18px 40px rgba(16, 36, 45, 0.16);
 }
 
+@media (max-width: 1100px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .online-remix-form,
+  .shot-fields,
+  .shot-actions,
+  .create-task-row,
+  .candidate-row,
+  .inline-error,
+  .local-material-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-row,
+  .inline-error,
+  .shot-actions,
+  .create-task-row {
+    align-items: stretch;
+  }
+
+  .candidate-row img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+}
+
 @media (max-width: 760px) {
   .app-shell {
     display: block;

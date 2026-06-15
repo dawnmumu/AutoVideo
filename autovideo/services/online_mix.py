@@ -250,9 +250,16 @@ def create_online_mix_task(
     if (shot_assets or asset_strategy == "auto") and token_service is None:
         raise RuntimeError("candidate token service is required for online assets")
 
-    used_online_assets: set[tuple[str, str]] = set()
+    user_materials: dict[str, dict[str, Any]] = {}
     for item in shot_materials:
-        material = store.get_material(str(item.get("material_id", "")))
+        material_id = str(item.get("material_id", ""))
+        material = store.get_material(material_id)
+        if material is None:
+            raise MaterialNotFoundError(material_id)
+        user_materials[material_id] = material
+
+    used_online_assets: set[tuple[str, str]] = set()
+    for material in user_materials.values():
         material_key = _online_asset_key_from_material(material)
         if material_key is not None:
             used_online_assets.add(material_key)

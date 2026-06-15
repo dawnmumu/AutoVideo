@@ -104,6 +104,15 @@ def create_online_mix_video_task(
             "ONLINE_MIX_SHOT_SELECTION_INVALID",
         ) from exc
 
+    for item in shot_materials:
+        material_id = str(item.get("material_id", ""))
+        if store.get_material(material_id) is None:
+            raise structured_error(
+                status.HTTP_404_NOT_FOUND,
+                "MATERIAL_NOT_FOUND",
+                material_id=material_id,
+            )
+
     needs_online_assets = bool(shot_assets) or request_body.asset_strategy == "auto"
     providers = _provider_registry(request, settings)
     if needs_online_assets:
