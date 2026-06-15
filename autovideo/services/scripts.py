@@ -9,19 +9,14 @@ from typing import Any, Literal, Protocol
 import httpx
 
 from autovideo.core.settings import Settings
+from autovideo.services.script_schema import (
+    AUTOVIDEO_SCRIPT_SCHEMA_PROMPT,
+    LlmResponseInvalidError,
+    normalize_llm_script,
+)
 from autovideo.services.tasks import encoded_json_size
 
 ScriptProvider = Literal["auto", "llm_only", "heuristic"]
-LLM_SHOT_REQUIRED_FIELDS = frozenset(
-    {
-        "index",
-        "duration",
-        "narration",
-        "subtitle",
-        "visual_description",
-        "keywords",
-    }
-)
 
 
 class ScriptTopicRequiredError(Exception):
@@ -36,10 +31,6 @@ class ScriptPayloadTooLargeError(Exception):
 
 
 class LlmNotConfiguredError(Exception):
-    pass
-
-
-class LlmResponseInvalidError(Exception):
     pass
 
 
@@ -87,7 +78,7 @@ class OpenAICompatibleLlmClient:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Return an AutoVideo shot script as JSON.",
+                        "content": AUTOVIDEO_SCRIPT_SCHEMA_PROMPT,
                     },
                     {
                         "role": "user",
@@ -150,36 +141,6 @@ def heuristic_script(payload: dict[str, Any]) -> dict[str, Any]:
         "duration_seconds": duration_seconds,
         "shots": shots,
         "provider": "heuristic",
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-
-
-def normalize_llm_script(
-    payload: dict[str, Any],
-    llm_payload: dict[str, Any],
-) -> dict[str, Any]:
-    if not isinstance(llm_payload, dict):
-        raise LlmResponseInvalidError()
-    shots = llm_payload.get("shots")
-    if not isinstance(shots, list) or not shots:
-        raise LlmResponseInvalidError()
-    for shot in shots:
-        if not isinstance(shot, dict):
-            raise LlmResponseInvalidError()
-        if not LLM_SHOT_REQUIRED_FIELDS.issubset(shot):
-            raise LlmResponseInvalidError()
-        if not isinstance(shot["keywords"], list):
-            raise LlmResponseInvalidError()
-
-    topic = str(payload["topic"]).strip()
-    return {
-        "id": uuid.uuid4().hex,
-        "title": str(llm_payload.get("title") or f"{topic}短视频"),
-        "topic": topic,
-        "aspect_ratio": str(payload.get("aspect_ratio") or "9:16"),
-        "duration_seconds": int(payload.get("duration_seconds") or 30),
-        "shots": shots,
-        "provider": "llm",
         "created_at": datetime.now(UTC).isoformat(),
     }
 
