@@ -30,6 +30,7 @@ from autovideo.services.online_mix import (
     OnlineMixNoMaterialMatchError,
     OnlineMixShotSelectionInvalidError,
     create_online_mix_task,
+    validate_manual_shot_coverage,
     validate_shot_selection,
 )
 from autovideo.services.tasks import (
@@ -136,6 +137,19 @@ def create_online_mix_video_task(
             )
 
     token_service = _token_service(settings, request)
+    try:
+        validate_manual_shot_coverage(
+            request_body.script,
+            shot_assets,
+            shot_materials,
+            request_body.asset_strategy,
+        )
+    except OnlineMixNoMaterialMatchError as exc:
+        raise structured_error(
+            status.HTTP_409_CONFLICT,
+            "ONLINE_MIX_NO_MATERIAL_MATCH",
+        ) from exc
+
     for item in shot_assets:
         try:
             assert token_service is not None

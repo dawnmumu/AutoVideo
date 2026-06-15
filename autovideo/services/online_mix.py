@@ -85,6 +85,21 @@ def validate_shot_selection(
         raise OnlineMixShotSelectionInvalidError()
 
 
+def validate_manual_shot_coverage(
+    script: dict[str, Any],
+    shot_assets: list[dict[str, Any]],
+    shot_materials: list[dict[str, Any]],
+    asset_strategy: AssetStrategy,
+) -> None:
+    if asset_strategy != "manual":
+        return
+    selected_indexes = set(
+        _selection_indexes(shot_assets) + _selection_indexes(shot_materials)
+    )
+    if selected_indexes != _shot_indexes(script):
+        raise OnlineMixNoMaterialMatchError()
+
+
 def _provider_is_enabled(provider: Any) -> bool:
     return bool(getattr(provider, "enabled", True))
 
@@ -271,6 +286,13 @@ def create_online_mix_task(
         }
         for item in shot_materials
     ]
+
+    validate_manual_shot_coverage(
+        script,
+        shot_assets,
+        shot_materials,
+        asset_strategy,
+    )
 
     for item in shot_assets:
         assert token_service is not None
