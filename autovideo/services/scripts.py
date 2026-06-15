@@ -16,6 +16,7 @@ from autovideo.services.script_generator import (
     ScriptTextInvalidError,
     analyze_script_text,
     generate_fallback_script,
+    has_spoken_content,
     script_to_response,
 )
 from autovideo.services.tasks import encoded_json_size
@@ -179,6 +180,9 @@ def generate_script(
     llm_client: LlmClient | None = None,
 ) -> dict[str, Any]:
     validate_script_request(payload, settings)
+    script_text = str(payload.get("script_text") or "").strip()
+    if script_text and not has_spoken_content(script_text):
+        raise ScriptTextInvalidError("脚本中没有可用内容")
 
     provider: str = payload.get("provider") or "auto"
     if provider == "heuristic":

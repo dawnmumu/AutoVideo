@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from autovideo.services.script_generator import (
     SYSTEM_PROMPT,
     build_script_from_data,
+    repair_structured_script_metadata,
     script_to_response,
 )
 
@@ -32,6 +33,11 @@ def normalize_llm_script(
             target_duration=_target_duration(payload),
             scale_to_target=False,
             strict=True,
+        )
+        script = repair_structured_script_metadata(
+            script,
+            str(payload.get("topic") or script.title),
+            force=False,
         )
     except (TypeError, ValueError, ValidationError) as exc:
         raise LlmResponseInvalidError() from exc

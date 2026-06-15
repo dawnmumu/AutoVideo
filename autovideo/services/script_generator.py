@@ -852,6 +852,8 @@ def build_script_from_data(
             delivery_model = delivery
         elif isinstance(delivery, dict):
             delivery_model = NarrationDelivery(**delivery)
+        elif strict and "delivery" in item and delivery is not None:
+            raise ValueError("镜头 delivery 必须是对象")
         else:
             delivery_model = build_delivery_for_narration(narration)
 
@@ -1441,3 +1443,4 @@ _build_delivery_for_narration = build_delivery_for_narration
 _build_script_from_data = build_script_from_data
 _parse_editor_script = parse_editor_script
 _normalize_script = normalize_script
+repair_structured_script_metadata = _repair_structured_script_metadata

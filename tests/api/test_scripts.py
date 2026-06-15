@@ -116,6 +116,53 @@ def test_generate_script_rejects_script_text_without_spoken_content(
     }
 
 
+@pytest.mark.parametrize("provider", ["auto", "llm_only"])
+def test_generate_script_rejects_invalid_script_text_before_llm(
+    tmp_path,
+    provider,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "不应被使用",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "这段 LLM 结果不应该被返回",
+                    "subtitle": "这段 LLM 结果不应该被返回",
+                    "visual_description": "valid llm shot",
+                    "keywords": ["valid"],
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": provider,
+                "script_text": "...\n——\n🙂",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
 @pytest.mark.parametrize(
     "script_text",
     [
@@ -273,6 +320,51 @@ def test_generate_script_llm_only_parses_fake_structured_response(tmp_path) -> N
 
     assert response.status_code == 200
     assert response.json()["provider"] == "llm"
+
+
+def test_generate_script_llm_repairs_missing_visual_metadata(tmp_path) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "疗愈型 SPA",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 4,
+                    "narration": "顾客进店后明显放松。",
+                    "subtitle": "顾客进店后明显放松。",
+                    "keywords": ["视频"],
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "llm_only",
+                "duration_seconds": 15,
+            },
+        )
+
+    assert response.status_code == 200
+    shot = response.json()["shots"][0]
+    assert shot["visual_description"] != shot["narration"]
+    assert len(shot["keywords"]) >= 2
+    assert "视频" not in shot["keywords"]
 
 
 def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -> None:
@@ -548,6 +640,19 @@ def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -
         {
             "shots": [
                 {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                    "delivery": "fast",
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
                     "shot_id": 1,
                     "start_time": 0,
                     "end_time": 5,
@@ -705,6 +810,19 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
                     "subtitle": "字幕",
                     "visual_description": {"scene": "coffee shop morning"},
                     "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                    "delivery": "fast",
                 }
             ]
         },
