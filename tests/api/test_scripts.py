@@ -454,6 +454,23 @@ def test_generate_script_returns_heuristic_provider_for_structured_script_text_w
             ],
             ensure_ascii=False,
         ),
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": 1,
+                        "start_time": 5,
+                        "end_time": 3,
+                        "narration": "倒序时间不应被静默估算。",
+                        "subtitle": "倒序时间不应被静默估算。",
+                        "visual_description": "invalid time range",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
     ],
 )
 def test_generate_script_returns_400_for_malformed_json_script_text(
@@ -526,6 +543,154 @@ def test_generate_script_returns_400_for_json_script_text_with_invalid_duration(
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "shot_fields",
+    [
+        {"start_time": -1, "end_time": 3},
+        {"start_time": 1, "end_time": -3},
+        {"duration": 5, "start_time": -1, "end_time": 3},
+    ],
+)
+def test_generate_script_returns_400_for_json_script_text_with_negative_time_points(
+    tmp_path,
+    shot_fields,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    "index": 1,
+                    **shot_fields,
+                    "narration": "这段脚本不应被静默估算时间点。",
+                    "subtitle": "这段脚本不应被静默估算时间点。",
+                    "visual_description": "invalid time point",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        """标题：坏脚本
+
+镜头1（0秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """标题：坏脚本
+总时长：0秒
+
+镜头1（3秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """00:05-00:03 | 倒序镜头
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """-1-3 秒 | 负数开始
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """3--1 秒 | 负数结束
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """00:aa-00:03 | 非法时间
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+        """镜头1（abc秒）
+旁白：顾客进店后明显放松。
+字幕：进店后放松
+画面：顾客走进安静的 SPA 前台
+关键词：SPA 前台、顾客放松
+""",
+    ],
+)
+def test_generate_script_returns_400_for_editor_script_with_invalid_explicit_duration(
+    client,
+    script_text,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        "3-A 计划上线。团队要先确认素材方向。",
+        "3A-4B 版本对比。顾客反馈更偏好轻柔节奏。",
+        "3-A | 计划上线。团队要先确认素材方向。",
+        "3A-4B | 版本对比。顾客反馈更偏好轻柔节奏。",
+        "3-1 | 计划上线。团队要先确认素材方向。",
+        "3.1-3.0 | 版本回退计划。团队要保留旧版素材。",
+        "3-1 | 秒杀活动排期。团队要先确认素材方向。",
+    ],
+)
+def test_generate_script_accepts_plain_text_that_looks_like_a_range_header(
+    client,
+    script_text,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "heuristic"
 
 
 @pytest.mark.parametrize(
@@ -925,6 +1090,46 @@ def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -
             "shots": [
                 {
                     "index": 1,
+                    "start_time": 5,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "duration": True,
                     "narration": "旁白",
                     "subtitle": "字幕",
@@ -1214,6 +1419,46 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
                 {
                     "index": 1,
                     "duration": "0",
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": 5,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "start_time": -1,
+                    "end_time": 3,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "start_time": -1,
+                    "end_time": 3,
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",

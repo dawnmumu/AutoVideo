@@ -118,16 +118,23 @@ PLAIN_TEXT_ENRICH_SYSTEM_PROMPT = """你是短视频分镜补全助手。用户�
   ]
 }"""
 
-SHOT_HEADER_RE = re.compile(r"^镜头\s*(\d+)(?:\s*[（(]([0-9]+(?:\.[0-9]+)?)\s*秒[）)])?\s*$")
+SHOT_HEADER_RE = re.compile(r"^镜头\s*(\d+)(?:\s*[（(](-?[0-9]+(?:\.[0-9]+)?)\s*秒[）)])?\s*$")
+MALFORMED_SHOT_DURATION_HEADER_RE = re.compile(r"^镜头\s*\d+\s*[（(].*秒[）)]\s*$")
 TIME_SEPARATOR_RE = r"[:：]"
 TIME_TOKEN_RE = rf"(?:[0-9]+(?:{TIME_SEPARATOR_RE}[0-9]{{1,2}}){{1,3}}(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)"
 TIME_RANGE_HEADER_RE = re.compile(
     rf"^({TIME_TOKEN_RE})\s*(?:-|~|–|—)\s*({TIME_TOKEN_RE})\s*秒?(?:(?:\s*[|｜]\s*|\s+)(.*?))?\s*$"
 )
+EXPLICIT_TIME_UNIT_RANGE_RE = re.compile(
+    rf"^{TIME_TOKEN_RE}\s*(?:-|~|–|—)\s*{TIME_TOKEN_RE}\s*秒(?=$|\s|[|｜])"
+)
+RANGE_LIKE_HEADER_RE = re.compile(
+    r"^-?[0-9][0-9A-Za-z:.：]*\s*(?:-|~|–|—)\s*-?[0-9A-Za-z:.：]+\s*秒?(?=$|\s|[|｜])"
+)
 JSON_FENCE_RE = re.compile(r"```[ \t]*json\b[^\n]*\n?(.*?)```", re.IGNORECASE | re.DOTALL)
 JSON_FENCE_OPEN_RE = re.compile(r"```[ \t]*json\b", re.IGNORECASE)
 GENERIC_FENCE_RE = re.compile(r"```[^\n]*\n?(.*?)```", re.DOTALL)
-NUMBER_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)")
+NUMBER_RE = re.compile(r"(-?[0-9]+(?:\.[0-9]+)?)")
 KEYWORD_SPLIT_RE = re.compile(r"[，,、/\s|]+")
 STRONG_PAUSE_RE = re.compile(r"[。！？!?；;]")
 WEAK_PAUSE_RE = re.compile(r"[，,、：:]")
@@ -992,6 +999,8 @@ def build_script_from_data(
         raw_duration = item.get("duration")
         if isinstance(raw_duration, bool):
             raise ValueError("镜头 duration 不能是 bool")
+        has_start_time = item.get("start_time") is not None
+        has_end_time = item.get("end_time") is not None
         duration = (
             _parse_time_range_value(raw_duration)
             if isinstance(raw_duration, str)
@@ -1013,8 +1022,26 @@ def build_script_from_data(
             )
             start_time = start_time or 0.0
             end_time = end_time or 0.0
+            if strict and (has_start_time or has_end_time):
+                if not (has_start_time and has_end_time and end_time > start_time):
+                    raise ValueError("镜头 start_time/end_time 必须形成正时长")
             if end_time > start_time:
                 duration = round(end_time - start_time, 1)
+        elif strict and has_start_time and has_end_time:
+            raw_start_time = item.get("start_time")
+            raw_end_time = item.get("end_time")
+            start_time = (
+                _parse_time_range_value(raw_start_time)
+                if isinstance(raw_start_time, str)
+                else _safe_float(raw_start_time, 0.0)
+            )
+            end_time = (
+                _parse_time_range_value(raw_end_time)
+                if isinstance(raw_end_time, str)
+                else _safe_float(raw_end_time, 0.0)
+            )
+            if (end_time or 0.0) <= (start_time or 0.0):
+                raise ValueError("镜头 start_time/end_time 必须形成正时长")
         raw_keywords = item.get("keywords")
         if strict:
             _validate_keywords(raw_keywords, present="keywords" in item)
@@ -1099,6 +1126,8 @@ def _validate_explicit_number_fields(
         number = _parse_strict_finite_number(value, field=field)
         if field == "duration" and number <= 0:
             raise ValueError("镜头 duration 必须大于 0")
+        if field in {"start_time", "end_time"} and number < 0:
+            raise ValueError(f"镜头 {field} 不能为负数")
 
 
 def try_parse_json_script(
@@ -1194,6 +1223,26 @@ def _parse_time_range_value(value: str) -> float | None:
     return hours * 3600 + minutes * 60 + seconds
 
 
+def _is_malformed_time_range_header(line: str) -> bool:
+    match = RANGE_LIKE_HEADER_RE.match(line or "")
+    if not match:
+        return False
+    header = match.group(0)
+    stripped = (line or "").lstrip()
+    return (
+        stripped.startswith("-")
+        or "--" in header
+        or ":" in header
+        or "：" in header
+        or "秒" in header
+    )
+
+
+def _has_explicit_time_range_intent(line: str, start_token: str, end_token: str) -> bool:
+    token_text = f"{start_token}{end_token}"
+    return ":" in token_text or "：" in token_text or bool(EXPLICIT_TIME_UNIT_RANGE_RE.match(line or ""))
+
+
 def parse_editor_script(
     script_text: str,
     *,
@@ -1244,15 +1293,20 @@ def parse_editor_script(
 
         if line.startswith(("总时长：", "总时长:", "时长：", "时长:")):
             explicit_total = _parse_duration_line(line)
+            if explicit_total is None or explicit_total <= 0:
+                raise ScriptTextInvalidError("脚本中没有可用内容")
             continue
 
         shot_match = SHOT_HEADER_RE.match(line)
         if shot_match:
             flush_current()
             skip_implicit_until_next_header = False
+            explicit_duration = _safe_float(shot_match.group(2), 0.0)
+            if shot_match.group(2) is not None and explicit_duration <= 0:
+                raise ScriptTextInvalidError("脚本中没有可用内容")
             current = {
                 "index": int(shot_match.group(1)),
-                "duration": _safe_float(shot_match.group(2), 0.0),
+                "duration": explicit_duration,
                 "narration": "",
                 "subtitle": "",
                 "visual_description": "",
@@ -1260,23 +1314,30 @@ def parse_editor_script(
             }
             current_field = None
             continue
+        if MALFORMED_SHOT_DURATION_HEADER_RE.match(line):
+            raise ScriptTextInvalidError("脚本中没有可用内容")
 
         time_range_match = TIME_RANGE_HEADER_RE.match(line)
         if time_range_match:
-            flush_current()
             start_seconds = _parse_time_range_value(time_range_match.group(1))
             end_seconds = _parse_time_range_value(time_range_match.group(2))
             if start_seconds is None or end_seconds is None or end_seconds <= start_seconds:
-                current = None
-                current_field = None
-                skip_implicit_until_next_header = True
-                continue
+                if not _has_explicit_time_range_intent(
+                    line,
+                    time_range_match.group(1),
+                    time_range_match.group(2),
+                ):
+                    continue
+                raise ScriptTextInvalidError("脚本中没有可用内容")
+            flush_current()
             skip_implicit_until_next_header = False
             current = new_current(round(end_seconds - start_seconds, 1))
             current["_time_start"] = start_seconds
             current["_time_end"] = end_seconds
             current_field = None
             continue
+        if _is_malformed_time_range_header(line):
+            raise ScriptTextInvalidError("脚本中没有可用内容")
 
         if line.startswith(("屏幕字幕结尾：", "屏幕字幕结尾:", "字幕结尾：", "字幕结尾:")):
             current_field = "ignored"
