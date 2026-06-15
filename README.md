@@ -182,10 +182,11 @@ curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
 脚本生成成功响应包含：
 
 - `id`：脚本 ID。
-- `title`、`topic`、`aspect_ratio`、`duration_seconds`：脚本基础信息。
+- `title`、`topic`、`aspect_ratio`、`duration_seconds`、`total_duration`：脚本基础信息和归一化总时长。
 - `provider`：实际生成来源，`llm` 或 `heuristic`。
 - `shots`：镜头数组，每个镜头包含 `index`、`duration`、`narration`、`subtitle`、
-  `visual_description` 和 `keywords`。
+  `visual_description`、`keywords` 和 `delivery`。
+- `script_text`、`analysis`：当请求包含 `script_text` 时返回，分别用于编辑器文本回显和分段分析。
 - `created_at`：创建时间。
 
 脚本生成主要错误码：
@@ -199,7 +200,8 @@ curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
 }
 ```
 
-- `400 SCRIPT_TOPIC_REQUIRED`：`topic` 为空。
+- `400 SCRIPT_TOPIC_REQUIRED`：`topic` 和 `script_text` 都为空。
+- `400 SCRIPT_TEXT_INVALID`：`script_text` 中没有可用的可朗读内容。
 - `413 SCRIPT_PAYLOAD_TOO_LARGE`：请求体或脚本 JSON 超过
   `AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES`，响应会包含 `max_script_payload_bytes`，
   service 校验路径还会包含 `payload_bytes`。

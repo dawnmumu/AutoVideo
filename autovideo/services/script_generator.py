@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from datetime import UTC, datetime
@@ -252,9 +253,12 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
             return default
-        return float(value)
+        number = float(value)
     except Exception:
         return default
+    if not math.isfinite(number):
+        return default
+    return number
 
 
 def _parse_positive_int(value: Any) -> int:
@@ -869,6 +873,11 @@ def build_script_from_data(
             )
         )
 
+    _validate_explicit_number_fields(
+        data,
+        "total_duration",
+        strict=strict,
+    )
     explicit_total = _safe_float(data.get("total_duration"), 0.0)
     normalize_target = (
         target_duration
@@ -920,8 +929,13 @@ def _validate_explicit_number_fields(
         if isinstance(value, bool):
             raise ValueError(f"镜头 {field} 不能是 bool")
         if isinstance(value, (int, float)):
+            if not math.isfinite(float(value)):
+                raise ValueError(f"镜头 {field} 必须是有限数字")
             continue
         if isinstance(value, str) and re.fullmatch(TIME_TOKEN_RE, value.strip()):
+            parsed = _parse_time_range_value(value)
+            if parsed is None or not math.isfinite(parsed):
+                raise ValueError(f"镜头 {field} 必须是有限数字")
             continue
         raise ValueError(f"镜头 {field} 必须是数字")
 

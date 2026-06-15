@@ -569,6 +569,56 @@ def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -
             "shots": [
                 {
                     "index": 1,
+                    "duration": float("inf"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("nan"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "total_duration": float("inf"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": float("nan"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "duration": 5,
                     "narration": "旁白",
                     "subtitle": "字幕",
@@ -740,6 +790,56 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
                     "keywords": ["coffee"],
                 }
             ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("inf"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": float("nan"),
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "total_duration": float("inf"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
+        },
+        {
+            "total_duration": float("nan"),
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ],
         },
         {
             "shots": [
