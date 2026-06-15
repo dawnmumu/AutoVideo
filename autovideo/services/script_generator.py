@@ -4,10 +4,11 @@ import json
 import math
 import re
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 
 SYSTEM_PROMPT = """你是 AutoVideo 的专业短视频分镜脚本编剧。用户会给你一个产品、主题或已写好的脚本文案，你需要生成一份结构化的分镜脚本。
@@ -123,6 +124,9 @@ TIME_TOKEN_RE = rf"(?:[0-9]+(?:{TIME_SEPARATOR_RE}[0-9]{{1,2}}){{1,3}}(?:\.[0-9]
 TIME_RANGE_HEADER_RE = re.compile(
     rf"^({TIME_TOKEN_RE})\s*(?:-|~|–|—)\s*({TIME_TOKEN_RE})\s*秒?(?:(?:\s*[|｜]\s*|\s+)(.*?))?\s*$"
 )
+JSON_FENCE_RE = re.compile(r"```[ \t]*json\b[^\n]*\n?(.*?)```", re.IGNORECASE | re.DOTALL)
+JSON_FENCE_OPEN_RE = re.compile(r"```[ \t]*json\b", re.IGNORECASE)
+GENERIC_FENCE_RE = re.compile(r"```[^\n]*\n?(.*?)```", re.DOTALL)
 NUMBER_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)")
 KEYWORD_SPLIT_RE = re.compile(r"[，,、/\s|]+")
 STRONG_PAUSE_RE = re.compile(r"[。！？!?；;]")
@@ -228,6 +232,9 @@ class VideoScript(BaseModel):
     shots: list[SceneShot]
 
 
+PlainTextEnricher = Callable[[list[str], str], VideoScript | None]
+
+
 class ScriptTextInvalidError(ValueError):
     pass
 
@@ -242,10 +249,12 @@ def _count_spoken_content_chars(text: str) -> int:
 
 def extract_json_content(content: str) -> str:
     cleaned = (content or "").strip()
-    if "```json" in cleaned:
-        cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
-    elif "```" in cleaned:
-        cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+    json_fence = JSON_FENCE_RE.search(cleaned)
+    if json_fence:
+        return json_fence.group(1).strip()
+    generic_fence = GENERIC_FENCE_RE.search(cleaned)
+    if generic_fence:
+        return generic_fence.group(1).strip()
     return cleaned
 
 
@@ -719,6 +728,84 @@ def _enrich_plain_text_script_with_llm(parts: list[str], topic: str) -> VideoScr
     return None
 
 
+def build_plain_text_enriched_script(
+    parts: list[str],
+    topic: str,
+    data: dict[str, Any],
+) -> VideoScript:
+    if not parts:
+        raise ValueError("脚本中没有可用内容")
+    if not isinstance(data, dict):
+        raise ValueError("LLM 返回必须是对象")
+
+    shots_data = data.get("shots")
+    if not isinstance(shots_data, list) or not shots_data:
+        raise ValueError("LLM 返回的 shots 为空")
+    if len(shots_data) < len(parts):
+        raise ValueError("LLM 返回的 shots 数量不足")
+
+    resolved_topic = (topic or "").strip() or "自定义脚本视频"
+    enriched_shots: list[SceneShot] = []
+    for index, part in enumerate(parts, start=1):
+        item = shots_data[index - 1]
+        if not isinstance(item, dict):
+            raise ValueError("LLM 返回的镜头必须是对象")
+        _validate_explicit_text_fields(
+            item,
+            "narration",
+            "subtitle",
+            "caption",
+            "description",
+            "shot_description",
+            "visual_description",
+            "visual",
+            "scene",
+            strict=True,
+        )
+
+        visual_description = _first_text(
+            item,
+            "visual_description",
+            "description",
+            "shot_description",
+            "visual",
+            "scene",
+        )
+        delivery = item.get("delivery")
+        if isinstance(delivery, NarrationDelivery):
+            delivery_model = delivery
+        elif isinstance(delivery, dict):
+            delivery_model = NarrationDelivery(**delivery)
+        elif delivery is None:
+            delivery_model = build_delivery_for_narration(part)
+        else:
+            raise ValueError("镜头 delivery 必须是对象")
+
+        _validate_keywords(item.get("keywords"), present="keywords" in item)
+        enriched_shots.append(
+            SceneShot(
+                index=index,
+                duration=estimate_narration_duration(part),
+                narration=part,
+                subtitle=_resolve_subtitle(item, part),
+                visual_description=visual_description or f"{resolved_topic} 相关画面",
+                keywords=build_search_keywords(
+                    resolved_topic,
+                    part,
+                    visual_description,
+                    item.get("keywords"),
+                ),
+                delivery=delivery_model,
+            )
+        )
+
+    return normalize_script(
+        str(data.get("title") or resolved_topic),
+        enriched_shots,
+        scale_to_target=False,
+    )
+
+
 def _build_plain_text_script_heuristic(parts: list[str], topic: str) -> VideoScript:
     resolved_topic = (topic or "").strip() or "自定义脚本视频"
     shots: list[SceneShot] = []
@@ -749,6 +836,7 @@ def _repair_structured_script_metadata(
     topic: str | None = None,
     *,
     force: bool = False,
+    plain_text_enricher: PlainTextEnricher | None = None,
 ) -> VideoScript:
     if not script.shots:
         return script
@@ -761,6 +849,50 @@ def _repair_structured_script_metadata(
     )
     if not needs_repair:
         return normalize_script(script.title or resolved_title, script.shots, scale_to_target=False)
+
+    enricher = plain_text_enricher or _enrich_plain_text_script_with_llm
+    enriched_script = enricher([shot.narration for shot in script.shots], resolved_title)
+    if enriched_script:
+        merged_shots: list[SceneShot] = []
+        final_title = enriched_script.title if force or _is_placeholder_title(script.title) else script.title
+        final_title = (final_title or resolved_title).strip() or resolved_title
+
+        for index, shot in enumerate(script.shots, start=1):
+            enriched_shot = enriched_script.shots[index - 1] if index - 1 < len(enriched_script.shots) else None
+            use_enriched_visual = force or _is_low_quality_visual_description(
+                shot.visual_description,
+                shot.narration,
+                final_title,
+            )
+            visual_description = (shot.visual_description or "").strip()
+            if use_enriched_visual and enriched_shot:
+                visual_description = enriched_shot.visual_description
+            visual_description = visual_description or shot.narration or f"{final_title} 相关画面"
+
+            seed_keywords = shot.keywords
+            if (
+                force or _is_low_quality_keywords(shot.keywords, shot.narration, final_title)
+            ) and enriched_shot:
+                seed_keywords = enriched_shot.keywords
+
+            merged_shots.append(
+                SceneShot(
+                    index=index,
+                    duration=_resolve_shot_duration(shot),
+                    narration=shot.narration,
+                    subtitle=_resolve_subtitle(shot, shot.narration),
+                    visual_description=visual_description,
+                    keywords=build_search_keywords(
+                        final_title,
+                        shot.narration,
+                        visual_description,
+                        seed_keywords,
+                    ),
+                    delivery=shot.delivery or build_delivery_for_narration(shot.narration),
+                )
+            )
+
+        return normalize_script(final_title, merged_shots, scale_to_target=False)
 
     fallback_shots: list[SceneShot] = []
     final_title = (script.title or resolved_title).strip() or resolved_title
@@ -964,7 +1096,9 @@ def _validate_explicit_number_fields(
         value = item.get(field)
         if value is None:
             continue
-        _parse_strict_finite_number(value, field=field)
+        number = _parse_strict_finite_number(value, field=field)
+        if field == "duration" and number <= 0:
+            raise ValueError("镜头 duration 必须大于 0")
 
 
 def try_parse_json_script(
@@ -974,12 +1108,19 @@ def try_parse_json_script(
     scale_to_target: bool = False,
     target_duration: float | None = None,
 ) -> VideoScript | None:
+    cleaned = (script_text or "").strip()
+    json_candidate = extract_json_content(cleaned)
+    json_intent = _looks_like_json_script(cleaned, json_candidate)
     try:
-        data = json.loads(extract_json_content(script_text))
-    except Exception:
+        data = json.loads(json_candidate)
+    except json.JSONDecodeError as exc:
+        if json_intent:
+            raise ScriptTextInvalidError("脚本中没有可用内容") from exc
         return None
 
     if not isinstance(data, dict) or not data.get("shots"):
+        if json_intent or isinstance(data, dict):
+            raise ScriptTextInvalidError("脚本中没有可用内容")
         return None
 
     return build_script_from_data(
@@ -987,7 +1128,35 @@ def try_parse_json_script(
         fallback_title=fallback_title,
         target_duration=target_duration,
         scale_to_target=scale_to_target,
+        strict=json_intent,
     )
+
+
+def _looks_like_json_script(script_text: str, json_candidate: str | None = None) -> bool:
+    cleaned = (script_text or "").strip()
+    if not cleaned:
+        return False
+    if JSON_FENCE_OPEN_RE.search(cleaned):
+        return True
+
+    candidate = (json_candidate if json_candidate is not None else cleaned).strip()
+    if "```" in cleaned and candidate != cleaned:
+        return _starts_like_json_value(candidate)
+    return _starts_like_json_value(cleaned)
+
+
+def _starts_like_json_value(value: str) -> bool:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return False
+    if cleaned.startswith("{"):
+        return True
+    if not cleaned.startswith("["):
+        return False
+    tail = cleaned[1:].lstrip()
+    if not tail:
+        return True
+    return tail[0] in {"{", "[", "]"}
 
 
 def _is_no_usable_script_error(exc: ValueError) -> bool:
@@ -1199,7 +1368,12 @@ def parse_editor_script(
     )
 
 
-def _build_plain_text_script(script_text: str, topic: str) -> VideoScript:
+def _build_plain_text_script(
+    script_text: str,
+    topic: str,
+    *,
+    plain_text_enricher: PlainTextEnricher | None = None,
+) -> VideoScript:
     parts = [
         part.strip(" -•\t")
         for part in _extract_plain_sentences(script_text)
@@ -1208,7 +1382,8 @@ def _build_plain_text_script(script_text: str, topic: str) -> VideoScript:
     if not parts:
         raise ScriptTextInvalidError("脚本中没有可用内容")
 
-    semantic_script = _enrich_plain_text_script_with_llm(parts, topic)
+    enricher = plain_text_enricher or _enrich_plain_text_script_with_llm
+    semantic_script = enricher(parts, topic)
     if semantic_script:
         return semantic_script
 
@@ -1292,6 +1467,7 @@ def optimize_script_text(
     script_text: str,
     topic: str | None = None,
     max_single_duration: float | None = None,
+    plain_text_enricher: PlainTextEnricher | None = None,
 ) -> dict[str, Any]:
     cleaned_script = (script_text or "").strip()
     resolved_topic = (topic or "").strip() or "自定义脚本视频"
@@ -1309,15 +1485,24 @@ def optimize_script_text(
                 fallback_title=resolved_topic,
             )
         if not script:
-            script = _build_plain_text_script(cleaned_script, resolved_topic)
+            script = _build_plain_text_script(
+                cleaned_script,
+                resolved_topic,
+                plain_text_enricher=plain_text_enricher,
+            )
         else:
-            script = _repair_structured_script_metadata(script, resolved_topic, force=False)
+            script = _repair_structured_script_metadata(
+                script,
+                resolved_topic,
+                force=False,
+                plain_text_enricher=plain_text_enricher,
+            )
     except ScriptTextInvalidError:
         raise
-    except ValueError as exc:
+    except (ValidationError, ValueError) as exc:
         if _is_no_usable_script_error(exc):
             raise ScriptTextInvalidError("脚本中没有可用内容") from exc
-        raise
+        raise ScriptTextInvalidError("脚本中没有可用内容") from exc
 
     analysis = analyze_script(script, max_single_duration)
     return {
@@ -1395,6 +1580,7 @@ def analyze_script_text(
     script_text: str,
     topic: str | None = None,
     max_single_duration: float | None = None,
+    plain_text_enricher: PlainTextEnricher | None = None,
 ) -> dict[str, Any]:
     cleaned_script = (script_text or "").strip()
     resolved_topic = (topic or "").strip() or "自定义脚本视频"
@@ -1412,15 +1598,24 @@ def analyze_script_text(
                 fallback_title=resolved_topic,
             )
         if not script:
-            script = _build_plain_text_script(cleaned_script, resolved_topic)
+            script = _build_plain_text_script(
+                cleaned_script,
+                resolved_topic,
+                plain_text_enricher=plain_text_enricher,
+            )
         else:
-            script = _repair_structured_script_metadata(script, resolved_topic, force=False)
+            script = _repair_structured_script_metadata(
+                script,
+                resolved_topic,
+                force=False,
+                plain_text_enricher=plain_text_enricher,
+            )
     except ScriptTextInvalidError:
         raise
-    except ValueError as exc:
+    except (ValidationError, ValueError) as exc:
         if _is_no_usable_script_error(exc):
             raise ScriptTextInvalidError("脚本中没有可用内容") from exc
-        raise
+        raise ScriptTextInvalidError("脚本中没有可用内容") from exc
 
     return {
         "script": script,

@@ -86,6 +86,140 @@ def test_generate_script_accepts_custom_script_text(client, monkeypatch) -> None
     assert payload["script_text"].startswith("标题：疗愈型 SPA")
 
 
+@pytest.mark.parametrize("provider", ["auto", "llm_only"])
+def test_generate_script_with_script_text_uses_llm_enrichment_without_rewriting_narration(
+    tmp_path,
+    provider,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "LLM 补全标题",
+            "shots": [
+                {
+                    "index": 1,
+                    "narration": "LLM 不应改写第一句",
+                    "subtitle": "进店后放松",
+                    "visual_description": "顾客走进安静 SPA 前台",
+                    "keywords": ["SPA 前台", "顾客放松", "疗愈空间"],
+                    "delivery": {"style": "gentle", "speech_rate": -8},
+                },
+                {
+                    "index": 2,
+                    "narration": "LLM 不应改写第二句",
+                    "subtitle": "护理后更轻盈",
+                    "visual_description": "护理结束后顾客舒展肩颈",
+                    "keywords": ["护理结束", "肩颈放松", "轻盈状态"],
+                    "delivery": {"style": "gentle", "speech_rate": -8},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": provider,
+                "script_text": "顾客进店后明显放松。\n护理结束后，她的状态轻盈很多。",
+                "max_single_duration": 8,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "llm"
+    assert [shot["narration"] for shot in payload["shots"]] == [
+        "顾客进店后明显放松。",
+        "护理结束后，她的状态轻盈很多。",
+    ]
+    assert payload["shots"][0]["subtitle"] == "进店后放松"
+    assert payload["shots"][0]["visual_description"] == "顾客走进安静 SPA 前台"
+    assert payload["shots"][0]["keywords"] == ["SPA 前台", "顾客放松", "疗愈空间"]
+    assert payload["shots"][0]["delivery"]["style"] == "gentle"
+    assert payload["script_text"].startswith("标题：LLM 补全标题")
+    assert payload["analysis"]["shot_count"] == 2
+    assert payload["analysis"]["max_single_duration"] == 8
+
+
+def test_generate_script_auto_falls_back_when_script_text_llm_enrichment_is_invalid(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="secret-key-should-not-leak",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient({"shots": ["bad"]})
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "auto",
+                "script_text": "顾客进店后明显放松。",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert [shot["narration"] for shot in payload["shots"]] == ["顾客进店后明显放松。"]
+    assert "secret-key-should-not-leak" not in response.text
+
+
+def test_generate_script_llm_only_rejects_invalid_script_text_enrichment_payload(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="secret-key-should-not-leak",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient({"shots": ["bad"]})
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "疗愈型 SPA",
+                "provider": "llm_only",
+                "script_text": "顾客进店后明显放松。",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+    assert "secret-key-should-not-leak" not in response.text
+
+
 @pytest.mark.parametrize("provider", ["heuristic", "auto"])
 def test_generate_script_rejects_script_text_without_spoken_content(
     client,
@@ -211,6 +345,160 @@ def test_generate_script_repairs_low_quality_structured_script_text_metadata(
     assert shot["visual_description"] != shot["narration"]
     assert len(shot["keywords"]) >= 2
     assert "视频" not in shot["keywords"]
+
+
+@pytest.mark.parametrize(
+    "script_text",
+    [
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": 1,
+                        "duration": -5,
+                        "narration": "这段脚本不应触发 500。",
+                        "subtitle": "这段脚本不应触发 500。",
+                        "visual_description": "invalid duration",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "title": "坏脚本",
+                "shots": [
+                    {
+                        "index": "bad",
+                        "duration": 5,
+                        "narration": "这段脚本不应触发 500。",
+                        "subtitle": "这段脚本不应触发 500。",
+                        "visual_description": "invalid index",
+                        "keywords": ["invalid"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        '{"title": "坏脚本", "shots": [',
+        '请使用：\n```json\n{"title": "坏脚本", "shots": [\n```',
+        '请使用：\n```json\n{"title": "坏脚本", "shots": [',
+        json.dumps({"title": "坏脚本"}, ensure_ascii=False),
+        json.dumps({"title": "坏脚本", "shots": []}, ensure_ascii=False),
+        '```json\n{"title": "坏脚本"}\n```',
+        json.dumps(
+            [
+                {
+                    "index": 1,
+                    "duration": 5,
+                    "narration": "顶层数组不是脚本 schema。",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+    ],
+)
+def test_generate_script_returns_400_for_malformed_json_script_text(
+    tmp_path,
+    script_text,
+) -> None:
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "SCRIPT_TEXT_INVALID",
+        "message": "脚本中没有可用内容",
+    }
+
+
+@pytest.mark.parametrize("duration", [0, "0", "abc", "inf"])
+def test_generate_script_returns_400_for_json_script_text_with_invalid_duration(
+    tmp_path,
+    duration,
+) -> None:
+    script_text = json.dumps(
+        {
+            "title": "坏脚本",
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": duration,
+                    "narration": "这段脚本不应被静默估算时长。",
+                    "subtitle": "这段脚本不应被静默估算时长。",
+                    "visual_description": "invalid duration",
+                    "keywords": ["invalid"],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "provider": "heuristic",
+                "topic": "疗愈型 SPA",
+                "script_text": script_text,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SCRIPT_TEXT_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("script_text", "expected_fragment"),
+    [
+        ("[开场] 顾客进店后明显放松。", "顾客进店后明显放松。"),
+        ("[\"开场\"] 顾客进店后明显放松。", "顾客进店后明显放松。"),
+        ("[\"开场\"]", "开场"),
+        ("```\n顾客进店后明显放松。\n```", "顾客进店后明显放松。"),
+    ],
+)
+def test_generate_script_accepts_plain_text_that_only_looks_like_json(
+    client,
+    script_text,
+    expected_fragment,
+) -> None:
+    response = client.post(
+        "/api/scripts/generate",
+        json={
+            "provider": "heuristic",
+            "topic": "疗愈型 SPA",
+            "script_text": script_text,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert expected_fragment in payload["shots"][0]["narration"]
 
 
 def test_generate_script_auto_falls_back_without_llm(client) -> None:
@@ -557,6 +845,30 @@ def test_generate_script_handles_mixed_non_spoken_llm_shots_strictly(tmp_path) -
             "shots": [
                 {
                     "index": 1,
+                    "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "0",
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
                     "duration": True,
                     "narration": "旁白",
                     "subtitle": "字幕",
@@ -822,6 +1134,30 @@ def test_generate_script_auto_falls_back_when_llm_shot_shape_is_invalid(
                 {
                     "index": 1.5,
                     "duration": 5,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 0,
+                    "narration": "旁白",
+                    "subtitle": "字幕",
+                    "visual_description": "coffee shop morning",
+                    "keywords": ["coffee"],
+                }
+            ]
+        },
+        {
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": "0",
                     "narration": "旁白",
                     "subtitle": "字幕",
                     "visual_description": "coffee shop morning",

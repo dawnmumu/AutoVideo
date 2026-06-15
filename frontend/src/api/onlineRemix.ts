@@ -87,7 +87,7 @@ export interface LocalMaterial {
 }
 
 export interface GenerateScriptInput {
-  topic: string;
+  topic?: string;
   duration_seconds: number;
   aspect_ratio: string;
   tone: string;

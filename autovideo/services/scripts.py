@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Any, Literal, Protocol
 
 import httpx
+from pydantic import ValidationError
 
 from autovideo.core.settings import Settings
 from autovideo.services.script_schema import (
@@ -13,8 +14,11 @@ from autovideo.services.script_schema import (
     normalize_llm_script,
 )
 from autovideo.services.script_generator import (
+    PLAIN_TEXT_ENRICH_SYSTEM_PROMPT,
     ScriptTextInvalidError,
     analyze_script_text,
+    build_plain_text_enriched_script,
+    extract_json_content,
     generate_fallback_script,
     has_spoken_content,
     script_to_response,
@@ -22,6 +26,7 @@ from autovideo.services.script_generator import (
 from autovideo.services.tasks import encoded_json_size
 
 ScriptProvider = Literal["auto", "llm_only", "heuristic"]
+PLAIN_TEXT_ENRICH_MODE = "plain_text_enrich"
 
 
 class ScriptTopicRequiredError(Exception):
@@ -72,6 +77,7 @@ class OpenAICompatibleLlmClient:
         payload: dict[str, Any],
         settings: Settings,
     ) -> dict[str, Any]:
+        system_prompt, user_content = _build_llm_messages(payload)
         response = http_client.post(
             f"{settings.llm_base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {settings.llm_api_key}"},
@@ -83,11 +89,11 @@ class OpenAICompatibleLlmClient:
                 "messages": [
                     {
                         "role": "system",
-                        "content": AUTOVIDEO_SCRIPT_SCHEMA_PROMPT,
+                        "content": system_prompt,
                     },
                     {
                         "role": "user",
-                        "content": json.dumps(payload, ensure_ascii=False),
+                        "content": user_content,
                     },
                 ],
             },
@@ -135,6 +141,35 @@ def heuristic_script(payload: dict[str, Any]) -> dict[str, Any]:
     return script_to_response(script, payload, provider="heuristic")
 
 
+def _build_llm_messages(payload: dict[str, Any]) -> tuple[str, str]:
+    if payload.get("_script_mode") == PLAIN_TEXT_ENRICH_MODE:
+        return PLAIN_TEXT_ENRICH_SYSTEM_PROMPT, _build_plain_text_enrich_user_prompt(payload)
+    return AUTOVIDEO_SCRIPT_SCHEMA_PROMPT, json.dumps(payload, ensure_ascii=False)
+
+
+def _build_plain_text_enrich_user_prompt(payload: dict[str, Any]) -> str:
+    topic = str(payload.get("topic") or "自定义脚本视频").strip() or "自定义脚本视频"
+    raw_parts = payload.get("parts")
+    parts = raw_parts if isinstance(raw_parts, list) else []
+    numbered_lines = "\n".join(
+        f"{index}. {str(part).strip()}"
+        for index, part in enumerate(parts, start=1)
+        if str(part).strip()
+    )
+    return f"""标题/主题：{topic}
+
+已定稿旁白句子（必须逐字保留）：
+{numbered_lines}
+
+请为每句补充适合视频素材检索的画面描述和关键词。
+注意：
+- narration 字段必须和对应原句完全一致
+- subtitle 字段用于屏幕显示，可等于 narration，也可更短或不同
+- 相邻句的关键词不要返回几乎一模一样的一组
+- keywords 请优先体现标题主题、场景、动作、人物/物体、结果
+- 不要解释，只返回 JSON"""
+
+
 def _parse_openai_response(response: httpx.Response) -> dict[str, Any]:
     try:
         response_payload = response.json()
@@ -143,7 +178,7 @@ def _parse_openai_response(response: httpx.Response) -> dict[str, Any]:
 
     content = _extract_openai_message_content(response_payload)
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(extract_json_content(content))
     except json.JSONDecodeError as exc:
         raise LlmResponseInvalidError() from exc
     if not isinstance(parsed, dict):
@@ -185,6 +220,9 @@ def generate_script(
         raise ScriptTextInvalidError("脚本中没有可用内容")
 
     provider: str = payload.get("provider") or "auto"
+    if script_text:
+        return _generate_script_from_text(payload, settings, provider, llm_client)
+
     if provider == "heuristic":
         return heuristic_script(payload)
 
@@ -207,6 +245,69 @@ def generate_script(
             return heuristic_script(payload)
 
     return heuristic_script(payload)
+
+
+def _generate_script_from_text(
+    payload: dict[str, Any],
+    settings: Settings,
+    provider: str,
+    llm_client: LlmClient | None,
+) -> dict[str, Any]:
+    if provider == "heuristic":
+        return heuristic_script(payload)
+
+    if provider == "llm_only" and not _llm_configured(settings):
+        raise LlmNotConfiguredError()
+
+    if not _llm_configured(settings):
+        return heuristic_script(payload)
+
+    client = llm_client or OpenAICompatibleLlmClient()
+    try:
+        result = analyze_script_text(
+            str(payload.get("script_text") or ""),
+            topic=str(payload.get("topic") or "") or None,
+            max_single_duration=payload.get("max_single_duration"),
+            plain_text_enricher=_build_plain_text_enricher(client, settings),
+        )
+    except (
+        httpx.HTTPError,
+        KeyError,
+        json.JSONDecodeError,
+        LlmResponseInvalidError,
+    ):
+        if provider == "llm_only":
+            raise
+        return heuristic_script(payload)
+
+    return script_to_response(
+        result["script"],
+        payload,
+        provider="llm",
+        script_text=result["script_text"],
+        analysis=result["analysis"],
+    )
+
+
+def _build_plain_text_enricher(
+    client: LlmClient,
+    settings: Settings,
+):
+    def enrich(parts: list[str], topic: str):
+        llm_payload = client.generate(
+            {
+                "_script_mode": PLAIN_TEXT_ENRICH_MODE,
+                "topic": topic,
+                "parts": parts,
+            },
+            settings,
+        )
+        try:
+            return build_plain_text_enriched_script(parts, topic, llm_payload)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise LlmResponseInvalidError() from exc
+
+    return enrich
 
 
 def _llm_configured(settings: Settings) -> bool:
