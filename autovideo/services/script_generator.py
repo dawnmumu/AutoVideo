@@ -249,7 +249,7 @@ NEGATED_TOPIC_CONTEXT_MARKERS = (
     "缺乏",
 )
 
-AUDIO_CUE_NARRATION_HINTS = (
+AUDIO_CUE_SUFFIXES = (
     "声",
     "声音",
     "音效",
@@ -258,6 +258,13 @@ AUDIO_CUE_NARRATION_HINTS = (
     "音乐",
     "bgm",
 )
+GENERIC_AUDIO_CUES = {"环境音", "背景音", "音效", "音乐", "bgm"}
+SINGLE_CHARACTER_TOPIC_FALSE_COMPOUNDS = {
+    "猫": ("熊猫", "猫眼"),
+    "马": ("马路",),
+    "花": ("花费",),
+    "茶": ("茶几",),
+}
 
 
 class NarrationDelivery(BaseModel):
@@ -669,11 +676,29 @@ def _contains_topic_term(normalized_text: str, term: str) -> bool:
         index = normalized_text.find(term, cursor)
         if index < 0:
             return False
+        if _is_blocked_single_character_topic_match(normalized_text, term, index):
+            cursor = index + 1
+            continue
         prefix = normalized_text[max(0, index - 8) : index]
         if not any(marker in prefix for marker in NEGATED_TOPIC_CONTEXT_MARKERS):
             return True
         cursor = index + 1
     return False
+
+
+def _is_blocked_single_character_topic_match(
+    normalized_text: str,
+    term: str,
+    index: int,
+) -> bool:
+    if not CHINESE_TOPIC_TOKEN_RE.fullmatch(term) or len(term) != 1:
+        return False
+    exclusions = SINGLE_CHARACTER_TOPIC_FALSE_COMPOUNDS.get(term, ())
+    if not exclusions:
+        return False
+    before = normalized_text[max(0, index - 1) : index + 1]
+    after = normalized_text[index : index + 2]
+    return before in exclusions or after in exclusions
 
 
 def _topic_relevance_groups(topic: str) -> list[list[str]]:
@@ -722,7 +747,11 @@ def _topic_relevance_groups(topic: str) -> list[list[str]]:
             has_alias_group = has_alias_group or len(groups) > before_count
 
     if has_alias_group:
+        existing_terms = {term for group in groups for term in group}
         for item in _extract_keyword_candidates(topic):
+            normalized_item = _normalize_compare_text(item).lower()
+            if normalized_item in existing_terms:
+                continue
             add_group([item])
     else:
         for item in _extract_topic_core_terms(topic, stopwords):
@@ -795,23 +824,57 @@ def _is_audio_cue_narration(text: str | None) -> bool:
     normalized_text = _normalize_compare_text(text).lower()
     if not normalized_text:
         return False
-    return any(hint in normalized_text for hint in AUDIO_CUE_NARRATION_HINTS)
+    if normalized_text in GENERIC_AUDIO_CUES:
+        return True
+    if len(normalized_text) > 18:
+        return False
+    return any(
+        normalized_text.startswith(cue)
+        or normalized_text.endswith(cue)
+        for cue in AUDIO_CUE_SUFFIXES
+    )
+
+
+def _keyword_matches_topic_group(keyword: str, groups: list[list[str]]) -> bool:
+    normalized_keyword = _normalize_compare_text(keyword).lower()
+    if not normalized_keyword:
+        return False
+    return any(
+        _contains_topic_term(normalized_keyword, term)
+        for group in groups
+        for term in group
+    )
+
+
+def _audio_cue_matches_topic(text: str | None, topic: str | None) -> bool:
+    normalized_text = _normalize_compare_text(text).lower()
+    if normalized_text in GENERIC_AUDIO_CUES:
+        return True
+    groups = _topic_relevance_groups(str(topic or ""))
+    if not groups:
+        return True
+    return _keyword_matches_topic_group(str(text or ""), groups)
 
 
 def _keywords_match_topic(keywords: list[str], topic: str | None) -> bool:
     if not keywords:
         return True
-    normalized_keywords = _normalize_compare_text(" ".join(keywords[:2])).lower()
-    if not normalized_keywords:
-        return True
     groups = _topic_relevance_groups(str(topic or ""))
     if not groups:
         return True
-    return any(
-        _contains_topic_term(normalized_keywords, term)
-        for group in groups
-        for term in group
-    )
+    stopwords = {
+        _normalize_compare_text(item).lower()
+        for item in [*GENERIC_KEYWORD_STOPWORDS, *TOPIC_RELEVANCE_STOPWORDS]
+    }
+    matched_any = False
+    for keyword in keywords:
+        normalized_keyword = _normalize_compare_text(keyword).lower()
+        if not normalized_keyword or normalized_keyword in stopwords:
+            continue
+        if not _keyword_matches_topic_group(keyword, groups):
+            return False
+        matched_any = True
+    return matched_any
 
 
 def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
@@ -822,14 +885,18 @@ def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
             return False
         if _has_unrelated_topic_terms(" ".join(shot.keywords), topic):
             return False
+        if _has_unrelated_topic_terms(shot.subtitle, topic):
+            return False
         if text_matches_topic(shot.narration, topic):
             continue
         if _has_unrelated_topic_terms(shot.narration, topic):
             return False
-        if _is_audio_cue_narration(shot.narration):
+        if _is_audio_cue_narration(shot.narration) and _audio_cue_matches_topic(
+            shot.narration,
+            topic,
+        ):
             continue
-        if text_matches_topic(shot.subtitle, topic):
-            return False
+        return False
     return True
 
 

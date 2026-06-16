@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from autovideo.services.script_generator import (
     SYSTEM_PROMPT,
+    _is_placeholder_title,
     build_script_from_data,
     repair_structured_script_metadata,
     script_matches_topic,
@@ -38,14 +39,20 @@ def normalize_llm_script(
             strict=True,
         )
         if topic and not text_matches_topic(script.title, topic):
-            script = script.model_copy(update={"title": topic})
+            if _is_placeholder_title(script.title):
+                script = script.model_copy(update={"title": topic})
+            else:
+                raise ValueError("LLM 生成标题与主题不匹配")
         script = repair_structured_script_metadata(
             script,
             topic or script.title,
             force=False,
         )
         if topic and not text_matches_topic(script.title, topic):
-            script = script.model_copy(update={"title": topic})
+            if _is_placeholder_title(script.title):
+                script = script.model_copy(update={"title": topic})
+            else:
+                raise ValueError("LLM 生成标题与主题不匹配")
         if not script_matches_topic(script, topic):
             raise ValueError("LLM 生成内容与主题不匹配")
     except (TypeError, ValueError, ValidationError) as exc:

@@ -187,6 +187,42 @@ def test_script_matches_topic_accepts_audio_cue_when_visual_matches():
     assert script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_unrelated_music_narration():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="城市音乐节现场人群欢呼。",
+        subtitle="音乐节现场",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_unrelated_short_audio_cue():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="城市演唱会现场欢呼声",
+        subtitle="演唱会现场",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_unrelated_short_audio_cue_with_topic_subtitle():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="城市演唱会现场欢呼声",
+        subtitle="咖啡店早高峰",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_rejects_repaired_visual_with_unrelated_narration():
     script = _single_shot_script(
         title="咖啡店早高峰",
@@ -211,6 +247,18 @@ def test_script_matches_topic_rejects_generic_unrelated_narration():
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_unrelated_narration_and_subtitle():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="退休生活和家庭回忆，在旧照片里慢慢展开。",
+        subtitle="旧照片里的回忆",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_rejects_topic_subtitle_with_unrelated_narration():
     script = _single_shot_script(
         title="咖啡店早高峰",
@@ -218,6 +266,18 @@ def test_script_matches_topic_rejects_topic_subtitle_with_unrelated_narration():
         subtitle="咖啡店早高峰",
         visual_description="咖啡店早高峰相关场景，人物或环境建立镜头",
         keywords=["咖啡店早高峰"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_unrelated_subtitle_with_related_narration():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+        subtitle="睡前精油",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
     )
 
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
@@ -303,6 +363,18 @@ def test_script_matches_topic_rejects_generic_unrelated_keywords_with_related_co
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_mixed_unrelated_keywords_with_related_content():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+        subtitle="咖啡店早高峰",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "city skyline", "office workers"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_accepts_related_family_camping_gear_scene():
     script = _single_shot_script(
         title="户外亲子准备",
@@ -318,16 +390,28 @@ def test_text_matches_topic_accepts_related_title_aliases():
     assert script_generator.text_matches_topic("清晨咖啡短片", "咖啡店早高峰")
 
 
+def test_text_matches_topic_accepts_single_alias_topic_in_english():
+    assert script_generator.text_matches_topic("coffee shop counter", "咖啡店")
+
+
 def test_text_matches_topic_rejects_unrelated_title():
     assert not script_generator.text_matches_topic("睡前精油短视频", "咖啡店早高峰")
 
 
 def test_text_matches_topic_rejects_unrelated_single_character_topic():
     assert not script_generator.text_matches_topic("睡前精油短视频", "猫")
+    assert not script_generator.text_matches_topic("熊猫在竹林里吃竹子。", "猫")
+    assert not script_generator.text_matches_topic("猫眼电影排片更新。", "猫")
+    assert not script_generator.text_matches_topic("马路上车流很多。", "马")
+    assert not script_generator.text_matches_topic("花费预算继续增加。", "花")
+    assert not script_generator.text_matches_topic("茶几上放着遥控器。", "茶")
 
 
 def test_text_matches_topic_accepts_related_single_character_topic():
     assert script_generator.text_matches_topic("猫在窗边打盹。", "猫")
+    assert script_generator.text_matches_topic("马在草地上奔跑。", "马")
+    assert script_generator.text_matches_topic("花在清晨开放。", "花")
+    assert script_generator.text_matches_topic("茶汤慢慢变得清亮。", "茶")
 
 
 def test_text_matches_topic_accepts_unaliased_topic_with_multiple_core_terms():
