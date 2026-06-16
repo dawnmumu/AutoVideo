@@ -135,7 +135,7 @@ export function OnlineRemixWorkbench() {
       return createOnlineMixTask({
         title: script.title,
         script,
-        asset_strategy: "manual",
+        asset_strategy: allShotsCovered ? "manual" : "auto",
         provider,
         shot_assets: Object.entries(selectedByShot).map(([shotIndex, candidate]) => ({
           shot_index: Number(shotIndex),
@@ -171,7 +171,14 @@ export function OnlineRemixWorkbench() {
   const selectedCount =
     Object.keys(selectedByShot).length + Object.keys(localMaterialByShot).length;
   const requiredShotCount = script?.shots.length ?? 0;
-  const allShotsSelected = requiredShotCount > 0 && selectedCount >= requiredShotCount;
+  const coveredShotIndexes = new Set(
+    [
+      ...Object.keys(selectedByShot),
+      ...Object.keys(localMaterialByShot),
+    ].map((shotIndex) => Number(shotIndex)),
+  );
+  const allShotsCovered =
+    script?.shots.length ? script.shots.every((shot) => coveredShotIndexes.has(shot.index)) : false;
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);
@@ -401,7 +408,7 @@ export function OnlineRemixWorkbench() {
                   </button>
                   <button type="button" onClick={() => setLocalPickerShot(shot.index)}>
                     <FolderOpen aria-hidden="true" size={16} />
-                    改用已有本地素材
+                    用本地素材覆盖
                   </button>
                 </div>
 
@@ -487,17 +494,19 @@ export function OnlineRemixWorkbench() {
         <div className="create-task-row">
           <button
             className="primary-action"
-            disabled={!allShotsSelected || createTask.isPending}
+            disabled={createTask.isPending}
             type="button"
             onClick={() => createTask.mutate()}
           >
             {createTask.isPending ? "创建中" : "创建任务"}
           </button>
-          {!allShotsSelected ? (
-            <span className="selected-material">
-              已选择 {selectedCount}/{requiredShotCount} 个镜头
-            </span>
-          ) : null}
+          <span className="selected-material">
+            {allShotsCovered
+              ? `手动使用 ${selectedCount} 个覆盖素材`
+              : `自动使用 ${requiredShotCount} 个镜头${
+                  selectedCount > 0 ? `，已手动覆盖 ${selectedCount} 个素材` : ""
+                }`}
+          </span>
           {createTask.data ? <a href={createTask.data.output.download_url}>查看任务输出</a> : null}
         </div>
       ) : null}
