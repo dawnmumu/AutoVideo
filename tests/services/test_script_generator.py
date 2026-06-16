@@ -175,11 +175,35 @@ def test_script_matches_topic_accepts_related_coffee_shop_scene():
     assert script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_accepts_audio_cue_when_visual_matches():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="咖啡机高压蒸汽声",
+        subtitle="清晨咖啡店吧台前，浓缩咖啡流入杯中。",
+        visual_description="清晨咖啡店吧台前，咖啡机蒸汽喷嘴喷出白色蒸汽。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_rejects_repaired_visual_with_unrelated_narration():
     script = _single_shot_script(
         title="咖啡店早高峰",
         narration="睡前点一滴精油，让卧室慢慢安静下来。",
         subtitle="睡前精油",
+        visual_description="咖啡店早高峰相关场景，人物或环境建立镜头",
+        keywords=["咖啡店早高峰"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_topic_subtitle_with_unrelated_narration():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="睡前点一滴精油，让卧室慢慢安静下来。",
+        subtitle="咖啡店早高峰",
         visual_description="咖啡店早高峰相关场景，人物或环境建立镜头",
         keywords=["咖啡店早高峰"],
     )

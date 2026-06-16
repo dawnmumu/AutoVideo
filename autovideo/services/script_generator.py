@@ -249,6 +249,16 @@ NEGATED_TOPIC_CONTEXT_MARKERS = (
     "缺乏",
 )
 
+AUDIO_CUE_NARRATION_HINTS = (
+    "声",
+    "声音",
+    "音效",
+    "环境音",
+    "背景音",
+    "音乐",
+    "bgm",
+)
+
 
 class NarrationDelivery(BaseModel):
     style: str = "natural"
@@ -745,12 +755,58 @@ def text_matches_topic(text: str | None, topic: str | None) -> bool:
     return len(matched_groups) >= required_matches
 
 
+def _topic_key_is_related_to_topic(key: str, topic: str | None) -> bool:
+    normalized_key = _normalize_compare_text(key).lower()
+    normalized_topic = _normalize_compare_text(topic).lower()
+    if not normalized_key or not normalized_topic:
+        return False
+    return (
+        normalized_key in normalized_topic
+        or text_matches_topic(key, topic)
+        or text_matches_topic(topic, key)
+    )
+
+
+def _has_unrelated_topic_terms(text: str | None, topic: str | None) -> bool:
+    normalized_text = _normalize_compare_text(text).lower()
+    if not normalized_text:
+        return False
+
+    stopwords = {
+        _normalize_compare_text(item).lower()
+        for item in [*GENERIC_KEYWORD_STOPWORDS, *TOPIC_RELEVANCE_STOPWORDS]
+    }
+    matched_terms: set[str] = set()
+    for key, aliases in TOPIC_RELEVANCE_ALIASES.items():
+        if _topic_key_is_related_to_topic(key, topic):
+            continue
+        for value in (key, *aliases):
+            term = _normalize_compare_text(value).lower()
+            if not term or term in stopwords:
+                continue
+            if _contains_topic_term(normalized_text, term):
+                matched_terms.add(term)
+    return len(matched_terms) >= 2
+
+
+def _is_audio_cue_narration(text: str | None) -> bool:
+    normalized_text = _normalize_compare_text(text).lower()
+    if not normalized_text:
+        return False
+    return any(hint in normalized_text for hint in AUDIO_CUE_NARRATION_HINTS)
+
+
 def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
     for shot in script.shots:
         if not text_matches_topic(shot.visual_description, topic):
             return False
-        core_text = " ".join([shot.narration, shot.subtitle])
-        if not text_matches_topic(core_text, topic):
+        if text_matches_topic(shot.narration, topic):
+            continue
+        if _has_unrelated_topic_terms(shot.narration, topic):
+            return False
+        if _is_audio_cue_narration(shot.narration):
+            continue
+        if text_matches_topic(shot.subtitle, topic):
             return False
     return True
 
