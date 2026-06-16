@@ -262,6 +262,14 @@ def test_text_matches_topic_rejects_unrelated_title():
     assert not script_generator.text_matches_topic("睡前精油短视频", "咖啡店早高峰")
 
 
+def test_text_matches_topic_rejects_unrelated_single_character_topic():
+    assert not script_generator.text_matches_topic("睡前精油短视频", "猫")
+
+
+def test_text_matches_topic_accepts_related_single_character_topic():
+    assert script_generator.text_matches_topic("猫在窗边打盹。", "猫")
+
+
 def test_text_matches_topic_accepts_unaliased_topic_with_multiple_core_terms():
     assert script_generator.text_matches_topic(
         "婚礼现场，无人机从草坪上空掠过。",

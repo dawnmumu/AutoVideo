@@ -363,6 +363,121 @@ def test_generate_script_llm_only_rejects_unrelated_narration_with_empty_visual(
     assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
 
 
+def test_generate_script_auto_falls_back_when_single_character_topic_is_ignored(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "睡前点一滴精油，让卧室慢慢安静下来。",
+                    "subtitle": "睡前精油",
+                    "visual_description": "卧室床头柜上的精油瓶特写",
+                    "keywords": ["精油", "卧室", "睡眠"],
+                    "delivery": {"style": "gentle"},
+                },
+                {
+                    "index": 2,
+                    "duration": 6,
+                    "narration": "深呼吸之后，身体进入更放松的状态。",
+                    "subtitle": "放松入睡",
+                    "visual_description": "夜晚卧室里的人放松躺下",
+                    "keywords": ["放松", "睡眠", "夜晚卧室"],
+                    "delivery": {"style": "gentle"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "猫",
+                "provider": "auto",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert payload["title"] == "猫"
+    assert "睡前精油" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_generate_script_llm_only_rejects_unrelated_single_character_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "睡前点一滴精油，让卧室慢慢安静下来。",
+                    "subtitle": "睡前精油",
+                    "visual_description": "卧室床头柜上的精油瓶特写",
+                    "keywords": ["精油", "卧室", "睡眠"],
+                    "delivery": {"style": "gentle"},
+                },
+                {
+                    "index": 2,
+                    "duration": 6,
+                    "narration": "深呼吸之后，身体进入更放松的状态。",
+                    "subtitle": "放松入睡",
+                    "visual_description": "夜晚卧室里的人放松躺下",
+                    "keywords": ["放松", "睡眠", "夜晚卧室"],
+                    "delivery": {"style": "gentle"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "猫",
+                "provider": "llm_only",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+
+
 def test_generate_script_llm_normalizes_unrelated_title_when_shots_match_topic(
     tmp_path,
 ) -> None:

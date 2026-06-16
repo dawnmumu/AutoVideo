@@ -646,7 +646,7 @@ def _extract_topic_core_terms(topic: str, stopwords: set[str]) -> list[str]:
         )
         for candidate in candidates:
             term = _normalize_compare_text(candidate).lower()
-            if len(term) < 2 or term in stopwords or term in seen:
+            if not term or term in stopwords or term in seen:
                 continue
             seen.add(term)
             terms.append(term)
@@ -683,7 +683,7 @@ def _topic_relevance_groups(topic: str) -> list[list[str]]:
         seen_terms: set[str] = set()
         for value in values:
             term = _normalize_compare_text(value).lower()
-            if len(term) < 2 or term in stopwords or term in seen_terms:
+            if not term or term in stopwords or term in seen_terms:
                 continue
             seen_terms.add(term)
             terms.append(term)
