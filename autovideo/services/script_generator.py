@@ -778,7 +778,9 @@ def _has_unrelated_topic_terms(text: str | None, topic: str | None) -> bool:
     }
     matched_terms: set[str] = set()
     for key, aliases in TOPIC_RELEVANCE_ALIASES.items():
-        if _topic_key_is_related_to_topic(key, topic):
+        if _topic_key_is_related_to_topic(key, topic) or any(
+            _topic_key_is_related_to_topic(alias, topic) for alias in aliases
+        ):
             continue
         for value in (key, *aliases):
             term = _normalize_compare_text(value).lower()
@@ -799,6 +801,8 @@ def _is_audio_cue_narration(text: str | None) -> bool:
 def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
     for shot in script.shots:
         if not text_matches_topic(shot.visual_description, topic):
+            return False
+        if _has_unrelated_topic_terms(" ".join(shot.keywords), topic):
             return False
         if text_matches_topic(shot.narration, topic):
             continue

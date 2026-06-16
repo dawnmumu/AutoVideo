@@ -267,6 +267,18 @@ def test_script_matches_topic_rejects_topic_keywords_with_unrelated_visuals():
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_unrelated_keywords_with_related_content():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+        subtitle="咖啡店早高峰",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["睡前精油", "夜晚卧室"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_accepts_related_family_camping_gear_scene():
     script = _single_shot_script(
         title="户外亲子准备",
