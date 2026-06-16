@@ -213,12 +213,12 @@ LOW_SIGNAL_KEYWORD_PREFIXES = (
 )
 
 TOPIC_RELEVANCE_ALIASES = {
-    "咖啡店": ("咖啡", "咖啡师", "吧台", "拿铁", "门店", "出杯"),
-    "早高峰": ("清晨", "早晨", "通勤", "上班"),
-    "精油": ("香薰", "香气"),
-    "睡眠": ("睡前", "入睡", "卧室", "夜晚"),
+    "咖啡店": ("咖啡", "咖啡师", "吧台", "拿铁", "门店", "出杯", "店员", "点单", "顾客", "柜台", "外带", "coffee", "barista", "counter", "latte", "cafe", "takeaway"),
+    "早高峰": ("清晨", "早晨", "通勤", "上班", "排队", "高峰", "morning", "rush", "commute", "queue"),
+    "精油": ("香薰", "香气", "oil"),
+    "睡眠": ("睡前", "入睡", "卧室", "夜晚", "sleep", "bedroom", "night"),
     "睡前": ("睡眠", "入睡", "卧室", "夜晚"),
-    "放松": ("舒缓", "安静", "疗愈"),
+    "放松": ("舒缓", "安静", "疗愈", "relax", "calm"),
     "疗愈": ("舒缓", "放松", "护理"),
     "SPA": ("水疗", "护理", "放松"),
     "亲子": ("孩子", "儿童", "家庭", "父母"),
@@ -798,9 +798,27 @@ def _is_audio_cue_narration(text: str | None) -> bool:
     return any(hint in normalized_text for hint in AUDIO_CUE_NARRATION_HINTS)
 
 
+def _keywords_match_topic(keywords: list[str], topic: str | None) -> bool:
+    if not keywords:
+        return True
+    normalized_keywords = _normalize_compare_text(" ".join(keywords[:2])).lower()
+    if not normalized_keywords:
+        return True
+    groups = _topic_relevance_groups(str(topic or ""))
+    if not groups:
+        return True
+    return any(
+        _contains_topic_term(normalized_keywords, term)
+        for group in groups
+        for term in group
+    )
+
+
 def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
     for shot in script.shots:
         if not text_matches_topic(shot.visual_description, topic):
+            return False
+        if not _keywords_match_topic(shot.keywords, topic):
             return False
         if _has_unrelated_topic_terms(" ".join(shot.keywords), topic):
             return False

@@ -706,6 +706,195 @@ def test_generate_script_llm_only_rejects_keywords_that_ignore_topic(
     assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
 
 
+def test_generate_script_auto_falls_back_when_generic_narration_ignores_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "咖啡店早高峰",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "退休生活和家庭回忆，在旧照片里慢慢展开。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+                    "keywords": ["咖啡店", "清晨", "吧台"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "heuristic"
+    assert "退休生活" not in json.dumps(response.json(), ensure_ascii=False)
+
+
+def test_generate_script_llm_only_rejects_generic_narration_that_ignores_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "咖啡店早高峰",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "退休生活和家庭回忆，在旧照片里慢慢展开。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+                    "keywords": ["咖啡店", "清晨", "吧台"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+
+
+def test_generate_script_auto_falls_back_when_generic_keywords_ignore_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "咖啡店早高峰",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+                    "keywords": ["city skyline", "office workers"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "heuristic"
+
+
+def test_generate_script_llm_only_rejects_generic_keywords_that_ignore_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "咖啡店早高峰",
+            "total_duration": 12,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 6,
+                    "narration": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+                    "keywords": ["city skyline", "office workers"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "duration_seconds": 12,
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+
+
 def test_generate_script_llm_normalizes_unrelated_title_when_shots_match_topic(
     tmp_path,
 ) -> None:

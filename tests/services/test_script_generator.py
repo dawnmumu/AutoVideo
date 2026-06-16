@@ -199,6 +199,18 @@ def test_script_matches_topic_rejects_repaired_visual_with_unrelated_narration()
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_generic_unrelated_narration():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="退休生活和家庭回忆，在旧照片里慢慢展开。",
+        subtitle="咖啡店早高峰",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["咖啡店", "清晨", "吧台"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
 def test_script_matches_topic_rejects_topic_subtitle_with_unrelated_narration():
     script = _single_shot_script(
         title="咖啡店早高峰",
@@ -274,6 +286,18 @@ def test_script_matches_topic_rejects_unrelated_keywords_with_related_content():
         subtitle="咖啡店早高峰",
         visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
         keywords=["睡前精油", "夜晚卧室"],
+    )
+
+    assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_generic_unrelated_keywords_with_related_content():
+    script = _single_shot_script(
+        title="咖啡店早高峰",
+        narration="咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+        subtitle="咖啡店早高峰",
+        visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+        keywords=["city skyline", "office workers"],
     )
 
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
