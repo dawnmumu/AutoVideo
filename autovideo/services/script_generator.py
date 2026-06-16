@@ -257,8 +257,28 @@ AUDIO_CUE_SUFFIXES = (
     "背景音",
     "音乐",
     "bgm",
+    "music",
+    "sound",
 )
-GENERIC_AUDIO_CUES = {"环境音", "背景音", "音效", "音乐", "bgm"}
+GENERIC_AUDIO_CUES = {"环境音", "背景音", "音效", "音乐", "bgm", "music", "sound"}
+SUBTITLE_OFF_TOPIC_DOMAINS = (
+    ("演唱会", ("演唱会", "音乐节")),
+    ("护肤", ("护肤", "套装", "下单")),
+    ("二手房", ("二手房", "看房", "房产")),
+)
+AUDIO_CUE_LOW_SIGNAL_TOPIC_TERMS = {
+    "早高峰",
+    "清晨",
+    "早晨",
+    "通勤",
+    "上班",
+    "排队",
+    "高峰",
+    "morning",
+    "rush",
+    "commute",
+    "queue",
+}
 SINGLE_CHARACTER_TOPIC_FALSE_COMPOUNDS = {
     "猫": ("熊猫", "猫眼"),
     "马": ("马路",),
@@ -450,6 +470,12 @@ def _normalize_keyword_text(value: Any) -> str:
 def _normalize_compare_text(value: Any) -> str:
     text = str(value or "").strip()
     return re.sub(r"[\s,，。、；;！？!?()（）\[\]【】“”\"'《》<>:：\-]+", "", text)
+
+
+def _normalize_match_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"[,，。、；;！？!?()（）\[\]【】“”\"'《》<>:：\-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _is_placeholder_title(value: Any) -> bool:
@@ -676,6 +702,9 @@ def _contains_topic_term(normalized_text: str, term: str) -> bool:
         index = normalized_text.find(term, cursor)
         if index < 0:
             return False
+        if not _is_ascii_term_boundary_match(normalized_text, term, index):
+            cursor = index + 1
+            continue
         if _is_blocked_single_character_topic_match(normalized_text, term, index):
             cursor = index + 1
             continue
@@ -684,6 +713,19 @@ def _contains_topic_term(normalized_text: str, term: str) -> bool:
             return True
         cursor = index + 1
     return False
+
+
+def _is_ascii_term_boundary_match(normalized_text: str, term: str, index: int) -> bool:
+    if not term.isascii() or not any(char.isalnum() for char in term):
+        return True
+    before = normalized_text[index - 1] if index > 0 else ""
+    after_index = index + len(term)
+    after = normalized_text[after_index] if after_index < len(normalized_text) else ""
+    return not _is_ascii_word_char(before) and not _is_ascii_word_char(after)
+
+
+def _is_ascii_word_char(char: str) -> bool:
+    return bool(char) and char.isascii() and (char.isalnum() or char == "_")
 
 
 def _is_blocked_single_character_topic_match(
@@ -768,11 +810,12 @@ def text_matches_topic(text: str | None, topic: str | None) -> bool:
     if not groups:
         return True
 
-    normalized_text = _normalize_compare_text(text).lower()
+    compare_text = _normalize_compare_text(text).lower()
+    normalized_text = _normalize_match_text(text).lower()
     if not normalized_text:
         return False
 
-    if normalized_topic and _contains_topic_term(normalized_text, normalized_topic):
+    if normalized_topic and _contains_topic_term(compare_text, normalized_topic):
         return True
 
     matched_groups = [
@@ -797,7 +840,7 @@ def _topic_key_is_related_to_topic(key: str, topic: str | None) -> bool:
 
 
 def _has_unrelated_topic_terms(text: str | None, topic: str | None) -> bool:
-    normalized_text = _normalize_compare_text(text).lower()
+    normalized_text = _normalize_match_text(text).lower()
     if not normalized_text:
         return False
 
@@ -820,6 +863,35 @@ def _has_unrelated_topic_terms(text: str | None, topic: str | None) -> bool:
     return len(matched_terms) >= 2
 
 
+def _subtitle_conflicts_topic(text: str | None, topic: str | None) -> bool:
+    normalized_text = _normalize_compare_text(text).lower()
+    if not normalized_text:
+        return False
+    if _has_unrelated_topic_terms(text, topic):
+        return True
+    if any(
+        _subtitle_matches_off_topic_domain(normalized_text, topic, anchor, markers)
+        for anchor, markers in SUBTITLE_OFF_TOPIC_DOMAINS
+    ):
+        return True
+    return False
+
+
+def _subtitle_matches_off_topic_domain(
+    normalized_text: str,
+    topic: str | None,
+    anchor: str,
+    markers: tuple[str, ...],
+) -> bool:
+    domain_terms = (anchor, *markers)
+    if not any(domain_term in normalized_text for domain_term in domain_terms):
+        return False
+    return not any(
+        _topic_key_is_related_to_topic(domain_term, topic)
+        for domain_term in domain_terms
+    )
+
+
 def _is_audio_cue_narration(text: str | None) -> bool:
     normalized_text = _normalize_compare_text(text).lower()
     if not normalized_text:
@@ -836,7 +908,7 @@ def _is_audio_cue_narration(text: str | None) -> bool:
 
 
 def _keyword_matches_topic_group(keyword: str, groups: list[list[str]]) -> bool:
-    normalized_keyword = _normalize_compare_text(keyword).lower()
+    normalized_keyword = _normalize_match_text(keyword).lower()
     if not normalized_keyword:
         return False
     return any(
@@ -846,14 +918,20 @@ def _keyword_matches_topic_group(keyword: str, groups: list[list[str]]) -> bool:
     )
 
 
+def _is_low_signal_audio_topic_group(group: list[str]) -> bool:
+    return all(term in AUDIO_CUE_LOW_SIGNAL_TOPIC_TERMS for term in group)
+
+
 def _audio_cue_matches_topic(text: str | None, topic: str | None) -> bool:
-    normalized_text = _normalize_compare_text(text).lower()
-    if normalized_text in GENERIC_AUDIO_CUES:
-        return True
     groups = _topic_relevance_groups(str(topic or ""))
     if not groups:
         return True
-    return _keyword_matches_topic_group(str(text or ""), groups)
+    normalized_text = _normalize_match_text(text).lower()
+    return any(
+        any(_contains_topic_term(normalized_text, term) for term in group)
+        for group in groups
+        if not _is_low_signal_audio_topic_group(group)
+    )
 
 
 def _keywords_match_topic(keywords: list[str], topic: str | None) -> bool:
@@ -885,17 +963,16 @@ def script_matches_topic(script: VideoScript, topic: str | None) -> bool:
             return False
         if _has_unrelated_topic_terms(" ".join(shot.keywords), topic):
             return False
-        if _has_unrelated_topic_terms(shot.subtitle, topic):
+        if _subtitle_conflicts_topic(shot.subtitle, topic):
+            return False
+        if _is_audio_cue_narration(shot.narration):
+            if _audio_cue_matches_topic(shot.narration, topic):
+                continue
             return False
         if text_matches_topic(shot.narration, topic):
             continue
         if _has_unrelated_topic_terms(shot.narration, topic):
             return False
-        if _is_audio_cue_narration(shot.narration) and _audio_cue_matches_topic(
-            shot.narration,
-            topic,
-        ):
-            continue
         return False
     return True
 
@@ -1145,11 +1222,19 @@ def build_plain_text_enriched_script(
             )
         )
 
-    return normalize_script(
+    script = normalize_script(
         str(data.get("title") or resolved_topic),
         enriched_shots,
         scale_to_target=False,
     )
+    if resolved_topic and (
+        _is_placeholder_title(script.title)
+        or not text_matches_topic(script.title, resolved_topic)
+    ):
+        raise ValueError("LLM 补全标题与主题不匹配")
+    if not script_matches_topic(script, resolved_topic):
+        raise ValueError("LLM 补全内容与主题不匹配")
+    return script
 
 
 def _build_plain_text_script_heuristic(parts: list[str], topic: str) -> VideoScript:

@@ -223,6 +223,85 @@ def test_script_matches_topic_rejects_unrelated_short_audio_cue_with_topic_subti
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
 
 
+def test_script_matches_topic_rejects_temporal_only_audio_cue():
+    for narration in ["清晨欢呼声", "早高峰欢呼声", "通勤音乐"]:
+        script = _single_shot_script(
+            title="咖啡店早高峰",
+            narration=narration,
+            subtitle="咖啡店早高峰",
+            visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+            keywords=["咖啡店", "清晨", "吧台"],
+        )
+
+        assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_audio_cue_with_only_low_signal_topic_group():
+    for narration in ["清晨欢呼声", "早高峰欢呼声", "通勤音乐"]:
+        script = _single_shot_script(
+            title="早高峰",
+            narration=narration,
+            subtitle="早高峰",
+            visual_description="清晨早高峰通勤人流排队。",
+            keywords=["早高峰", "清晨", "通勤"],
+        )
+
+        assert not script_generator.script_matches_topic(script, "早高峰")
+
+
+def test_script_matches_topic_rejects_generic_audio_cue_when_topic_has_groups():
+    cases = [
+        (
+            "早高峰",
+            "清晨早高峰通勤人流排队。",
+            ["早高峰", "清晨", "通勤"],
+        ),
+        (
+            "咖啡店早高峰",
+            "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+            ["咖啡店", "清晨", "吧台"],
+        ),
+    ]
+
+    for topic, visual_description, keywords in cases:
+        for narration in ["音乐", "music", "sound", "bgm"]:
+            script = _single_shot_script(
+                title=topic,
+                narration=narration,
+                subtitle=topic,
+                visual_description=visual_description,
+                keywords=keywords,
+            )
+
+            assert not script_generator.script_matches_topic(script, topic)
+
+
+def test_script_matches_topic_accepts_related_english_audio_cue():
+    for narration in ["coffee music", "barista sound", "counter music"]:
+        script = _single_shot_script(
+            title="咖啡店早高峰",
+            narration=narration,
+            subtitle="咖啡店早高峰",
+            visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+            keywords=["咖啡店", "清晨", "吧台"],
+        )
+
+        assert script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_accepts_related_english_audio_cue_from_non_first_topic_group():
+    for narration in ["sleep music", "bedroom sound"]:
+        script = _single_shot_script(
+            title="睡眠精油",
+            narration=narration,
+            subtitle="睡眠精油",
+            visual_description="夜晚卧室里，香薰精油放在床头。",
+            keywords=["睡眠", "精油", "卧室"],
+        )
+
+        assert script_generator.script_matches_topic(script, "睡眠精油")
+
+
 def test_script_matches_topic_rejects_repaired_visual_with_unrelated_narration():
     script = _single_shot_script(
         title="咖啡店早高峰",
@@ -281,6 +360,95 @@ def test_script_matches_topic_rejects_unrelated_subtitle_with_related_narration(
     )
 
     assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_rejects_strong_unrelated_subtitle():
+    for subtitle in [
+        "城市演唱会",
+        "音乐节现场",
+        "房产指南",
+        "看房路线",
+        "护肤套装限时下单",
+        "咖啡店早高峰护肤套装限时下单",
+        "咖啡店清晨护肤套装限时下单",
+        "二手房看房攻略",
+    ]:
+        script = _single_shot_script(
+            title="咖啡店早高峰",
+            narration="咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+            subtitle=subtitle,
+            visual_description="清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+            keywords=["咖啡店", "清晨", "吧台"],
+        )
+
+        assert not script_generator.script_matches_topic(script, "咖啡店早高峰")
+
+
+def test_script_matches_topic_accepts_non_conflicting_short_subtitles():
+    cases = [
+        (
+            "智能耳机新品",
+            "智能耳机新品上线，降噪体验更安静。",
+            "智能耳机新品展示，佩戴者开启主动降噪。",
+            ["智能耳机", "新品", "耳机"],
+            "新品上线",
+        ),
+        (
+            "夏季穿搭",
+            "夏季穿搭选择轻薄套装，通勤和周末都清爽。",
+            "夏季穿搭展示轻薄套装和清爽配色。",
+            ["夏季穿搭", "夏季", "穿搭"],
+            "轻薄上新",
+        ),
+        (
+            "二手房看房攻略",
+            "二手房看房攻略，先确认路线再看户型细节。",
+            "二手房看房攻略里，经纪人带客户查看户型。",
+            ["二手房", "看房", "攻略"],
+            "看房路线",
+        ),
+    ]
+
+    for topic, narration, visual_description, keywords, subtitle in cases:
+        script = _single_shot_script(
+            title=topic,
+            narration=narration,
+            subtitle=subtitle,
+            visual_description=visual_description,
+            keywords=keywords,
+        )
+
+        assert script_generator.script_matches_topic(script, topic)
+
+
+def test_script_matches_topic_accepts_strong_domain_subtitle_when_topic_matches_marker():
+    cases = [
+        (
+            "音乐节攻略",
+            "参加音乐节攻略时，先确认入场时间和主舞台位置。",
+            "音乐节攻略现场，观众查看演出时间表和舞台路线。",
+            ["音乐节攻略"],
+            "演唱会现场",
+        ),
+        (
+            "房产看房攻略",
+            "房产看房攻略，先规划路线再核对户型细节。",
+            "房产看房攻略现场，经纪人带客户按照路线查看小区和户型。",
+            ["房产看房攻略"],
+            "二手房看房攻略",
+        ),
+    ]
+
+    for topic, narration, visual_description, keywords, subtitle in cases:
+        script = _single_shot_script(
+            title=topic,
+            narration=narration,
+            subtitle=subtitle,
+            visual_description=visual_description,
+            keywords=keywords,
+        )
+
+        assert script_generator.script_matches_topic(script, topic)
 
 
 def test_script_matches_topic_rejects_weak_rush_hour_only_match():
@@ -392,6 +560,12 @@ def test_text_matches_topic_accepts_related_title_aliases():
 
 def test_text_matches_topic_accepts_single_alias_topic_in_english():
     assert script_generator.text_matches_topic("coffee shop counter", "咖啡店")
+
+
+def test_text_matches_topic_rejects_ascii_alias_substrings():
+    assert not script_generator.text_matches_topic("boiler room", "精油")
+    assert not script_generator.text_matches_topic("soil sample", "精油")
+    assert not script_generator.text_matches_topic("encounter with strangers", "咖啡店")
 
 
 def test_text_matches_topic_rejects_unrelated_title():

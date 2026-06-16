@@ -124,13 +124,13 @@ def test_generate_script_with_script_text_uses_llm_enrichment_without_rewriting_
     )
     app.state.llm_client = FakeLlmClient(
         {
-            "title": "LLM 补全标题",
+            "title": "疗愈型 SPA 补全标题",
             "shots": [
                 {
                     "index": 1,
                     "narration": "LLM 不应改写第一句",
                     "subtitle": "进店后放松",
-                    "visual_description": "顾客走进安静 SPA 前台",
+                    "visual_description": "顾客走进疗愈型 SPA 前台",
                     "keywords": ["SPA 前台", "顾客放松", "疗愈空间"],
                     "delivery": {"style": "gentle", "speech_rate": -8},
                 },
@@ -139,7 +139,7 @@ def test_generate_script_with_script_text_uses_llm_enrichment_without_rewriting_
                     "narration": "LLM 不应改写第二句",
                     "subtitle": "护理后更轻盈",
                     "visual_description": "护理结束后顾客舒展肩颈",
-                    "keywords": ["护理结束", "肩颈放松", "轻盈状态"],
+                    "keywords": ["护理结束", "肩颈放松", "疗愈状态"],
                     "delivery": {"style": "gentle", "speech_rate": -8},
                 },
             ],
@@ -165,12 +165,151 @@ def test_generate_script_with_script_text_uses_llm_enrichment_without_rewriting_
         "护理结束后，她的状态轻盈很多。",
     ]
     assert payload["shots"][0]["subtitle"] == "进店后放松"
-    assert payload["shots"][0]["visual_description"] == "顾客走进安静 SPA 前台"
+    assert payload["shots"][0]["visual_description"] == "顾客走进疗愈型 SPA 前台"
     assert payload["shots"][0]["keywords"] == ["SPA 前台", "顾客放松", "疗愈空间"]
+    assert payload["shots"][1]["keywords"] == ["护理结束", "肩颈放松", "疗愈状态"]
     assert payload["shots"][0]["delivery"]["style"] == "gentle"
-    assert payload["script_text"].startswith("标题：LLM 补全标题")
+    assert payload["script_text"].startswith("标题：疗愈型 SPA 补全标题")
     assert payload["analysis"]["shot_count"] == 2
     assert payload["analysis"]["max_single_duration"] == 8
+
+
+def test_generate_script_auto_falls_back_when_script_text_enrichment_ignores_topic(
+    tmp_path,
+) -> None:
+    app = _create_fake_llm_app(
+        tmp_path,
+        {
+            "title": "咖啡店早高峰",
+            "shots": [
+                {
+                    "index": 1,
+                    "subtitle": "睡前精油",
+                    "visual_description": "卧室床头柜上的精油瓶特写",
+                    "keywords": ["精油", "卧室", "睡眠"],
+                    "delivery": {"style": "gentle"},
+                }
+            ],
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "script_text": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert "睡前精油" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_generate_script_llm_only_rejects_script_text_enrichment_that_ignores_topic(
+    tmp_path,
+) -> None:
+    app = _create_fake_llm_app(
+        tmp_path,
+        {
+            "title": "咖啡店早高峰",
+            "shots": [
+                {
+                    "index": 1,
+                    "subtitle": "睡前精油",
+                    "visual_description": "卧室床头柜上的精油瓶特写",
+                    "keywords": ["精油", "卧室", "睡眠"],
+                    "delivery": {"style": "gentle"},
+                }
+            ],
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "script_text": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+
+
+def test_generate_script_auto_falls_back_when_script_text_enrichment_uses_placeholder_title(
+    tmp_path,
+) -> None:
+    app = _create_fake_llm_app(
+        tmp_path,
+        {
+            "title": "视频脚本",
+            "shots": [
+                {
+                    "index": 1,
+                    "subtitle": "咖啡店早高峰补全",
+                    "visual_description": "咖啡店早高峰吧台特写，通勤者排队取热咖啡。",
+                    "keywords": ["咖啡店", "早高峰", "热咖啡"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "script_text": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "咖啡店早高峰补全" not in serialized
+    assert "吧台特写" not in serialized
+
+
+def test_generate_script_llm_only_rejects_script_text_enrichment_placeholder_title(
+    tmp_path,
+) -> None:
+    app = _create_fake_llm_app(
+        tmp_path,
+        {
+            "title": "自定义脚本视频",
+            "shots": [
+                {
+                    "index": 1,
+                    "subtitle": "咖啡店早高峰补全",
+                    "visual_description": "咖啡店早高峰吧台特写，通勤者排队取热咖啡。",
+                    "keywords": ["咖啡店", "早高峰", "热咖啡"],
+                    "delivery": {"style": "natural"},
+                }
+            ],
+        },
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "script_text": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
 
 
 def test_generate_script_auto_falls_back_when_script_text_llm_enrichment_is_invalid(
