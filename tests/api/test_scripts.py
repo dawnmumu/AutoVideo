@@ -54,6 +54,8 @@ def test_generate_script_heuristic_returns_structured_shots(tmp_path) -> None:
         for shot in payload["shots"]
     )
     assert "舒缓" in selling_point_text or "睡前仪式感" in selling_point_text
+    assert "天然成分" not in selling_point_text
+    assert "点击下方链接" not in selling_point_text
 
 
 def test_generate_script_accepts_custom_script_text(client, monkeypatch) -> None:
@@ -186,6 +188,238 @@ def test_generate_script_auto_falls_back_when_script_text_llm_enrichment_is_inva
     assert payload["provider"] == "heuristic"
     assert [shot["narration"] for shot in payload["shots"]] == ["顾客进店后明显放松。"]
     assert "secret-key-should-not-leak" not in response.text
+
+
+def test_generate_script_auto_falls_back_when_llm_ignores_topic(tmp_path) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 20,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10,
+                    "narration": "睡前点一滴精油，让卧室慢慢安静下来。",
+                    "subtitle": "睡前精油",
+                    "visual_description": "卧室床头柜上的精油瓶特写",
+                    "keywords": ["精油", "卧室", "睡眠"],
+                    "delivery": {"style": "gentle"},
+                },
+                {
+                    "index": 2,
+                    "duration": 10,
+                    "narration": "深呼吸之后，身体进入更放松的状态。",
+                    "subtitle": "放松入睡",
+                    "visual_description": "夜晚卧室里的人放松躺下",
+                    "keywords": ["放松", "睡眠", "夜晚卧室"],
+                    "delivery": {"style": "gentle"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "duration_seconds": 20,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert payload["title"] == "咖啡店早高峰"
+    script_text = json.dumps(payload, ensure_ascii=False)
+    assert "咖啡店早高峰" in script_text
+    assert "睡前精油" not in script_text
+
+
+def test_generate_script_auto_falls_back_when_unrelated_narration_has_empty_visual(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 20,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10,
+                    "narration": "睡前点一滴精油，让卧室慢慢安静下来。",
+                    "subtitle": "睡前精油",
+                    "visual_description": "",
+                    "keywords": ["视频"],
+                    "delivery": {"style": "gentle"},
+                },
+                {
+                    "index": 2,
+                    "duration": 10,
+                    "narration": "深呼吸之后，身体进入更放松的状态。",
+                    "subtitle": "放松入睡",
+                    "visual_description": "",
+                    "keywords": ["内容"],
+                    "delivery": {"style": "gentle"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "auto",
+                "duration_seconds": 20,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "heuristic"
+    assert "睡前精油" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_generate_script_llm_only_rejects_unrelated_narration_with_empty_visual(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 20,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10,
+                    "narration": "睡前点一滴精油，让卧室慢慢安静下来。",
+                    "subtitle": "睡前精油",
+                    "visual_description": "",
+                    "keywords": ["视频"],
+                    "delivery": {"style": "gentle"},
+                },
+                {
+                    "index": 2,
+                    "duration": 10,
+                    "narration": "深呼吸之后，身体进入更放松的状态。",
+                    "subtitle": "放松入睡",
+                    "visual_description": "",
+                    "keywords": ["内容"],
+                    "delivery": {"style": "gentle"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "duration_seconds": 20,
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "LLM_GENERATION_FAILED"
+
+
+def test_generate_script_llm_normalizes_unrelated_title_when_shots_match_topic(
+    tmp_path,
+) -> None:
+    from autovideo.services.scripts import FakeLlmClient
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+            llm_base_url="https://llm.example.test/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+    )
+    app.state.llm_client = FakeLlmClient(
+        {
+            "title": "睡前精油短视频",
+            "total_duration": 20,
+            "shots": [
+                {
+                    "index": 1,
+                    "duration": 10,
+                    "narration": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "清晨咖啡店吧台前排队取咖啡，通勤者等待外带。",
+                    "keywords": ["咖啡店", "清晨", "通勤"],
+                    "delivery": {"style": "natural"},
+                },
+                {
+                    "index": 2,
+                    "duration": 10,
+                    "narration": "店员快速完成点单，让清晨节奏更顺畅。",
+                    "subtitle": "快速出杯",
+                    "visual_description": "咖啡店早高峰时段，吧台店员递出外带咖啡。",
+                    "keywords": ["咖啡吧台", "早高峰", "外带咖啡"],
+                    "delivery": {"style": "natural"},
+                },
+            ],
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/scripts/generate",
+            json={
+                "topic": "咖啡店早高峰",
+                "provider": "llm_only",
+                "duration_seconds": 20,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "llm"
+    assert payload["title"] == "咖啡店早高峰"
+    assert "睡前精油短视频" not in response.text
 
 
 def test_generate_script_llm_only_rejects_invalid_script_text_enrichment_payload(
@@ -814,15 +1048,15 @@ def test_generate_script_auto_uses_configured_llm_client(tmp_path) -> None:
     )
     app.state.llm_client = FakeLlmClient(
         {
-            "title": "LLM 生成脚本",
+            "title": "咖啡店早高峰脚本",
             "shots": [
                 {
                     "index": 1,
                     "duration": 6,
-                    "narration": "LLM 旁白",
-                    "subtitle": "LLM 字幕",
-                    "visual_description": "coffee shop morning",
-                    "keywords": ["coffee shop", "morning"],
+                    "narration": "咖啡店早高峰，第一杯热咖啡递到通勤者手里。",
+                    "subtitle": "咖啡店早高峰",
+                    "visual_description": "咖啡店早高峰柜台递咖啡的画面",
+                    "keywords": ["咖啡店柜台", "通勤人群", "coffee shop"],
                 }
             ],
         }
@@ -837,8 +1071,8 @@ def test_generate_script_auto_uses_configured_llm_client(tmp_path) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["provider"] == "llm"
-    assert payload["title"] == "LLM 生成脚本"
-    assert payload["shots"][0]["keywords"] == ["coffee shop", "morning"]
+    assert payload["title"] == "咖啡店早高峰脚本"
+    assert payload["shots"][0]["keywords"] == ["咖啡店柜台", "通勤人群", "coffee shop"]
 
 
 def test_generate_script_llm_only_parses_fake_structured_response(tmp_path) -> None:
@@ -856,15 +1090,15 @@ def test_generate_script_llm_only_parses_fake_structured_response(tmp_path) -> N
     )
     app.state.llm_client = FakeLlmClient(
         {
-            "title": "结构化脚本",
+            "title": "精油睡眠放松脚本",
             "shots": [
                 {
                     "index": 1,
                     "duration": 5,
-                    "narration": "旁白",
-                    "subtitle": "字幕",
-                    "visual_description": "oil bottle close up",
-                    "keywords": ["oil bottle"],
+                    "narration": "精油睡眠放松，从床头的一点香气开始。",
+                    "subtitle": "精油睡眠放松",
+                    "visual_description": "床头精油瓶与夜晚卧室放松场景",
+                    "keywords": ["精油", "睡眠", "放松"],
                 }
             ],
         }
@@ -950,7 +1184,7 @@ def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -
                     "shot_id": 1,
                     "start_time": 0.0,
                     "end_time": 2.5,
-                    "description": "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
+                    "description": "清晨咖啡店吧台前，咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。",
                     "audio_cue": "咖啡机高压蒸汽声",
                     "camera_movement": "微距推近",
                 },
@@ -958,7 +1192,7 @@ def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -
                     "shot_id": 2,
                     "start_time": 2.5,
                     "end_time": 5.0,
-                    "description": "顾客在柜台前排队等待，店员快速递出外带咖啡。",
+                    "description": "咖啡店早高峰时段，顾客在柜台前排队等待，店员快速递出外带咖啡。",
                     "voiceover": "顾客快速取到清晨的第一杯咖啡",
                     "subtitle": "早高峰排队取咖啡",
                     "keywords": ["coffee queue", "takeaway coffee"],
@@ -983,9 +1217,9 @@ def test_generate_script_llm_only_normalizes_common_llm_shot_aliases(tmp_path) -
     assert payload["shots"][0]["index"] == 1
     assert payload["shots"][0]["duration"] == 2.5
     assert payload["shots"][0]["narration"] == "咖啡机高压蒸汽声"
-    assert payload["shots"][0]["subtitle"] == "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
-    assert payload["shots"][0]["visual_description"] == "咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
-    assert "咖啡机蒸汽喷嘴喷出白色蒸汽" in payload["shots"][0]["keywords"]
+    assert payload["shots"][0]["subtitle"] == "清晨咖啡店吧台前，咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
+    assert payload["shots"][0]["visual_description"] == "清晨咖啡店吧台前，咖啡机蒸汽喷嘴喷出白色蒸汽，浓缩咖啡流入杯中。"
+    assert "清晨咖啡店吧台前" in payload["shots"][0]["keywords"]
     assert payload["shots"][0]["delivery"]["style"] == "natural"
     assert payload["shots"][1]["index"] == 2
     assert payload["shots"][1]["keywords"] == ["coffee queue", "takeaway coffee"]

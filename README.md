@@ -110,6 +110,10 @@ docker build \
   只使用 LLM，失败时返回结构化错误；`provider=heuristic` 只使用本地启发式生成。
   生成逻辑对齐 `junxincode` 的混剪脚本生成器：支持主题生成，也支持通过
   `script_text` 输入已有口播稿、编辑器格式脚本或 JSON 分镜，并自动整理为结构化分镜。
+  主题生成会严格围绕 `topic`，不再套用固定商品广告模板；只有传入
+  `selling_points` 等明确卖点时才会写产品亮点。LLM 返回内容如果明显偏离主题，
+  `provider=auto` 会丢弃该结果并回退到本地启发式生成，`provider=llm_only`
+  会返回结构化错误。
   LLM 响应会被规范化为 AutoVideo 分镜 schema：每个镜头包含 `index`、`duration`、
   `narration`、`subtitle`、`visual_description`、`keywords` 和 `delivery`；
   常见的 `shot_id`、`start_time`、`end_time`、`description`、`audio_cue`、
@@ -132,10 +136,13 @@ docker build \
   MIME 与扩展名匹配后下载到素材库。响应复用公开素材字段，不暴露本地
   `storage_path` 或真实下载 URL。请求体 `Content-Length` 受
   `AUTOVIDEO_MAX_ONLINE_MATERIAL_REQUEST_BYTES` 限制。
-- `POST /api/online-mix/tasks`：基于结构化脚本、用户选择的线上候选或已有本地素材创建
-  manifest 任务。线上候选只提交 `candidate_token`，服务端验签后重新解析 provider
-  下载地址并保存素材；本地素材只提交真实 `material_id`。输出 manifest 包含
-  `script`、`shot_materials`、`source_attribution` 和 `render_plan`，当前仍不执行真实渲染。
+- `POST /api/online-mix/tasks`：基于结构化脚本创建 manifest 任务。默认推荐
+  `asset_strategy=auto`，服务端会把脚本里的所有镜头都纳入任务，并按每个镜头的
+  `keywords` 或 `visual_description` 自动搜索、下载线上免费素材。用户也可以为部分镜头
+  传入 `shot_assets` 或 `shot_materials` 作为覆盖项；线上候选只提交
+  `candidate_token`，服务端验签后重新解析 provider 下载地址并保存素材；本地素材只提交
+  真实 `material_id`。输出 manifest 包含 `script`、`shot_materials`、
+  `source_attribution` 和 `render_plan`，当前仍不执行真实渲染。
 
 `POST /api/scripts/generate` 请求字段：
 
@@ -176,7 +183,7 @@ curl -X POST http://127.0.0.1:8090/api/online-materials/download \
 
 curl -X POST http://127.0.0.1:8090/api/online-mix/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title":"线上素材混剪","script":{"id":"script-1","title":"咖啡店早高峰","topic":"咖啡店早高峰","aspect_ratio":"9:16","duration_seconds":10,"shots":[{"index":1,"duration":5,"narration":"旁白","subtitle":"字幕","visual_description":"coffee shop morning","keywords":["coffee shop morning"]}]},"asset_strategy":"manual","shot_materials":[{"shot_index":1,"material_id":"已有素材ID"}]}'
+  -d '{"title":"线上素材混剪","script":{"id":"script-1","title":"咖啡店早高峰","topic":"咖啡店早高峰","aspect_ratio":"9:16","duration_seconds":10,"shots":[{"index":1,"duration":5,"narration":"旁白","subtitle":"字幕","visual_description":"coffee shop morning","keywords":["coffee shop morning"]}]},"asset_strategy":"auto","provider":"auto"}'
 ```
 
 脚本生成成功响应包含：

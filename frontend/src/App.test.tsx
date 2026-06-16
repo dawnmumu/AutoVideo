@@ -298,7 +298,7 @@ describe("AutoVideo shell", () => {
 
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
-    await user.click(await screen.findByRole("button", { name: "改用已有本地素材" }));
+    await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
 
     expect(await screen.findByRole("dialog", { name: "选择本地素材" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "选择 oil-bottle.mp4" }));
@@ -355,8 +355,9 @@ describe("AutoVideo shell", () => {
     await user.type(screen.getByLabelText("镜头 1 时长"), "8");
     await user.clear(screen.getByLabelText("镜头 1 关键词"));
     await user.type(screen.getByLabelText("镜头 1 关键词"), "sleep oil,calm");
-    await user.click(screen.getByRole("button", { name: "改用已有本地素材" }));
+    await user.click(screen.getByRole("button", { name: "用本地素材覆盖" }));
     await user.click(await screen.findByRole("button", { name: "选择 oil-bottle.mp4" }));
+    expect(screen.getByText("手动使用 1 个覆盖素材")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "创建任务" }));
 
     expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
@@ -371,9 +372,62 @@ describe("AutoVideo shell", () => {
             }),
           ],
         }),
+        asset_strategy: "manual",
         shot_materials: [{ shot_index: 1, material_id: "material-real-1" }],
       }),
     );
+  });
+
+  it("creates an automatic online mix task without manual shot selection", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "咖啡店早高峰",
+      topic: "咖啡店早高峰",
+      aspect_ratio: "9:16",
+      duration_seconds: 10,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "第一杯咖啡递到通勤者手里。",
+          subtitle: "第一杯咖啡",
+          visual_description: "coffee shop morning counter",
+          keywords: ["coffee shop morning"],
+        },
+        {
+          index: 2,
+          duration: 5,
+          narration: "她带着热咖啡走进清晨街道。",
+          subtitle: "清晨出发",
+          visual_description: "woman walking with coffee morning street",
+          keywords: ["woman coffee morning"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "咖啡店早高峰",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "咖啡店早高峰");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByText("镜头 1");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        asset_strategy: "auto",
+        provider: "auto",
+        shot_assets: [],
+        shot_materials: [],
+      }),
+    );
+    expect(screen.queryByText("已选择 0/2 个镜头")).not.toBeInTheDocument();
   });
 
   it("shows create failure with collapsible error details", async () => {
@@ -413,7 +467,7 @@ describe("AutoVideo shell", () => {
 
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
-    await user.click(screen.getByRole("button", { name: "改用已有本地素材" }));
+    await user.click(screen.getByRole("button", { name: "用本地素材覆盖" }));
     await user.click(await screen.findByRole("button", { name: "选择 oil-bottle.mp4" }));
     await user.click(screen.getByRole("button", { name: "创建任务" }));
 
