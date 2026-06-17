@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import math
 import shutil
 import subprocess
 import tempfile
@@ -185,11 +186,14 @@ def _clean_timeline_duration_ms(duration_ms: int | float | str | None) -> int:
     clean_duration_ms = DEFAULT_PREVIEW_DURATION_MS
     if isinstance(duration_ms, bool):
         clean_duration_ms = DEFAULT_PREVIEW_DURATION_MS
-    elif isinstance(duration_ms, int | float):
-        clean_duration_ms = int(duration_ms)
+    elif isinstance(duration_ms, int):
+        clean_duration_ms = duration_ms
+    elif isinstance(duration_ms, float):
+        clean_duration_ms = int(duration_ms) if math.isfinite(duration_ms) else DEFAULT_PREVIEW_DURATION_MS
     elif isinstance(duration_ms, str):
         try:
-            clean_duration_ms = int(float(duration_ms.strip()))
+            parsed_duration_ms = float(duration_ms.strip())
+            clean_duration_ms = int(parsed_duration_ms) if math.isfinite(parsed_duration_ms) else DEFAULT_PREVIEW_DURATION_MS
         except ValueError:
             clean_duration_ms = DEFAULT_PREVIEW_DURATION_MS
 
@@ -215,6 +219,10 @@ def _run_preview_command(command: list[str], output_path: Path) -> None:
         if detail:
             message = f"{message}: {detail}"
         raise SubtitlePreviewRendererUnavailableError(message) from exc
+    except OSError as exc:
+        raise SubtitlePreviewRendererUnavailableError(
+            f"FFmpeg/libass preview renderer could not start: {exc}"
+        ) from exc
 
     if completed.returncode != 0:
         detail = _clean_stderr(completed.stderr or completed.stdout or "")

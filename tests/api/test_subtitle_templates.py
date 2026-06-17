@@ -1,7 +1,10 @@
+import math
+
 from fastapi.testclient import TestClient
 
 from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
+from autovideo.services.subtitles import preview_renderer
 
 
 def _client(tmp_path):
@@ -30,6 +33,24 @@ def test_list_create_update_validate_and_delete_template_set(tmp_path):
 
 def test_preview_reports_ffmpeg_unavailable_without_blocking_template_save(tmp_path):
     with _client(tmp_path) as client:
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        response = client.post(
+            "/api/subtitle-template-sets/preview",
+            json={
+                "template_set": template,
+                "template_type": "bottom",
+                "aspect_ratio": "9:16",
+                "sample_text": "AI 提升效率",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"
+
+
+def test_preview_reports_invalid_executable_ffmpeg_as_renderer_unavailable(tmp_path):
+    ffmpeg_path = _write_invalid_executable_ffmpeg(tmp_path)
+    with TestClient(create_app(Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path=ffmpeg_path))) as client:
         template = client.get("/api/subtitle-template-sets").json()["presets"][0]
         response = client.post(
             "/api/subtitle-template-sets/preview",
@@ -74,6 +95,13 @@ def test_preset_override_reset_and_timeline_preview_routes(tmp_path):
     assert reset.status_code == 204
 
 
+def test_clean_timeline_duration_uses_default_for_non_finite_numbers():
+    assert preview_renderer._clean_timeline_duration_ms(math.nan) == preview_renderer.DEFAULT_PREVIEW_DURATION_MS
+    assert preview_renderer._clean_timeline_duration_ms(math.inf) == preview_renderer.DEFAULT_PREVIEW_DURATION_MS
+    assert preview_renderer._clean_timeline_duration_ms("nan") == preview_renderer.DEFAULT_PREVIEW_DURATION_MS
+    assert preview_renderer._clean_timeline_duration_ms("-inf") == preview_renderer.DEFAULT_PREVIEW_DURATION_MS
+
+
 def _write_preview_fake_ffmpeg(tmp_path) -> str:
     ffmpeg_path = tmp_path / "preview-ffmpeg"
     ffmpeg_path.write_text(
@@ -82,5 +110,12 @@ def _write_preview_fake_ffmpeg(tmp_path) -> str:
         "pathlib.Path(sys.argv[-1]).write_bytes(b'preview-media')\n",
         encoding="utf-8",
     )
+    ffmpeg_path.chmod(0o755)
+    return str(ffmpeg_path)
+
+
+def _write_invalid_executable_ffmpeg(tmp_path) -> str:
+    ffmpeg_path = tmp_path / "invalid-ffmpeg"
+    ffmpeg_path.write_text("not a valid executable\n", encoding="utf-8")
     ffmpeg_path.chmod(0o755)
     return str(ffmpeg_path)
