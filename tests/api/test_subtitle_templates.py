@@ -95,6 +95,28 @@ def test_preset_override_reset_and_timeline_preview_routes(tmp_path):
     assert reset.status_code == 204
 
 
+def test_update_missing_template_set_returns_not_found(tmp_path):
+    with _client(tmp_path) as client:
+        response = client.put(
+            "/api/subtitle-template-sets/missing-template",
+            json={"name": "不存在模板"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "SUBTITLE_TEMPLATE_NOT_FOUND"
+
+
+def test_update_missing_preset_returns_not_found(tmp_path):
+    with _client(tmp_path) as client:
+        response = client.put(
+            "/api/subtitle-template-sets/presets/missing-preset",
+            json={"name": "不存在预设"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "SUBTITLE_TEMPLATE_NOT_FOUND"
+
+
 def test_preview_timeline_normalizes_non_finite_duration_inputs_at_endpoint(tmp_path):
     ffmpeg_path = _write_preview_fake_ffmpeg(tmp_path)
     with TestClient(create_app(Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path=ffmpeg_path))) as client:

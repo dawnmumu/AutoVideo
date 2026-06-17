@@ -70,7 +70,13 @@ def update_preset(
 ) -> dict[str, Any]:
     try:
         return _store(settings).update_preset(preset_id, patch)
-    except (KeyError, ValueError, SubtitleTemplateStoreError) as exc:
+    except KeyError as exc:
+        raise structured_error(
+            status.HTTP_404_NOT_FOUND,
+            "SUBTITLE_TEMPLATE_NOT_FOUND",
+            message=str(exc),
+        ) from exc
+    except (ValueError, SubtitleTemplateStoreError) as exc:
         raise structured_error(
             status.HTTP_400_BAD_REQUEST,
             "SUBTITLE_TEMPLATE_INVALID",
@@ -152,7 +158,13 @@ def update_template_set(
 ) -> dict[str, Any]:
     try:
         return _store(settings).update_template_set(template_set_id, patch)
-    except (KeyError, ValueError, SubtitleTemplateStoreError) as exc:
+    except KeyError as exc:
+        raise structured_error(
+            status.HTTP_404_NOT_FOUND,
+            "SUBTITLE_TEMPLATE_NOT_FOUND",
+            message=str(exc),
+        ) from exc
+    except (ValueError, SubtitleTemplateStoreError) as exc:
         raise structured_error(
             status.HTTP_400_BAD_REQUEST,
             "SUBTITLE_TEMPLATE_INVALID",
