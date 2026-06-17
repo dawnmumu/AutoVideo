@@ -105,6 +105,28 @@ export interface SearchOnlineMaterialsInput {
   provider: string;
 }
 
+export interface CreateOnlineMixTaskInput {
+  title: string;
+  script: GeneratedScript;
+  asset_strategy: "auto" | "manual";
+  provider: string;
+  shot_assets: Array<{
+    shot_index: number;
+    candidate_token: string;
+  }>;
+  shot_materials: Array<{
+    shot_index: number;
+    material_id: string;
+  }>;
+  options: {
+    aspect_ratio: string;
+    resolution: string;
+    subtitle_enabled?: boolean;
+    subtitle_template_set_id?: string | null;
+    subtitle_font_family?: string | null;
+  };
+}
+
 export interface CreateOnlineMixTaskResponse {
   id: string;
   title: string;
@@ -178,7 +200,9 @@ export async function searchOnlineMaterials(
   );
 }
 
-export async function createOnlineMixTask(input: unknown): Promise<CreateOnlineMixTaskResponse> {
+export async function createOnlineMixTask(
+  input: CreateOnlineMixTaskInput,
+): Promise<CreateOnlineMixTaskResponse> {
   return readJson(
     await fetch("/api/online-mix/tasks", {
       method: "POST",

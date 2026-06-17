@@ -104,10 +104,32 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<ActiveSection>(() =>
     activeSectionFromHash(currentHash()),
   );
+  const [openedSections, setOpenedSections] = useState<Record<ActiveSection, boolean>>(() => {
+    const initialSection = activeSectionFromHash(currentHash());
+    return {
+      remix: initialSection === "remix",
+      subtitles: initialSection === "subtitles",
+    };
+  });
+  const markSectionOpened = (section: ActiveSection) => {
+    setOpenedSections((current) =>
+      current[section] ? current : { ...current, [section]: true },
+    );
+  };
+  const openSection = (section: ActiveSection) => {
+    setActiveSection(section);
+    markSectionOpened(section);
+    const nextHash = `#${section}`;
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    }
+  };
 
   useEffect(() => {
     const syncActiveSection = () => {
-      setActiveSection(normalizeActiveHash());
+      const nextSection = normalizeActiveHash();
+      setActiveSection(nextSection);
+      markSectionOpened(nextSection);
     };
 
     syncActiveSection();
@@ -188,16 +210,21 @@ export default function App() {
           )}
         </nav>
 
-        {activeSection === "remix" ? (
-          <section className="content-grid" id="remix">
-            <OnlineRemixWorkbench />
+        {openedSections.remix ? (
+          <section className="content-grid" hidden={activeSection !== "remix"} id="remix">
+            <OnlineRemixWorkbench onOpenSubtitleTemplates={() => openSection("subtitles")} />
             <RuntimeStatus />
           </section>
-        ) : (
-          <section className="content-grid single-column" id="subtitles">
+        ) : null}
+        {openedSections.subtitles ? (
+          <section
+            className="content-grid single-column"
+            hidden={activeSection !== "subtitles"}
+            id="subtitles"
+          >
             <SubtitleTemplateWorkbench />
           </section>
-        )}
+        ) : null}
       </main>
     </div>
   );

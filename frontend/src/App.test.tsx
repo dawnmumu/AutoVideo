@@ -78,7 +78,7 @@ const removedCopyPattern = new RegExp(
 
 const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
-  name: "清爽底部字幕",
+  name: "清晰底部字幕",
   schema_version: 2,
   renderer_mode: "ass_plus",
   favorite: false,
@@ -204,7 +204,7 @@ describe("AutoVideo shell", () => {
 
     expect(await screen.findByRole("heading", { name: "混剪工作台" })).toBeInTheDocument();
     expect(screen.getByText("素材库")).toBeInTheDocument();
-    expect(screen.getByText("字幕模板")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "字幕模板" })).toBeInTheDocument();
     expect(screen.getByText("BGM 管理")).toBeInTheDocument();
     expect(screen.getByText("音色中心")).toBeInTheDocument();
     expect(screen.getByText("功能提取处理")).toBeInTheDocument();
@@ -325,6 +325,186 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
       "page",
+    );
+  });
+
+  it("creates a custom subtitle template and marks a preset as default", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+
+    expect(await screen.findByRole("button", { name: "设为默认" })).toBeInTheDocument();
+    expect(screen.getByLabelText("示例文本")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("字体")).toHaveLength(3);
+    expect(screen.getAllByLabelText("主色")).toHaveLength(3);
+    expect(screen.getByRole("group", { name: "底部字幕" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "强调字幕" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "冲击字幕" })).toBeInTheDocument();
+    expect(screen.getByLabelText("预览画幅")).toHaveValue("9:16");
+    expect(screen.getAllByLabelText("字号比例")).toHaveLength(3);
+    expect(screen.getAllByLabelText("描边宽度")).toHaveLength(3);
+    expect(screen.getAllByLabelText("阴影强度")).toHaveLength(3);
+    expect(screen.getAllByLabelText("垂直位置")).toHaveLength(3);
+    expect(screen.getAllByLabelText("最大宽度")).toHaveLength(3);
+    expect(screen.getAllByLabelText("旋转")).toHaveLength(3);
+    expect(screen.getAllByLabelText("倾斜")).toHaveLength(3);
+    expect(screen.getByLabelText("局部关键词")).toBeInTheDocument();
+    expect(screen.getByLabelText("局部高亮色")).toBeInTheDocument();
+    expect(screen.getByTestId("subtitle-preview-frame")).toHaveStyle({ aspectRatio: "9 / 16" });
+
+    await user.selectOptions(screen.getByLabelText("预览画幅"), "16:9");
+    expect(screen.getByTestId("subtitle-preview-frame")).toHaveStyle({ aspectRatio: "16 / 9" });
+    await user.click(screen.getByRole("button", { name: "设为默认" }));
+    await user.click(screen.getByRole("button", { name: "从预设新建" }));
+
+    expect(mockedCreateSubtitleTemplateSet).toHaveBeenCalledWith({
+      name: "我的清晰底部字幕",
+      preset_id: "preset-clean-bottom",
+    });
+    expect(mockedUpdateSubtitlePresetOverride).toHaveBeenCalledWith({
+      id: "preset-clean-bottom",
+      patch: { is_favorite: true },
+    });
+  });
+
+  it("shows subtitle validation warnings near the editor", async () => {
+    const user = userEvent.setup();
+    mockedValidateSubtitleTemplateSet.mockResolvedValueOnce({
+      ok: false,
+      normalized: null,
+      warnings: ["主色格式无效"],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "校验模板" }));
+
+    expect(mockedValidateSubtitleTemplateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "preset-clean-bottom" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("主色格式无效");
+  });
+
+  it("renders precise image and timeline previews from the selected template", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.clear(screen.getByLabelText("示例文本"));
+    await user.type(screen.getByLabelText("示例文本"), "AI 自动完成重复工作");
+    await user.click(screen.getByRole("button", { name: "精准预览" }));
+    await user.click(screen.getByRole("button", { name: "时间线预览" }));
+
+    expect(mockedPreviewSubtitleTemplateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template_type: "bottom",
+        aspect_ratio: "9:16",
+        sample_text: "AI 自动完成重复工作",
+      }),
+    );
+    expect(mockedPreviewSubtitleTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template_type: "bottom",
+        duration_ms: 1200,
+      }),
+    );
+    expect(await screen.findByRole("img", { name: "字幕精准预览" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("data:image/png;base64,"),
+    );
+    expect(screen.getByTestId("subtitle-timeline-preview")).toHaveAttribute(
+      "src",
+      expect.stringContaining("data:video/mp4;base64,"),
+    );
+  });
+
+  it("keeps subtitle workbench keyboard, loading, error, and mobile semantics accessible", async () => {
+    const user = userEvent.setup();
+    let resolvePreview: (value: Awaited<ReturnType<typeof previewSubtitleTemplateSet>>) => void;
+    mockedPreviewSubtitleTemplateSet.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    const precisePreview = screen.getByRole("button", { name: "精准预览" });
+    await user.click(precisePreview);
+    expect(precisePreview).toBeDisabled();
+    resolvePreview!({
+      mime_type: "image/png",
+      data: btoa("preview"),
+      resolution: { width: 1080, height: 1920 },
+      warnings: [],
+    });
+    expect(await screen.findByRole("img", { name: "字幕精准预览" })).toBeInTheDocument();
+
+    mockedPreviewSubtitleTemplateSet.mockRejectedValueOnce(
+      new Error("SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"),
+    );
+    await user.click(screen.getByRole("button", { name: "精准预览" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
+    expect(screen.getByRole("region", { name: "字幕模板列表" })).toHaveAttribute(
+      "data-mobile-layout",
+      "horizontal-scroll-on-mobile",
+    );
+    expect(screen.getByRole("button", { name: "清晰底部字幕" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    screen.getByRole("button", { name: "精准预览" }).focus();
+    await user.tab();
+    expect(document.activeElement).toHaveAccessibleName("时间线预览");
+  });
+
+  it("submits subtitle options when creating online mix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "AI 办公",
+      topic: "AI 办公",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "office",
+          keywords: ["office"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "AI 办公",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "AI 办公");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await user.selectOptions(await screen.findByLabelText("字幕模板"), "preset-clean-bottom");
+    await user.selectOptions(screen.getByLabelText("字幕字体"), "Noto Sans CJK SC");
+    expect(screen.getByText("当前模板：清晰底部字幕")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "混剪工作台" }));
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          subtitle_enabled: true,
+          subtitle_template_set_id: "preset-clean-bottom",
+          subtitle_font_family: "Noto Sans CJK SC",
+        }),
+      }),
     );
   });
 
