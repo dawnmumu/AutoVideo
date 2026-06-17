@@ -29,6 +29,7 @@ from autovideo.services.online_mix import (
     OnlineMaterialSearchFailedError,
     OnlineMixNoMaterialMatchError,
     OnlineMixShotSelectionInvalidError,
+    SubtitleTemplateInvalidError,
     create_online_mix_task,
     validate_manual_shot_coverage,
     validate_shot_selection,
@@ -266,6 +267,12 @@ def create_online_mix_video_task(
             "TASK_OPTIONS_TOO_LARGE",
             max_task_options_bytes=exc.max_task_options_bytes,
             options_bytes=exc.options_bytes,
+        ) from exc
+    except SubtitleTemplateInvalidError as exc:
+        raise structured_error(
+            status.HTTP_400_BAD_REQUEST,
+            "SUBTITLE_TEMPLATE_INVALID",
+            message=str(exc),
         ) from exc
     except FfmpegRenderFailedError as exc:
         raise structured_error(

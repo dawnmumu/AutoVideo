@@ -62,17 +62,15 @@ def _write_fake_ffmpeg(tmp_path) -> str:
 
 
 def _write_failing_fake_ffmpeg(tmp_path) -> str:
-    ffmpeg_path = tmp_path / "failing-fake-ffmpeg"
+    ffmpeg_path = tmp_path / "failing-online-mix-ffmpeg"
     ffmpeg_path.write_text(
         "#!/usr/bin/env python3\n"
-        "import pathlib\n"
         "import sys\n"
-        "pathlib.Path(sys.argv[-1]).write_bytes(b'partial video')\n"
-        "sys.stderr.write('render failed after partial output')\n"
+        "sys.stderr.write('base render failed')\n"
         "sys.exit(12)\n",
         encoding="utf-8",
     )
-    os.chmod(ffmpeg_path, 0o755)
+    ffmpeg_path.chmod(0o755)
     return str(ffmpeg_path)
 
 
@@ -105,7 +103,7 @@ def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
                     {"shot_index": 1, "material_id": first_material["id"]},
                     {"shot_index": 2, "material_id": second_material["id"]},
                 ],
-                "options": {"aspect_ratio": "9:16"},
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
             },
         )
         task = response.json()
@@ -129,7 +127,7 @@ def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
     ] == [(1, 0, 5), (2, 5, 10)]
     assert timeline["items"][0]["narration"] == "旁白 1"
     assert timeline["items"][0]["subtitle"] == "字幕 1"
-    assert manifest["render_plan"]["status"] == "rendered"
+    assert manifest["render_plan"]["status"] == "video_rendered"
     assert manifest["render_plan"]["renderer"] == "ffmpeg"
     assert argv[-1].endswith("output.mp4")
 
@@ -163,7 +161,7 @@ def test_online_mix_cleans_unregistered_output_dir_when_ffmpeg_fails(
                     {"shot_index": 1, "material_id": first_material["id"]},
                     {"shot_index": 2, "material_id": second_material["id"]},
                 ],
-                "options": {"aspect_ratio": "9:16"},
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
             },
         )
         tasks_response = client.get("/api/tasks")
@@ -312,6 +310,7 @@ def test_online_mix_sanitizes_sensitive_options_in_manifest(client) -> None:
             ],
             "options": {
                 "aspect_ratio": "9:16",
+                "subtitle_enabled": False,
                 "candidate_token": "signed-token",
                 "provider_download_url": (
                     "https://videos.pexels.com/video-files/123/clip.mp4"
@@ -325,12 +324,192 @@ def test_online_mix_sanitizes_sensitive_options_in_manifest(client) -> None:
     output = client.get(response.json()["output"]["download_url"]).json()
     assert output["options"] == {
         "aspect_ratio": "9:16",
+        "subtitle_enabled": False,
         "render_profile": {"preset": "fast"},
     }
     serialized = json.dumps(output, ensure_ascii=False)
     assert "signed-token" not in serialized
     assert "provider_download_url" not in serialized
     assert "videos.pexels.com" not in serialized
+
+
+def test_online_mix_persists_subtitle_snapshot_and_font_override(tmp_path):
+    app = create_app(
+        Settings(data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg-binary")
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials", files={"file": ("clip.mp4", b"fake", "video/mp4")}
+        ).json()
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "字幕快照",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": True,
+                    "subtitle_template_snapshot": template,
+                    "subtitle_template_set_id": template["id"],
+                    "subtitle_font_family": "Noto Sans CJK SC",
+                },
+            },
+        )
+        task = response.json()
+
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    snapshot = manifest["subtitle_template_snapshot"]
+    assert response.status_code == 201
+    assert manifest["subtitle_enabled"] is True
+    assert snapshot["id"] == template["id"]
+    assert "template_variants" in snapshot
+    assert snapshot["templates"]["bottom"]["font_family"] == "Noto Sans CJK SC"
+    assert snapshot["blocks"][0]["style"]["font_family"] == "Noto Sans CJK SC"
+    assert manifest["render_plan"]["subtitles_ass"] == "subtitles.ass"
+
+
+def test_online_mix_rejects_snapshot_id_mismatch(tmp_path):
+    app = create_app(
+        Settings(data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg-binary")
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials", files={"file": ("clip.mp4", b"fake", "video/mp4")}
+        ).json()
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "快照不匹配",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "subtitle_enabled": True,
+                    "subtitle_template_set_id": "different-id",
+                    "subtitle_template_snapshot": template,
+                },
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "SUBTITLE_TEMPLATE_INVALID"
+
+
+def test_online_mix_keeps_manifest_and_ass_when_base_video_fails(tmp_path):
+    app = create_app(
+        Settings(data_dir=tmp_path, ffmpeg_path=_write_failing_fake_ffmpeg(tmp_path))
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials", files={"file": ("clip.mp4", b"fake", "video/mp4")}
+        ).json()
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "保留字幕产物",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "subtitle_enabled": True,
+                    "subtitle_template_snapshot": template,
+                    "subtitle_template_set_id": template["id"],
+                },
+            },
+        )
+        task = response.json()
+
+    output_dir = tmp_path / "outputs" / task["id"]
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert response.status_code == 201
+    assert manifest["render_plan"]["status"] == "base_video_failed"
+    assert (output_dir / "timeline.json").is_file()
+    assert (output_dir / "subtitles.srt").is_file()
+    assert (output_dir / "subtitles.ass").is_file()
+
+
+def test_online_mix_manifest_records_captioned_local_source_masks(tmp_path):
+    from datetime import UTC, datetime
+
+    from autovideo.storage.database import AutoVideoStore
+
+    settings = Settings(data_dir=tmp_path, ffmpeg_path="missing-ffmpeg")
+    store = AutoVideoStore(settings)
+    captioned_dir = tmp_path / "字幕素材"
+    clean_dir = tmp_path / "clean"
+    captioned_dir.mkdir()
+    clean_dir.mkdir()
+    captioned_path = captioned_dir / "clip.mp4"
+    clean_path = clean_dir / "clip.mp4"
+    captioned_path.write_bytes(b"captioned")
+    clean_path.write_bytes(b"clean")
+    now = datetime.now(UTC).isoformat()
+    captioned = store.insert_material(
+        {
+            "id": "captioned-local",
+            "original_filename": "clip.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": captioned_path.stat().st_size,
+            "storage_path": str(captioned_path),
+            "created_at": now,
+            "source_type": "upload",
+        }
+    )
+    clean = store.insert_material(
+        {
+            "id": "clean-local",
+            "original_filename": "clip.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": clean_path.stat().st_size,
+            "storage_path": str(clean_path),
+            "created_at": now,
+            "source_type": "upload",
+        }
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "源字幕遮挡",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": captioned["id"]},
+                    {"shot_index": 2, "material_id": clean["id"]},
+                ],
+                "options": {
+                    "subtitle_enabled": True,
+                    "subtitle_template_snapshot": template,
+                    "subtitle_template_set_id": template["id"],
+                },
+            },
+        )
+        task = response.json()
+
+    output_dir = tmp_path / "outputs" / task["id"]
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert response.status_code == 201
+    assert manifest["render_plan"]["status"] == "manifest_only"
+    assert manifest["render_plan"]["base_video_skipped"] is True
+    assert manifest["render_plan"]["subtitle_burn_skipped"] is True
+    assert manifest["render_plan"]["source_subtitle_masked"] is True
+    assert manifest["render_plan"]["source_subtitle_mask_count"] == 1
+    assert manifest["render_plan"]["source_subtitle_masks"] == [True, False]
 
 
 def test_online_mix_sanitizes_timeline_manifest_and_artifacts_when_ffmpeg_unavailable(
