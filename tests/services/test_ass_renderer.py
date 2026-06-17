@@ -267,6 +267,67 @@ def test_keyword_span_restores_event_override_tags_after_reset():
     assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}{\\c&H4FD5FF&}AI{\\r}{\\fs72\\c&HFFE500&\\pos(270,1440)} 办公" in content
 
 
+def test_keyword_spans_do_not_match_inside_generated_ass_tags():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI H",
+        template="bottom",
+        spans=[
+            {"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}},
+            {"selector": {"type": "keyword", "value": "H"}, "style": {"primary_color": "#00E5FF"}},
+        ],
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\c&H4FD5FF&}AI{\\r} {\\c&HFFE500&}H{\\r}" in content
+    assert "{\\c&{" not in content
+
+
+def test_keyword_span_absent_from_plain_text_does_not_match_ass_tag_text():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 文案",
+        template="bottom",
+        spans=[
+            {"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}},
+            {"selector": {"type": "keyword", "value": "c"}, "style": {"primary_color": "#00E5FF"}},
+        ],
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\c&H4FD5FF&}AI{\\r} 文案" in content
+    assert "{\\c&HFFE500&}c{\\r}" not in content
+    assert "{\\c&{" not in content
+
+
+def test_overlapping_keyword_spans_skip_later_span():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 提升",
+        template="bottom",
+        spans=[
+            {"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}},
+            {"selector": {"type": "keyword", "value": "AI 提升"}, "style": {"primary_color": "#00E5FF"}},
+        ],
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\c&H4FD5FF&}AI{\\r} 提升" in content
+    assert "{\\c&HFFE500&}AI 提升{\\r}" not in content
+
+
 def test_subtitle_package_all_exports_task2_modules():
     assert {
         "timeline",

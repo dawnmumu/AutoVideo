@@ -156,7 +156,7 @@ def _position_tag(position: dict[str, Any], resolution: tuple[int, int]) -> str:
 
 
 def _render_text(text: str, spans: list[dict[str, Any]], *, reset_tags: str = "") -> str:
-    rendered = _escape_ass_text(text)
+    selected_ranges: list[tuple[int, int, str]] = []
     for span in spans:
         if not isinstance(span, dict):
             continue
@@ -170,12 +170,41 @@ def _render_text(text: str, spans: list[dict[str, Any]], *, reset_tags: str = ""
         if not isinstance(keyword, str) or not keyword or not isinstance(color, str):
             continue
 
-        escaped_keyword = _escape_ass_text(keyword)
-        if escaped_keyword not in rendered:
+        match_range = _find_first_available_range(text, keyword, selected_ranges)
+        if match_range is None:
             continue
-        replacement = f"{{\\c{_inline_color(color)}}}{escaped_keyword}{{\\r}}{reset_tags}"
-        rendered = rendered.replace(escaped_keyword, replacement, 1)
-    return rendered
+        selected_ranges.append((match_range[0], match_range[1], color))
+
+    if not selected_ranges:
+        return _escape_ass_text(text)
+
+    rendered_parts: list[str] = []
+    cursor = 0
+    for start, end, color in sorted(selected_ranges, key=lambda item: item[0]):
+        rendered_parts.append(_escape_ass_text(text[cursor:start]))
+        rendered_parts.append(f"{{\\c{_inline_color(color)}}}{_escape_ass_text(text[start:end])}{{\\r}}{reset_tags}")
+        cursor = end
+
+    rendered_parts.append(_escape_ass_text(text[cursor:]))
+    return "".join(rendered_parts)
+
+
+def _find_first_available_range(
+    text: str,
+    keyword: str,
+    selected_ranges: list[tuple[int, int, str]],
+) -> tuple[int, int] | None:
+    start = text.find(keyword)
+    while start != -1:
+        end = start + len(keyword)
+        if not _overlaps_selected_range(start, end, selected_ranges):
+            return (start, end)
+        start = text.find(keyword, start + 1)
+    return None
+
+
+def _overlaps_selected_range(start: int, end: int, selected_ranges: list[tuple[int, int, str]]) -> bool:
+    return any(start < selected_end and end > selected_start for selected_start, selected_end, _color in selected_ranges)
 
 
 def _scaled_font_size(style: dict[str, Any]) -> int:
