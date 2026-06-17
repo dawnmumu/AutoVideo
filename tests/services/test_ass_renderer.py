@@ -26,6 +26,10 @@ def _ass_time_to_centiseconds(value: str) -> int:
     )
 
 
+def _dialogue_fields(content: str) -> list[list[str]]:
+    return [line.split(",", 9) for line in content.splitlines() if line.startswith("Dialogue: ")]
+
+
 def _template():
     return {
         "id": "template-1",
@@ -304,6 +308,85 @@ def test_ass_renderer_ignores_non_finite_event_style_and_position_values():
 
     assert "\\fs54" in content
     assert "\\pos(" not in content
+
+
+def test_ass_renderer_emits_event_outline_shadow_rotate_and_margin_overrides():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="样式字幕",
+        template="bottom",
+        style={
+            "outline_width": 6,
+            "outline_color": "#123456",
+            "shadow_depth": 4,
+            "shadow_color": "#ABCDEF",
+            "rotate": -7,
+            "margin_v": 88,
+        },
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+    fields = _dialogue_fields(content)[0]
+
+    assert fields[7] == "88"
+    assert "{\\bord6\\3c&H563412&\\shad4\\4c&HEFCDAB&\\frz-7}" in content
+
+
+def test_keyword_reset_restores_full_event_style_overrides():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 样式",
+        template="bottom",
+        spans=[{"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}}],
+        style={
+            "font_size": 72,
+            "primary_color": "#00E5FF",
+            "outline_width": 6,
+            "outline_color": "#123456",
+            "shadow": 4,
+            "shadow_color": "#ABCDEF",
+            "rotate": -7,
+        },
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+    reset_tags = "{\\fs72\\c&HFFE500&\\bord6\\3c&H563412&\\shad4\\4c&HEFCDAB&\\frz-7}"
+
+    assert f"{reset_tags}{{\\c&H4FD5FF&}}AI{{\\r}}{reset_tags} 样式" in content
+
+
+def test_ass_renderer_ignores_non_finite_outline_shadow_rotate_and_margin_values():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="稳定样式",
+        template="bottom",
+        style={
+            "outline_width": float("nan"),
+            "shadow_depth": float("inf"),
+            "rotate": float("nan"),
+            "margin_v": float("inf"),
+        },
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+    fields = _dialogue_fields(content)[0]
+    dialogue = ",".join(fields)
+
+    assert fields[7] == "0"
+    assert "\\bord" not in dialogue
+    assert "\\shad" not in dialogue
+    assert "\\frz" not in dialogue
+    assert "nan" not in dialogue.lower()
+    assert "inf" not in dialogue.lower()
 
 
 def test_keyword_span_restores_event_override_tags_after_reset():

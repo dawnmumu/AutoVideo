@@ -123,9 +123,10 @@ def _dialogue_line(
     if override_tags:
         text = f"{override_tags}{text}"
     start_text, end_text = (_format_ass_centiseconds(time_range[0]), _format_ass_centiseconds(time_range[1]))
+    margin_v = _event_margin_v(event)
     return (
         f"Dialogue: 0,{start_text},{end_text},"
-        f"{event.template},,0,0,0,,{text}"
+        f"{event.template},,0,0,{margin_v},,{text}"
     )
 
 
@@ -160,11 +161,42 @@ def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int]) -> s
     if isinstance(primary_color, str) and _is_hex_color(primary_color.strip()):
         tags.append(f"\\c{_inline_color(primary_color)}")
 
+    outline_width = _optional_numeric(style.get("outline_width")) if "outline_width" in style else None
+    if outline_width is not None:
+        tags.append(f"\\bord{_format_coordinate(outline_width)}")
+
+    outline_color = style.get("outline_color")
+    if isinstance(outline_color, str) and _is_hex_color(outline_color.strip()):
+        tags.append(f"\\3c{_inline_color(outline_color)}")
+
+    shadow_source = style.get("shadow_depth") if "shadow_depth" in style else style.get("shadow")
+    shadow_depth = _optional_numeric(shadow_source) if ("shadow_depth" in style or "shadow" in style) else None
+    if shadow_depth is not None:
+        tags.append(f"\\shad{_format_coordinate(shadow_depth)}")
+
+    shadow_color = style.get("shadow_color")
+    if isinstance(shadow_color, str) and _is_hex_color(shadow_color.strip()):
+        tags.append(f"\\4c{_inline_color(shadow_color)}")
+
+    rotate = _optional_numeric(style.get("rotate")) if "rotate" in style else None
+    if rotate is not None:
+        tags.append(f"\\frz{_format_coordinate(rotate)}")
+
     position_tag = _position_tag(position, resolution)
     if position_tag:
         tags.append(position_tag)
 
     return "{" + "".join(tags) + "}" if tags else ""
+
+
+def _event_margin_v(event: SubtitleEvent) -> str:
+    style = event.style if isinstance(event.style, dict) else {}
+    if "margin_v" not in style:
+        return "0"
+    margin_v = _optional_numeric(style.get("margin_v"))
+    if margin_v is None:
+        return "0"
+    return str(int(margin_v))
 
 
 def _position_tag(position: dict[str, Any], resolution: tuple[int, int]) -> str:
