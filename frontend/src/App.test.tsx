@@ -459,6 +459,25 @@ describe("AutoVideo shell", () => {
     expect(document.activeElement).toHaveAccessibleName("时间线预览");
   });
 
+  it("shows renderer unavailable feedback when timeline preview fails", async () => {
+    const user = userEvent.setup();
+    mockedPreviewSubtitleTimeline.mockRejectedValueOnce(
+      new Error("SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "时间线预览" }));
+
+    expect(mockedPreviewSubtitleTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template_type: "bottom",
+        duration_ms: 1200,
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
+  });
+
   it("submits subtitle options when creating online mix task", async () => {
     const user = userEvent.setup();
     mockedGenerateScript.mockResolvedValue({

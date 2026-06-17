@@ -352,6 +352,9 @@ export function SubtitleTemplateWorkbench() {
           {precisePreview.isError ? (
             <p role="alert">{previewErrorText(precisePreview.error)}</p>
           ) : null}
+          {timelinePreview.isError ? (
+            <p role="alert">{previewErrorText(timelinePreview.error)}</p>
+          ) : null}
         </section>
 
         <section className="subtitle-editor-panel" aria-label="字幕块编辑">
