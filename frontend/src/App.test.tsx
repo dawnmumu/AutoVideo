@@ -406,6 +406,45 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("treats API presets without preset id prefixes as locked presets", async () => {
+    const user = userEvent.setup();
+    const apiPreset = templateFixture({
+      id: "builtin-clean-bottom",
+      name: "内置底部字幕",
+      favorite: false,
+      is_favorite: false,
+      is_modified: false,
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [],
+      presets: [apiPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
+    expect(within(subtitleWorkbench).getByText("当前模板：内置底部字幕")).toBeInTheDocument();
+    expect(within(subtitleWorkbench).getAllByLabelText("主色")[0]).toBeDisabled();
+    expect(within(subtitleWorkbench).getByRole("button", { name: "还原预设" })).not.toBeDisabled();
+
+    await user.click(within(subtitleWorkbench).getByRole("button", { name: "设为默认" }));
+    expect(mockedUpdateSubtitlePresetOverride).toHaveBeenCalledWith({
+      id: "builtin-clean-bottom",
+      patch: { is_favorite: true },
+    });
+    expect(mockedUpdateSubtitleTemplateSet).not.toHaveBeenCalled();
+
+    await user.click(within(subtitleWorkbench).getByRole("button", { name: "从预设新建" }));
+    expect(mockedCreateSubtitleTemplateSet).toHaveBeenCalledWith({
+      name: "我的内置底部字幕",
+      preset_id: "builtin-clean-bottom",
+    });
+    expect(mockedCreateSubtitleTemplateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ source_id: "builtin-clean-bottom" }),
+    );
+  });
+
   it("clears template action errors after switching templates or editing preview text", async () => {
     const user = userEvent.setup();
     mockedFetchSubtitleTemplateSets.mockResolvedValue({

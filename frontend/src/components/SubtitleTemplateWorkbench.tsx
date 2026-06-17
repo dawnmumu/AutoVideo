@@ -21,8 +21,11 @@ const editableRoles = [
   { role: "punch", label: "冲击字幕" },
 ] as const;
 
-function isPreset(template: SubtitleTemplateSet | undefined): boolean {
-  return Boolean(template?.id.startsWith("preset-"));
+function isPresetTemplate(
+  template: SubtitleTemplateSet | undefined,
+  presetTemplateIds: ReadonlySet<string>,
+): boolean {
+  return Boolean(template && presetTemplateIds.has(template.id));
 }
 
 function blockStyle(block: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -113,7 +116,10 @@ function persistentStyleValue(key: string, value: string): string | number {
   return value;
 }
 
-function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
+function createTemplateCopyInput(
+  template: SubtitleTemplateSet | undefined,
+  isTemplatePreset: boolean,
+): {
   name: string;
   preset_id?: string;
   source_id?: string;
@@ -122,7 +128,7 @@ function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
   if (!template) {
     return { name };
   }
-  return isPreset(template)
+  return isTemplatePreset
     ? { name, preset_id: template.id }
     : { name, source_id: template.id };
 }
@@ -152,6 +158,10 @@ export function SubtitleTemplateWorkbench() {
   });
   const customTemplates = templates.data?.items ?? [];
   const presetTemplates = templates.data?.presets ?? [];
+  const presetTemplateIds = useMemo(
+    () => new Set(presetTemplates.map((template) => template.id)),
+    [presetTemplates],
+  );
   const allTemplates = useMemo(
     () => [...presetTemplates, ...customTemplates],
     [customTemplates, presetTemplates],
@@ -160,7 +170,7 @@ export function SubtitleTemplateWorkbench() {
   const selected =
     allTemplates.find((template) => template.id === selectedId) ?? defaultTemplate;
   const selectedDraft = selected ? (templateDrafts[selected.id] ?? selected) : undefined;
-  const isSelectedPreset = isPreset(selected);
+  const isSelectedPreset = isPresetTemplate(selected, presetTemplateIds);
   const isEditable = Boolean(selected && !isSelectedPreset);
   const availableTemplateCount = allTemplates.length;
 
@@ -244,7 +254,7 @@ export function SubtitleTemplateWorkbench() {
   };
 
   const createFromPreset = useMutation({
-    mutationFn: () => createSubtitleTemplateSet(createTemplateCopyInput(selected)),
+    mutationFn: () => createSubtitleTemplateSet(createTemplateCopyInput(selected, isSelectedPreset)),
     onSuccess: (template) => {
       resetPreviewResultState();
       saveTemplate.reset();
