@@ -32,13 +32,30 @@ export interface SubtitleTemplatePreviewRequest {
   duration_ms?: number;
 }
 
+export interface SubtitlePreviewResolution {
+  width: number;
+  height: number;
+}
+
 export interface SubtitleTemplatePreviewResult {
-  status: string;
-  renderer?: string;
-  image_url?: string | null;
-  video_url?: string | null;
-  message?: string;
-  [key: string]: unknown;
+  mime_type: string;
+  data: string;
+  resolution: SubtitlePreviewResolution;
+  warnings: string[];
+}
+
+export interface SubtitleTimelinePreviewResult extends SubtitleTemplatePreviewResult {
+  duration_ms: number;
+}
+
+export interface UpdateSubtitleTemplateSetInput {
+  id: string;
+  patch: Partial<SubtitleTemplateSet>;
+}
+
+export interface UpdateSubtitlePresetOverrideInput {
+  id: string;
+  patch: Partial<SubtitleTemplateSet>;
 }
 
 export class SubtitleTemplateApiError extends Error {
@@ -102,10 +119,13 @@ export async function createSubtitleTemplateSet(input: {
 }
 
 export async function updateSubtitleTemplateSet(
-  templateSetId: string,
-  patch: Partial<SubtitleTemplateSet>,
+  input: UpdateSubtitleTemplateSetInput,
 ): Promise<SubtitleTemplateSet> {
-  return writeJson(`/api/subtitle-template-sets/${encodeURIComponent(templateSetId)}`, "PUT", patch);
+  return writeJson(
+    `/api/subtitle-template-sets/${encodeURIComponent(input.id)}`,
+    "PUT",
+    input.patch,
+  );
 }
 
 export async function deleteSubtitleTemplateSet(templateSetId: string): Promise<void> {
@@ -117,13 +137,12 @@ export async function deleteSubtitleTemplateSet(templateSetId: string): Promise<
 }
 
 export async function updateSubtitlePresetOverride(
-  presetId: string,
-  patch: Partial<SubtitleTemplateSet>,
+  input: UpdateSubtitlePresetOverrideInput,
 ): Promise<SubtitleTemplateSet> {
   return writeJson(
-    `/api/subtitle-template-sets/presets/${encodeURIComponent(presetId)}`,
+    `/api/subtitle-template-sets/presets/${encodeURIComponent(input.id)}`,
     "PUT",
-    patch,
+    input.patch,
   );
 }
 
@@ -149,6 +168,6 @@ export async function previewSubtitleTemplateSet(
 
 export async function previewSubtitleTimeline(
   input: SubtitleTemplatePreviewRequest,
-): Promise<SubtitleTemplatePreviewResult> {
+): Promise<SubtitleTimelinePreviewResult> {
   return writeJson("/api/subtitle-template-sets/preview-timeline", "POST", input);
 }

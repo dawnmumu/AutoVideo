@@ -153,16 +153,17 @@ describe("AutoVideo shell", () => {
       warnings: [],
     });
     mockedPreviewSubtitleTemplateSet.mockResolvedValue({
-      status: "unavailable",
-      image_url: null,
-      renderer: "ffmpeg",
-      message: "预览渲染器不可用",
+      mime_type: "image/png",
+      data: "base64-png",
+      resolution: { width: 1080, height: 1920 },
+      warnings: [],
     });
     mockedPreviewSubtitleTimeline.mockResolvedValue({
-      status: "unavailable",
-      video_url: null,
-      renderer: "ffmpeg",
-      message: "预览渲染器不可用",
+      mime_type: "video/mp4",
+      data: "base64-mp4",
+      duration_ms: 1200,
+      resolution: { width: 1080, height: 1920 },
+      warnings: [],
     });
   });
 
@@ -591,5 +592,65 @@ describe("AutoVideo shell", () => {
     const workbench = await screen.findByTestId("online-remix-workbench");
     expect(workbench).toHaveClass("online-remix-panel");
     expect(workbench).toHaveAttribute("data-mobile-layout", "collapsible-shots");
+  });
+});
+
+describe("subtitle api client contracts", () => {
+  it("updates custom templates with an object input contract", async () => {
+    const actual = await vi.importActual<typeof import("./api/subtitles")>("./api/subtitles");
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(cleanBottomPreset), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    try {
+      await actual.updateSubtitleTemplateSet({
+        id: "template/one",
+        patch: { name: "更新后的模板" },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/subtitle-template-sets/template%2Fone",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ name: "更新后的模板" }),
+      }),
+    );
+  });
+
+  it("updates preset overrides with an object input contract", async () => {
+    const actual = await vi.importActual<typeof import("./api/subtitles")>("./api/subtitles");
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(cleanBottomPreset), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    globalThis.fetch = fetchMock;
+
+    try {
+      await actual.updateSubtitlePresetOverride({
+        id: "preset/clean",
+        patch: { is_favorite: true },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/subtitle-template-sets/presets/preset%2Fclean",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ is_favorite: true }),
+      }),
+    );
   });
 });
