@@ -50,6 +50,7 @@ ALLOWED_BLOCK_FIELDS = {
 }
 
 SUPPORTED_STYLE_FIELDS = {
+    "template_type",
     "font_family",
     "font_size",
     "primary_color",
@@ -59,12 +60,32 @@ SUPPORTED_STYLE_FIELDS = {
     "shadow_color",
     "shadow_depth",
     "shadow",
+    "position",
+    "alignment",
+    "x_percent",
+    "y_percent",
+    "angle",
     "font_size_scale",
     "font_scale",
+    "font_weight",
+    "italic",
+    "letter_spacing",
+    "line_spacing",
+    "margin_l",
+    "margin_r",
     "margin_v",
     "max_width",
+    "max_width_ratio",
+    "max_chars_per_line",
+    "max_lines",
     "rotate",
     "skew",
+    "skew_x_deg",
+    "skew_y_deg",
+    "bottom_safe_area_ratio",
+    "fade_in_ms",
+    "fade_out_ms",
+    "decoration_shape",
 }
 
 NUMERIC_STYLE_FIELDS = {
@@ -72,22 +93,60 @@ NUMERIC_STYLE_FIELDS = {
     "outline_width",
     "shadow_depth",
     "shadow",
+    "x_percent",
+    "y_percent",
+    "angle",
     "font_size_scale",
     "font_scale",
+    "font_weight",
+    "letter_spacing",
+    "line_spacing",
+    "margin_l",
+    "margin_r",
     "margin_v",
     "max_width",
+    "max_width_ratio",
+    "max_chars_per_line",
+    "max_lines",
     "rotate",
     "skew",
+    "skew_x_deg",
+    "skew_y_deg",
+    "bottom_safe_area_ratio",
+    "fade_in_ms",
+    "fade_out_ms",
 }
 
 DEFAULT_TEMPLATE_STYLE = {
-    "font_family": "PingFang SC",
+    "template_type": "bottom",
+    "font_family": "Noto Sans CJK SC",
     "font_size": 54,
+    "font_weight": 700,
+    "font_scale": 1.0,
+    "italic": False,
+    "letter_spacing": 0,
+    "line_spacing": 1.15,
     "primary_color": "#FFFFFF",
-    "outline_color": "#111827",
+    "accent_color": "#FFD54F",
+    "outline_color": "#111111",
     "outline_width": 3,
     "shadow_color": "#000000",
     "shadow_depth": 2,
+    "position": "bottom",
+    "alignment": "center",
+    "margin_l": 60,
+    "margin_r": 60,
+    "margin_v": 80,
+    "x_percent": 50,
+    "y_percent": 78,
+    "angle": 0,
+    "bottom_safe_area_ratio": 0.22,
+    "max_chars_per_line": 16,
+    "max_lines": 3,
+    "max_width_ratio": 0.9,
+    "fade_in_ms": 80,
+    "fade_out_ms": 80,
+    "decoration_shape": "none",
 }
 
 
@@ -373,9 +432,53 @@ def compile_v2_blocks_to_legacy_templates(blocks: Any) -> dict[str, dict[str, An
             continue
 
         style = copy.deepcopy(block.get("style")) if isinstance(block.get("style"), dict) else {}
-        template = {**DEFAULT_TEMPLATE_STYLE, **style}
+        template = {**DEFAULT_TEMPLATE_STYLE, "template_type": role, **style}
         if "shadow_depth" not in style:
             template["shadow_depth"] = style.get("shadow", DEFAULT_TEMPLATE_STYLE["shadow_depth"])
+        if "max_width_ratio" not in style and "max_width" in style:
+            template["max_width_ratio"] = style["max_width"]
+        if "skew_x_deg" not in style and "skew" in style:
+            template["skew_x_deg"] = style["skew"]
+        if "font_scale" in style and "font_size_scale" not in style:
+            template["font_size_scale"] = style["font_scale"]
+        if "angle" not in style and "rotate" in style:
+            template["angle"] = style["rotate"]
+        _apply_position_to_template(template, block.get("position"), style_keys=set(style))
         templates[role] = template
 
     return templates
+
+
+def _apply_position_to_template(template: dict[str, Any], position: Any, *, style_keys: set[str]) -> None:
+    if not isinstance(position, dict):
+        return
+
+    x = _coerce_number(position.get("x"))
+    y = _coerce_number(position.get("y"))
+    if x is not None and "x_percent" not in style_keys:
+        template["x_percent"] = _ratio_or_percent_to_percent(x)
+    if y is not None and "y_percent" not in style_keys:
+        template["y_percent"] = _ratio_or_percent_to_percent(y)
+
+    anchor = position.get("anchor")
+    if "alignment" not in style_keys and isinstance(anchor, str) and anchor.strip() in {"left", "center", "right"}:
+        template["alignment"] = anchor.strip()
+    if "position" not in style_keys:
+        template["position"] = _position_from_y_percent(template.get("y_percent"))
+
+
+def _ratio_or_percent_to_percent(value: int | float) -> int | float:
+    percent = value * 100 if 0 <= value <= 1 else value
+    bounded = max(0, min(100, percent))
+    return int(bounded) if float(bounded).is_integer() else bounded
+
+
+def _position_from_y_percent(value: Any) -> str:
+    y_percent = _coerce_number(value)
+    if y_percent is None:
+        return str(DEFAULT_TEMPLATE_STYLE["position"])
+    if y_percent <= 33:
+        return "upper"
+    if y_percent <= 66:
+        return "center"
+    return "bottom"

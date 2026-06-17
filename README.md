@@ -110,7 +110,7 @@ docker build \
 - `GET /api/tasks?limit=50&offset=0`：分页查看任务列表，`limit` 最大为 `200`。
 - `GET /api/tasks/{task_id}`：查看单个任务状态。
 - `GET /api/tasks/{task_id}/output`：下载任务主输出。线上混剪在 FFmpeg 可用时返回 `video/mp4` 的 `output.mp4`；FFmpeg 不可用或普通任务仍返回 JSON manifest。
-- `GET /api/subtitle-template-sets`：返回自定义模板组和内置预设。
+- `GET /api/subtitle-template-sets`：返回自定义模板组和 20 个内置预设；内置预设与目标项目默认字幕模板保持一致。
 - `POST /api/subtitle-template-sets`：从预设或已有模板复制创建自定义模板组。
 - `PUT /api/subtitle-template-sets/{id}`：保存模板组字段、DSL v2 blocks、`is_favorite` 默认模板标记。
 - `DELETE /api/subtitle-template-sets/{id}`：删除自定义模板组；内置预设不能通过该接口删除。

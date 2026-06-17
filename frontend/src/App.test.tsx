@@ -250,7 +250,10 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
 
     expect(window.location.hash).toBe("#subtitles");
-    expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
+    expect(screen.getByText("管理默认字幕样式与预览")).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "线上混剪" })).not.toBeInTheDocument();
+    expect(document.querySelector("section#remix")).toHaveAttribute("hidden");
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -264,7 +267,7 @@ describe("AutoVideo shell", () => {
 
     renderApp();
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -277,7 +280,7 @@ describe("AutoVideo shell", () => {
 
     renderApp();
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleSection = document.querySelector("section#subtitles") as HTMLElement;
     expect(subtitleSection).toHaveClass("content-grid", "single-column");
   });
@@ -287,7 +290,7 @@ describe("AutoVideo shell", () => {
     window.history.pushState(null, "", "/#subtitles");
     renderApp();
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "混剪工作台" }));
 
     expect(window.location.hash).toBe("#remix");
@@ -305,7 +308,7 @@ describe("AutoVideo shell", () => {
     window.history.pushState(null, "", "/#subtitles");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -332,7 +335,7 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("link", { name: "字幕" }));
 
     expect(window.location.hash).toBe("#subtitles");
-    expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
@@ -422,7 +425,7 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
     expect(within(subtitleWorkbench).getByText("当前模板：内置底部字幕")).toBeInTheDocument();
     expect(within(subtitleWorkbench).getAllByLabelText("主色")[0]).toBeDisabled();
@@ -484,7 +487,7 @@ describe("AutoVideo shell", () => {
 
     renderApp();
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "品牌底部字幕" })).toHaveAttribute(
       "aria-pressed",
@@ -523,7 +526,7 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByText("当前模板：API 首个预设")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
     expect(within(subtitleWorkbench).getByText("当前模板：API 首个预设")).toBeInTheDocument();
     expect(within(subtitleWorkbench).getByRole("button", { name: "API 首个预设" })).toHaveAttribute(
@@ -568,7 +571,7 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByText("当前模板：新版品牌字幕")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
     expect(within(subtitleWorkbench).getByText("当前模板：新版品牌字幕")).toBeInTheDocument();
     expect(within(subtitleWorkbench).getByRole("button", { name: "新版品牌字幕" })).toHaveAttribute(
@@ -932,7 +935,7 @@ describe("AutoVideo shell", () => {
     await user.selectOptions(screen.getByLabelText("字幕字体"), "Noto Sans CJK SC");
     expect(screen.getByText("当前模板：清晰底部字幕")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "混剪工作台" }));
     await user.click(screen.getByRole("button", { name: "创建任务" }));
 
@@ -999,7 +1002,7 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
-    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
     expect(within(subtitleWorkbench).getByText("当前模板：品牌底部字幕")).toBeInTheDocument();
     expect(within(subtitleWorkbench).getByRole("button", { name: "品牌底部字幕" })).toHaveAttribute(

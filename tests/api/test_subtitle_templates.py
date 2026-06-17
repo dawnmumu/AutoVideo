@@ -14,6 +14,7 @@ def _client(tmp_path):
 def test_list_create_update_validate_and_delete_template_set(tmp_path):
     with _client(tmp_path) as client:
         listing = client.get("/api/subtitle-template-sets")
+        first_preset = listing.json()["presets"][0]
         preset_id = listing.json()["presets"][0]["id"]
         created = client.post("/api/subtitle-template-sets", json={"name": "我的模板", "preset_id": preset_id})
         template_id = created.json()["id"]
@@ -25,6 +26,10 @@ def test_list_create_update_validate_and_delete_template_set(tmp_path):
         deleted = client.delete(f"/api/subtitle-template-sets/{template_id}")
 
     assert listing.status_code == 200
+    assert first_preset["templates"]["bottom"]["font_family"] == "Noto Sans CJK SC"
+    assert first_preset["templates"]["bottom"]["line_spacing"] == 1.15
+    assert first_preset["templates"]["bottom"]["fade_in_ms"] == 80
+    assert first_preset["blocks"][2]["spans"][0]["selector"] == {"type": "range", "start": 0, "end": 2}
     assert created.status_code == 201
     assert updated.json()["is_favorite"] is True
     assert validated.json()["ok"] is True

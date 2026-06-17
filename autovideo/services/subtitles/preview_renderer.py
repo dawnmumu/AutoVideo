@@ -154,6 +154,7 @@ def _write_preview_ass(
         spans=_list_of_dicts(block.get("spans")),
         style=dict(block.get("style")) if isinstance(block.get("style"), dict) else {},
         position=dict(block.get("position")) if isinstance(block.get("position"), dict) else {},
+        event_animations=dict(block.get("animations")) if isinstance(block.get("animations"), dict) else {},
     )
     return write_ass_file(ass_path, [event], template_set, resolution)
 
