@@ -117,6 +117,9 @@ def _allocate_parts(parts: list[str], start_ms: int, end_ms: int) -> list[tuple[
         return [(start_ms, end_ms, parts[0])]
 
     duration_ms = end_ms - start_ms
+    if duration_ms < len(parts):
+        return [(start_ms, end_ms, "".join(parts))]
+
     weights = [max(1, len(part.strip())) for part in parts]
     total_weight = sum(weights)
     allocated: list[tuple[int, int, str]] = []

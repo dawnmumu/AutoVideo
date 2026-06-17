@@ -57,3 +57,23 @@ def test_events_from_render_timeline_skips_zero_duration_items():
     )
 
     assert events == []
+
+
+def test_events_from_render_timeline_keeps_short_duration_split_events_visible():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "end_time": 0.001,
+                    "duration": 0.001,
+                    "subtitle": "a,b,c",
+                }
+            ]
+        }
+    )
+
+    assert events
+    assert all(event.end_ms > event.start_ms for event in events)
+    assert "".join(event.text for event in events) == "abc"

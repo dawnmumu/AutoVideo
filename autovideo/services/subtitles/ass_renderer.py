@@ -112,8 +112,8 @@ def _style_line(role: str, style: dict[str, Any]) -> str:
 
 
 def _dialogue_line(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
-    text = _render_text(event.text, event.spans)
     override_tags = _event_override_tags(event, resolution)
+    text = _render_text(event.text, event.spans, reset_tags=override_tags)
     if override_tags:
         text = f"{override_tags}{text}"
     return (
@@ -153,7 +153,7 @@ def _position_tag(position: dict[str, Any], resolution: tuple[int, int]) -> str:
     return f"\\pos({_format_coordinate(x_value)},{_format_coordinate(y_value)})"
 
 
-def _render_text(text: str, spans: list[dict[str, Any]]) -> str:
+def _render_text(text: str, spans: list[dict[str, Any]], *, reset_tags: str = "") -> str:
     rendered = _escape_ass_text(text)
     for span in spans:
         if not isinstance(span, dict):
@@ -171,7 +171,7 @@ def _render_text(text: str, spans: list[dict[str, Any]]) -> str:
         escaped_keyword = _escape_ass_text(keyword)
         if escaped_keyword not in rendered:
             continue
-        replacement = f"{{\\c{_inline_color(color)}}}{escaped_keyword}{{\\r}}"
+        replacement = f"{{\\c{_inline_color(color)}}}{escaped_keyword}{{\\r}}{reset_tags}"
         rendered = rendered.replace(escaped_keyword, replacement, 1)
     return rendered
 

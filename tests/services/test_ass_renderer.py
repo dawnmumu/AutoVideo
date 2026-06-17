@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from autovideo.services import subtitles
 from autovideo.services.subtitles import ass_renderer, event_enrichment, keyword_spans, template_assignment
 from autovideo.services.subtitles.timeline import SubtitleEvent
 
@@ -165,3 +166,31 @@ def test_ass_renderer_emits_event_style_and_position_override_tags():
     content = ass_renderer.render_ass(enriched, template, (1080, 1920))
 
     assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}业务字幕" in content
+
+
+def test_keyword_span_restores_event_override_tags_after_reset():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 办公",
+        template="bottom",
+        spans=[{"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}}],
+        style={"font_size": 72, "primary_color": "#00E5FF"},
+        position={"x": 0.25, "y": 0.75},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}{\\c&H4FD5FF&}AI{\\r}{\\fs72\\c&HFFE500&\\pos(270,1440)} 办公" in content
+
+
+def test_subtitle_package_all_exports_task2_modules():
+    assert {
+        "timeline",
+        "template_assignment",
+        "keyword_spans",
+        "event_enrichment",
+        "ass_renderer",
+    }.issubset(set(subtitles.__all__))
