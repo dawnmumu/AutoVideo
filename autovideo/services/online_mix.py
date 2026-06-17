@@ -245,30 +245,38 @@ def _render_online_mix_output_builder(
         safe_timeline = sanitize_render_timeline(timeline)
         output_payload["timeline"] = safe_timeline
         write_timeline_artifacts(output_dir, safe_timeline)
-        rendered_path = render_mix_video(
+        render_result = render_mix_video(
             settings=store.settings,
             output_dir=output_dir,
             timeline=safe_timeline,
             materials_by_id=materials_by_id,
             aspect_ratio=str(options.get("aspect_ratio") or script.get("aspect_ratio") or "9:16"),
         )
-        if rendered_path is None:
+        if render_result.output_path is None:
             output_payload["render_plan"] = {
-                "status": "manifest_only",
-                "renderer": "ffmpeg_unavailable",
-                "timeline": "timeline.json",
-                "subtitles": "subtitles.srt",
+                "status": render_result.status,
+                "renderer": render_result.renderer,
+                "timeline": render_result.timeline_path,
+                "subtitles": render_result.subtitles_path,
             }
+            if render_result.subtitles_ass_path is not None:
+                output_payload["render_plan"]["subtitles_ass"] = render_result.subtitles_ass_path
             return None
 
         output_payload["render_plan"] = {
-            "status": "rendered",
-            "renderer": "ffmpeg",
-            "output": rendered_path.name,
-            "timeline": "timeline.json",
-            "subtitles": "subtitles.srt",
+            "status": (
+                "rendered" if render_result.status == "video_rendered" else render_result.status
+            ),
+            "renderer": render_result.renderer,
+            "output": render_result.output_path.name,
+            "timeline": render_result.timeline_path,
+            "subtitles": render_result.subtitles_path,
         }
-        return rendered_path
+        if render_result.subtitles_ass_path is not None:
+            output_payload["render_plan"]["subtitles_ass"] = render_result.subtitles_ass_path
+        if render_result.base_output_path is not None:
+            output_payload["render_plan"]["base_output"] = render_result.base_output_path
+        return render_result.output_path
 
     return build
 
