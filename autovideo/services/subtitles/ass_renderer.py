@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -116,8 +117,9 @@ def _dialogue_line(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
     text = _render_text(event.text, event.spans, reset_tags=override_tags)
     if override_tags:
         text = f"{override_tags}{text}"
+    start_text, end_text = _format_ass_time_range(event.start_ms, event.end_ms)
     return (
-        f"Dialogue: 0,{_format_ass_time(event.start_ms)},{_format_ass_time(event.end_ms)},"
+        f"Dialogue: 0,{start_text},{end_text},"
         f"{event.template},,0,0,0,,{text}"
     )
 
@@ -186,6 +188,8 @@ def _numeric(value: Any, default: int | float) -> int | float:
     if isinstance(value, bool):
         return default
     if isinstance(value, int | float):
+        if not math.isfinite(value):
+            return default
         return value
     if isinstance(value, str):
         candidate = value.strip()
@@ -194,6 +198,8 @@ def _numeric(value: Any, default: int | float) -> int | float:
         try:
             number = float(candidate)
         except ValueError:
+            return default
+        if not math.isfinite(number):
             return default
         return int(number) if number.is_integer() else number
     return default
@@ -203,6 +209,8 @@ def _optional_numeric(value: Any) -> int | float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int | float):
+        if not math.isfinite(value):
+            return None
         return value
     if isinstance(value, str):
         candidate = value.strip()
@@ -211,6 +219,8 @@ def _optional_numeric(value: Any) -> int | float | None:
         try:
             number = float(candidate)
         except ValueError:
+            return None
+        if not math.isfinite(number):
             return None
         return int(number) if number.is_integer() else number
     return None
@@ -245,8 +255,15 @@ def _is_hex_color(value: str) -> bool:
     return len(value) == 7 and value.startswith("#") and all(char in "0123456789abcdefABCDEF" for char in value[1:])
 
 
-def _format_ass_time(value_ms: int) -> str:
-    centiseconds = max(0, int(round(value_ms / 10)))
+def _format_ass_time_range(start_ms: int, end_ms: int) -> tuple[str, str]:
+    start_cs = max(0, int(math.floor(start_ms / 10)))
+    end_cs = max(0, int(math.ceil(end_ms / 10)))
+    if end_cs <= start_cs:
+        end_cs = start_cs + 1
+    return (_format_ass_centiseconds(start_cs), _format_ass_centiseconds(end_cs))
+
+
+def _format_ass_centiseconds(centiseconds: int) -> str:
     hours, remainder = divmod(centiseconds, 360000)
     minutes, remainder = divmod(remainder, 6000)
     seconds, centiseconds = divmod(remainder, 100)

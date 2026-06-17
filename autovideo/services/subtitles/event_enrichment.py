@@ -32,10 +32,9 @@ def enrich_subtitle_events(
 
 
 def _resolve_block(template_set: dict[str, Any], event: SubtitleEvent) -> dict[str, Any] | None:
+    base_block = _base_block(template_set, event.template)
     variant_block = _variant_block(template_set, event.template, event.template_variant)
-    if variant_block is not None:
-        return variant_block
-    return _base_block(template_set, event.template)
+    return _merge_blocks(base_block, variant_block)
 
 
 def _base_block(template_set: dict[str, Any], role: str) -> dict[str, Any] | None:
@@ -99,6 +98,28 @@ def _variant_matches(variant: dict[str, Any], variant_id: str) -> bool:
         if isinstance(value, str) and value.strip() == variant_id:
             return True
     return False
+
+
+def _merge_blocks(base_block: dict[str, Any] | None, variant_block: dict[str, Any] | None) -> dict[str, Any] | None:
+    if base_block is None and variant_block is None:
+        return None
+    if base_block is None:
+        return copy.deepcopy(variant_block)
+    if variant_block is None:
+        return copy.deepcopy(base_block)
+
+    merged = copy.deepcopy(base_block)
+    variant = copy.deepcopy(variant_block)
+    for key, value in variant.items():
+        if key in {"style", "position", "animations", "spans"}:
+            continue
+        merged[key] = value
+
+    merged["style"] = _merge_defaults(base_block.get("style"), variant_block.get("style"))
+    merged["position"] = _merge_defaults(base_block.get("position"), variant_block.get("position"))
+    merged["animations"] = _merge_defaults(base_block.get("animations"), variant_block.get("animations"))
+    merged["spans"] = _merge_spans(base_block.get("spans"), variant_block.get("spans"))
+    return merged
 
 
 def _merge_defaults(defaults: Any, current: dict[str, Any]) -> dict[str, Any]:

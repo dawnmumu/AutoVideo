@@ -91,6 +91,61 @@ def test_variant_block_is_used_when_assignment_selects_variant(tmp_path: Path):
     assert "{\\c&HFFE500&}效率{\\r}" in output_path.read_text(encoding="utf-8")
 
 
+def test_variant_block_merges_base_defaults_before_event_overrides():
+    template = _template()
+    template["blocks"].append(
+        {
+            "id": "highlight-base",
+            "role": "highlight",
+            "track_id": "base-track",
+            "position": {"x": 0.5, "y": 0.7},
+            "style": {"font_size": 50, "primary_color": "#FFFFFF", "outline_width": 3},
+            "spans": [
+                {"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}},
+                {"selector": {"type": "keyword", "value": "效率"}, "style": {"primary_color": "#FFFFFF"}},
+            ],
+            "animations": {"in": {"type": "fade"}, "out": {"type": "fade_out"}},
+        }
+    )
+    template["template_variants"]["highlight"][0]["blocks"][0]["track_id"] = "variant-track"
+    events = [
+        SubtitleEvent(
+            index=1,
+            shot_index=1,
+            start_ms=0,
+            end_ms=1000,
+            text="AI 提升效率",
+            template="highlight",
+            template_variant="emphasis",
+            style={"outline_width": 5},
+            spans=[{"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FF00FF"}}],
+        )
+    ]
+
+    enriched = event_enrichment.enrich_subtitle_events(events, template, (1080, 1920))
+    ai_spans = [
+        span
+        for span in enriched[0].spans
+        if span.get("selector") == {"type": "keyword", "value": "AI"}
+    ]
+    efficiency_spans = [
+        span
+        for span in enriched[0].spans
+        if span.get("selector") == {"type": "keyword", "value": "效率"}
+    ]
+
+    assert enriched[0].track_id == "variant-track"
+    assert enriched[0].position == {"x": 0.5, "y": 0.7}
+    assert enriched[0].event_animations["in"]["type"] == "pop_in"
+    assert enriched[0].event_animations["out"]["type"] == "fade_out"
+    assert enriched[0].style["font_size"] == 60
+    assert enriched[0].style["outline_width"] == 5
+    assert len(ai_spans) == 1
+    assert ai_spans[0]["style"]["primary_color"] == "#FF00FF"
+    assert len(efficiency_spans) == 1
+    assert efficiency_spans[0]["style"]["primary_color"] == "#00E5FF"
+
+
 def test_keyword_extractor_failure_keeps_events_renderable():
     events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="AI 办公", template="bottom")]
 
@@ -166,6 +221,32 @@ def test_ass_renderer_emits_event_style_and_position_override_tags():
     content = ass_renderer.render_ass(enriched, template, (1080, 1920))
 
     assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}业务字幕" in content
+
+
+def test_ass_renderer_keeps_one_millisecond_event_visible():
+    event = SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1, text="短", template="bottom")
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "Dialogue: 0,0:00:00.00,0:00:00.01,bottom" in content
+
+
+def test_ass_renderer_ignores_non_finite_event_style_and_position_values():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="稳定渲染",
+        template="bottom",
+        style={"font_size": float("nan"), "primary_color": "#00E5FF"},
+        position={"x": float("inf"), "y": 0.5},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "\\fs54" in content
+    assert "\\pos(" not in content
 
 
 def test_keyword_span_restores_event_override_tags_after_reset():

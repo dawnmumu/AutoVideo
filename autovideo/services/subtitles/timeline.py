@@ -177,13 +177,18 @@ def _coerce_int(value: Any, *, default: int) -> int:
     if isinstance(value, int):
         return value
     if isinstance(value, float):
+        if not math.isfinite(value):
+            return default
         return int(value)
     if isinstance(value, str):
         candidate = value.strip()
         if not candidate:
             return default
         try:
-            return int(candidate)
+            number = float(candidate)
         except ValueError:
             return default
+        if not math.isfinite(number):
+            return default
+        return int(number)
     return default

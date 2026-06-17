@@ -124,3 +124,22 @@ def test_events_from_render_timeline_skips_non_finite_times():
             ]
         }
     ) == []
+
+
+def test_events_from_render_timeline_uses_default_shot_index_for_non_finite_value():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": float("nan"),
+                    "start_time": 0,
+                    "end_time": 1,
+                    "subtitle": "有效字幕",
+                }
+            ]
+        }
+    )
+
+    assert events == [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="有效字幕", template="bottom")
+    ]
