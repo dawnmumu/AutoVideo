@@ -406,6 +406,30 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("clears template action errors after switching templates or editing preview text", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedCreateSubtitleTemplateSet.mockRejectedValue(new Error("CREATE_FAILED"));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "从预设新建" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("字幕模板新建失败");
+
+    await user.click(screen.getByRole("button", { name: "品牌底部字幕" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "从预设新建" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("字幕模板新建失败");
+
+    await user.clear(screen.getByLabelText("示例文本"));
+    await user.type(screen.getByLabelText("示例文本"), "新的预览文案");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("selects a custom subtitle template before a favorite preset by default", async () => {
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [customCaptionTemplate],

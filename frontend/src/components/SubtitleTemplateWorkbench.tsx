@@ -237,21 +237,31 @@ export function SubtitleTemplateWorkbench() {
     ? `data:${timelinePreview.data.mime_type};base64,${timelinePreview.data.data}`
     : "";
 
-  const resetTemplateResultState = () => {
+  const resetPreviewResultState = () => {
     validateTemplate.reset();
     precisePreview.reset();
     timelinePreview.reset();
-    saveTemplate.reset();
   };
 
   const createFromPreset = useMutation({
     mutationFn: () => createSubtitleTemplateSet(createTemplateCopyInput(selected)),
     onSuccess: (template) => {
-      resetTemplateResultState();
+      resetPreviewResultState();
+      saveTemplate.reset();
+      markDefault.reset();
+      resetPreset.reset();
       setSelectedId(template.id);
       invalidateTemplates();
     },
   });
+
+  const resetTemplateResultState = () => {
+    resetPreviewResultState();
+    createFromPreset.reset();
+    markDefault.reset();
+    resetPreset.reset();
+    saveTemplate.reset();
+  };
 
   const handleSelectTemplate = (templateId: string) => {
     resetTemplateResultState();
@@ -389,7 +399,10 @@ export function SubtitleTemplateWorkbench() {
           <button
             disabled={!selected || createFromPreset.isPending}
             type="button"
-            onClick={() => createFromPreset.mutate()}
+            onClick={() => {
+              resetTemplateResultState();
+              createFromPreset.mutate();
+            }}
           >
             <CopyPlus aria-hidden="true" size={16} />
             从预设新建
@@ -397,7 +410,10 @@ export function SubtitleTemplateWorkbench() {
           <button
             disabled={!selected || markDefault.isPending}
             type="button"
-            onClick={() => markDefault.mutate()}
+            onClick={() => {
+              resetTemplateResultState();
+              markDefault.mutate();
+            }}
           >
             <Check aria-hidden="true" size={16} />
             设为默认
