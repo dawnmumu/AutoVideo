@@ -117,6 +117,29 @@ def test_update_missing_preset_returns_not_found(tmp_path):
     assert response.json()["detail"]["code"] == "SUBTITLE_TEMPLATE_NOT_FOUND"
 
 
+def test_invalid_payloads_return_structured_template_invalid(tmp_path):
+    with _client(tmp_path) as client:
+        preset_id = client.get("/api/subtitle-template-sets").json()["presets"][0]["id"]
+        responses = [
+            client.post("/api/subtitle-template-sets", json={"preset_id": preset_id}),
+            client.post("/api/subtitle-template-sets", json={"name": "", "preset_id": preset_id}),
+            client.put("/api/subtitle-template-sets/missing-template", json=[]),
+            client.put(f"/api/subtitle-template-sets/presets/{preset_id}", json=[]),
+            client.post("/api/subtitle-template-sets/validate", json=[]),
+            client.post("/api/subtitle-template-sets/preview", json={"template_type": "bottom"}),
+        ]
+
+    assert [response.status_code for response in responses] == [400, 400, 400, 400, 400, 400]
+    assert [response.json()["detail"]["code"] for response in responses] == [
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
+    ]
+
+
 def test_preview_timeline_normalizes_non_finite_duration_inputs_at_endpoint(tmp_path):
     ffmpeg_path = _write_preview_fake_ffmpeg(tmp_path)
     with TestClient(create_app(Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path=ffmpeg_path))) as client:
