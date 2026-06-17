@@ -1,4 +1,5 @@
 import json
+import os
 
 from fastapi.testclient import TestClient
 
@@ -41,6 +42,136 @@ def _single_shot_script() -> dict:
     script["shots"] = [script["shots"][0]]
     script["duration_seconds"] = 5
     return script
+
+
+def _write_fake_ffmpeg(tmp_path) -> str:
+    log_path = tmp_path / "ffmpeg-argv.json"
+    ffmpeg_path = tmp_path / "fake-ffmpeg"
+    ffmpeg_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import pathlib\n"
+        "import sys\n"
+        f"pathlib.Path({str(log_path)!r}).write_text("
+        "json.dumps(sys.argv[1:], ensure_ascii=False), encoding='utf-8')\n"
+        "pathlib.Path(sys.argv[-1]).write_bytes(b'rendered video')\n",
+        encoding="utf-8",
+    )
+    os.chmod(ffmpeg_path, 0o755)
+    return str(ffmpeg_path)
+
+
+def _write_failing_fake_ffmpeg(tmp_path) -> str:
+    ffmpeg_path = tmp_path / "failing-fake-ffmpeg"
+    ffmpeg_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib\n"
+        "import sys\n"
+        "pathlib.Path(sys.argv[-1]).write_bytes(b'partial video')\n"
+        "sys.stderr.write('render failed after partial output')\n"
+        "sys.exit(12)\n",
+        encoding="utf-8",
+    )
+    os.chmod(ffmpeg_path, 0o755)
+    return str(ffmpeg_path)
+
+
+def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        first_material = client.post(
+            "/api/materials",
+            files={"file": ("clip-1.mp4", b"fake video bytes 1", "video/mp4")},
+        ).json()
+        second_material = client.post(
+            "/api/materials",
+            files={"file": ("clip-2.mp4", b"fake video bytes 2", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材渲染",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": first_material["id"]},
+                    {"shot_index": 2, "material_id": second_material["id"]},
+                ],
+                "options": {"aspect_ratio": "9:16"},
+            },
+        )
+        task = response.json()
+        output_response = client.get(task["output"]["download_url"])
+
+    assert response.status_code == 201
+    assert output_response.status_code == 200
+    assert output_response.headers["content-type"].startswith("video/mp4")
+    assert output_response.content == b"rendered video"
+
+    output_dir = tmp_path / "outputs" / task["id"]
+    timeline = json.loads((output_dir / "timeline.json").read_text(encoding="utf-8"))
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    argv = json.loads((tmp_path / "ffmpeg-argv.json").read_text(encoding="utf-8"))
+
+    assert (output_dir / "subtitles.srt").is_file()
+    assert timeline["total_duration"] == 10
+    assert [
+        (item["shot_index"], item["start_time"], item["end_time"])
+        for item in timeline["items"]
+    ] == [(1, 0, 5), (2, 5, 10)]
+    assert timeline["items"][0]["narration"] == "旁白 1"
+    assert timeline["items"][0]["subtitle"] == "字幕 1"
+    assert manifest["render_plan"]["status"] == "rendered"
+    assert manifest["render_plan"]["renderer"] == "ffmpeg"
+    assert argv[-1].endswith("output.mp4")
+
+
+def test_online_mix_cleans_unregistered_output_dir_when_ffmpeg_fails(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_failing_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        first_material = client.post(
+            "/api/materials",
+            files={"file": ("clip-1.mp4", b"fake video bytes 1", "video/mp4")},
+        ).json()
+        second_material = client.post(
+            "/api/materials",
+            files={"file": ("clip-2.mp4", b"fake video bytes 2", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "失败渲染清理",
+                "script": _script(),
+                "asset_strategy": "manual",
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": first_material["id"]},
+                    {"shot_index": 2, "material_id": second_material["id"]},
+                ],
+                "options": {"aspect_ratio": "9:16"},
+            },
+        )
+        tasks_response = client.get("/api/tasks")
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "FFMPEG_RENDER_FAILED"
+    assert tasks_response.json() == []
+    assert list((tmp_path / "outputs").iterdir()) == []
 
 
 def test_online_mix_rejects_duplicate_or_conflicting_shot_selection(client) -> None:
@@ -200,6 +331,74 @@ def test_online_mix_sanitizes_sensitive_options_in_manifest(client) -> None:
     assert "signed-token" not in serialized
     assert "provider_download_url" not in serialized
     assert "videos.pexels.com" not in serialized
+
+
+def test_online_mix_sanitizes_timeline_manifest_and_artifacts_when_ffmpeg_unavailable(
+    tmp_path,
+) -> None:
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            ffmpeg_path="missing-autovideo-ffmpeg-binary",
+        )
+    )
+    script = _single_shot_script()
+    script["shots"][0]["visual_description"] = (
+        "直接素材 https://cdn.example.com/private/clip.mp4?token=direct-secret"
+    )
+    script["shots"][0]["narration"] = (
+        "旁白引用 https://example.com/story?id=1&token=query-secret"
+    )
+    script["shots"][0]["subtitle"] = "字幕来自 /Users/sha/private/subtitle.srt"
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "敏感 timeline 混剪",
+                "script": script,
+                "asset_strategy": "manual",
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": material["id"]},
+                ],
+            },
+        )
+        task = response.json()
+        output = client.get(task["output"]["download_url"]).json()
+
+    output_dir = tmp_path / "outputs" / task["id"]
+    timeline = json.loads((output_dir / "timeline.json").read_text(encoding="utf-8"))
+    subtitles = (output_dir / "subtitles.srt").read_text(encoding="utf-8")
+
+    assert response.status_code == 201
+    assert output["render_plan"]["renderer"] == "ffmpeg_unavailable"
+    assert output["timeline"]["items"][0]["visual_description"] == "[redacted]"
+    assert output["timeline"]["items"][0]["narration"] == "[redacted]"
+    assert output["timeline"]["items"][0]["subtitle"] == "[redacted]"
+    assert timeline["items"][0]["visual_description"] == "[redacted]"
+    assert timeline["items"][0]["narration"] == "[redacted]"
+    assert timeline["items"][0]["subtitle"] == "[redacted]"
+    assert "[redacted]" in subtitles
+
+    serialized = "\n".join(
+        [
+            json.dumps(output, ensure_ascii=False),
+            json.dumps(timeline, ensure_ascii=False),
+            subtitles,
+        ]
+    )
+    for leaked in [
+        "cdn.example.com",
+        "direct-secret",
+        "query-secret",
+        "/Users/sha/private",
+    ]:
+        assert leaked not in serialized
 
 
 def test_online_mix_requires_secret_for_user_candidate_token(tmp_path) -> None:

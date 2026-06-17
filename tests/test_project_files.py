@@ -187,7 +187,7 @@ def test_review_process_docs_do_not_restore_legacy_pr_monitoring_rules() -> None
 def test_readme_documents_current_startup() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
 
-    assert "阶段 2：脚本生成 + 线上免费素材 manifest 混剪" in content
+    assert "阶段 2：脚本生成 + 线上免费素材 FFmpeg 混剪" in content
     assert "React + Vite" in content
     assert "Node.js 20.19+ 或 22.12+" in content
     assert "npm install" in content
@@ -206,6 +206,9 @@ def test_readme_documents_current_startup() -> None:
     assert "source_type" in content
     assert "storage_path" in content
     assert "manifest" in content
+    assert "output.mp4" in content
+    assert "timeline.json" in content
+    assert "FFMPEG_RENDER_FAILED" in content
     assert "POST /api/scripts/generate" in content
     assert "GET /api/online-materials/status" in content
     assert "POST /api/online-materials/search" in content
@@ -241,5 +244,4 @@ def test_readme_documents_current_startup() -> None:
     assert "尚未接入登录" in content
     assert "权限管理" in content
     assert "个人网盘导入" in content
-    assert "真实混剪渲染" in content
     assert "AGPL-3.0-only" in content

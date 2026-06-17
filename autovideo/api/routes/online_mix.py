@@ -33,6 +33,7 @@ from autovideo.services.online_mix import (
     validate_manual_shot_coverage,
     validate_shot_selection,
 )
+from autovideo.services.rendering import FfmpegRenderFailedError
 from autovideo.services.tasks import (
     MaterialNotFoundError,
     TaskMaterialLimitExceededError,
@@ -265,6 +266,12 @@ def create_online_mix_video_task(
             "TASK_OPTIONS_TOO_LARGE",
             max_task_options_bytes=exc.max_task_options_bytes,
             options_bytes=exc.options_bytes,
+        ) from exc
+    except FfmpegRenderFailedError as exc:
+        raise structured_error(
+            status.HTTP_502_BAD_GATEWAY,
+            "FFMPEG_RENDER_FAILED",
+            message=str(exc),
         ) from exc
     finally:
         if should_close_http_client:

@@ -106,6 +106,36 @@ def test_build_script_from_data_allows_missing_or_none_keywords():
     assert all(shot.keywords for shot in script.shots)
 
 
+def test_generate_fallback_script_writes_spoken_ai_sme_script():
+    script = script_generator.generate_fallback_script(
+        "中小企业，如何用 AI 提升效率？",
+        30,
+    )
+
+    assert script.title == "中小企业，如何用 AI 提升效率？"
+    assert [shot.duration for shot in script.shots] == [5, 7, 8, 7, 3]
+    assert script.shots[0].visual_description == (
+        "老板坐在办公室，桌上堆满文件，不断接电话、回复消息。"
+    )
+    assert script.shots[0].narration == "还在为人手不足、工作繁杂而烦恼吗？"
+    assert script.shots[0].subtitle == "人少事多，效率跟不上？"
+    assert script.shots[2].narration == (
+        "AI可以帮助您自动处理文档、生成报表、整理会议记录，甚至协助客服工作。"
+    )
+    forbidden_meta_phrases = (
+        "先用一个真实场景",
+        "镜头持续围绕",
+        "用细节镜头补足",
+        "画面和旁白保持一致",
+        "让信息自然出现",
+    )
+    assert not any(
+        phrase in shot.narration
+        for shot in script.shots
+        for phrase in forbidden_meta_phrases
+    )
+
+
 def _single_shot_script(
     *,
     title: str,

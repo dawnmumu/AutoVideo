@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from autovideo.api.dependencies import get_store
+from autovideo.services.rendering import media_type_for_output
 from autovideo.services.tasks import (
     MaterialNotFoundError,
     OutputNotFoundError,
@@ -118,4 +119,4 @@ def download_task_output(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "OUTPUT_NOT_FOUND", "task_id": exc.task_id},
         ) from exc
-    return FileResponse(output_path, media_type="application/json")
+    return FileResponse(output_path, media_type=media_type_for_output(output_path))
