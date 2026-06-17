@@ -1,4 +1,6 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock, get_ident
 
 import pytest
 
@@ -73,3 +75,71 @@ def test_preset_override_preserves_favorite_metadata(tmp_path):
 
     assert updated["is_favorite"] is True
     assert selected["id"] == "preset-clean-bottom"
+
+
+def test_corrupt_store_json_raises_domain_error_without_overwriting(tmp_path):
+    store = _store(tmp_path)
+    store.store_path.parent.mkdir(parents=True)
+    store.store_path.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(template_store.SubtitleTemplateStoreError, match="Invalid subtitle template store JSON"):
+        store.list_template_sets()
+
+    assert store.store_path.read_text(encoding="utf-8") == "{not-json"
+
+
+def test_create_template_set_serializes_same_path_mutations(tmp_path, monkeypatch):
+    setup_store = _store(tmp_path)
+    source = setup_store.create_template_set("源模板", preset_id="preset-clean-bottom")
+    original_load = template_store.SubtitleTemplateStore._load
+    per_thread_loads = {}
+    ready = Event()
+    state_lock = Lock()
+    mutation_loads = 0
+
+    def slow_second_load(self):
+        nonlocal mutation_loads
+        data = original_load(self)
+        thread_id = get_ident()
+
+        with state_lock:
+            per_thread_loads[thread_id] = per_thread_loads.get(thread_id, 0) + 1
+            should_wait = per_thread_loads[thread_id] >= 2
+            if should_wait:
+                mutation_loads += 1
+                if mutation_loads == 2:
+                    ready.set()
+
+        if should_wait:
+            ready.wait(timeout=0.2)
+
+        return data
+
+    monkeypatch.setattr(template_store.SubtitleTemplateStore, "_load", slow_second_load)
+
+    store_a = _store(tmp_path)
+    store_b = _store(tmp_path)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(store_a.create_template_set, "并发模板 A", source_id=source["id"]),
+            executor.submit(store_b.create_template_set, "并发模板 B", source_id=source["id"]),
+        ]
+        created = [future.result() for future in futures]
+
+    items = _store(tmp_path).list_template_sets()
+
+    assert {item["id"] for item in created}.issubset({item["id"] for item in items})
+    assert len(items) == 3
+
+
+def test_store_rejects_invalid_dsl_validation_result(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+
+    monkeypatch.setattr(
+        template_store.dsl_v2,
+        "validate_template_set_v2",
+        lambda item: {"ok": False, "normalized": None, "warnings": ["payload must be an object"]},
+    )
+
+    with pytest.raises(template_store.SubtitleTemplateStoreError, match="Invalid subtitle template set"):
+        store._normalize_template_set_item({"id": "bad-template"})

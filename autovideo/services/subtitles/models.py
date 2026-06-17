@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 TEMPLATE_ROLES = ("bottom", "highlight", "punch")
@@ -10,4 +11,4 @@ DEFAULT_TRACK = {"id": MAIN_TRACK_ID, "kind": "subtitle", "z": 10}
 
 
 def deep_dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return copy.deepcopy(value) if isinstance(value, dict) else {}

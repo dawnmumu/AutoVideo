@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any
 
 from autovideo.services.subtitles.models import (
@@ -56,6 +57,19 @@ SUPPORTED_STYLE_FIELDS = {
     "skew",
 }
 
+NUMERIC_STYLE_FIELDS = {
+    "font_size",
+    "outline_width",
+    "shadow_depth",
+    "shadow",
+    "font_size_scale",
+    "font_scale",
+    "margin_v",
+    "max_width",
+    "rotate",
+    "skew",
+}
+
 DEFAULT_TEMPLATE_STYLE = {
     "font_family": "PingFang SC",
     "font_size": 54,
@@ -69,6 +83,10 @@ DEFAULT_TEMPLATE_STYLE = {
 
 def validate_template_set_v2(payload: Any) -> dict[str, Any]:
     warnings: list[str] = []
+    if not isinstance(payload, dict):
+        warnings.append("payload must be an object")
+        return {"ok": False, "normalized": None, "warnings": warnings}
+
     normalized = normalize_template_set_v2(payload, warnings=warnings)
     return {"ok": True, "normalized": normalized, "warnings": warnings}
 
@@ -128,17 +146,22 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
         if not isinstance(block, dict):
             continue
 
-        item: dict[str, Any] = {}
+        role = _normalize_role(block.get("role", "bottom"))
+        if role not in TEMPLATE_ROLES:
+            warning_list.append(f"Block {block.get('id') or index + 1} has unsupported role: {block.get('role')!r}")
+            continue
+
+        item: dict[str, Any] = {"role": role}
         for field, field_value in block.items():
+            if field == "role":
+                continue
             if field == "style":
-                item["style"] = _normalize_style(field_value)
+                item["style"] = _normalize_style(field_value, warning_list, context=f"block {block.get('id') or index + 1}")
             elif field == "spans":
-                item["spans"] = _normalize_spans(field_value)
+                item["spans"] = _normalize_spans(field_value, warning_list)
             else:
                 item[field] = copy.deepcopy(field_value)
 
-        if "role" not in item:
-            item["role"] = "bottom"
         if "id" not in item:
             item["id"] = f"{item['role']}-{index + 1}"
         if "track_id" not in item:
@@ -159,25 +182,69 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
     return normalized
 
 
-def _normalize_spans(value: Any) -> list[dict[str, Any]]:
+def _normalize_spans(value: Any, warnings: list[str] | None = None) -> list[dict[str, Any]]:
+    warning_list = warnings if warnings is not None else []
     spans = value if isinstance(value, list) else []
     normalized: list[dict[str, Any]] = []
 
-    for span in spans:
+    for index, span in enumerate(spans):
         if not isinstance(span, dict):
             continue
 
         item = copy.deepcopy(span)
         if "style" in item:
-            item["style"] = _normalize_style(item["style"])
+            item["style"] = _normalize_style(item["style"], warning_list, context=f"span {index + 1}")
         normalized.append(item)
 
     return normalized
 
 
-def _normalize_style(value: Any) -> dict[str, Any]:
+def _normalize_style(value: Any, warnings: list[str] | None = None, *, context: str = "style") -> dict[str, Any]:
+    warning_list = warnings if warnings is not None else []
     style = value if isinstance(value, dict) else {}
-    return {field: copy.deepcopy(style[field]) for field in SUPPORTED_STYLE_FIELDS if field in style}
+    normalized: dict[str, Any] = {}
+
+    for field in SUPPORTED_STYLE_FIELDS:
+        if field not in style:
+            continue
+
+        if field in NUMERIC_STYLE_FIELDS:
+            numeric_value = _coerce_number(style[field])
+            if numeric_value is None:
+                warning_list.append(f"Invalid numeric style field '{field}' in {context}; ignored")
+                continue
+            normalized[field] = numeric_value
+        else:
+            normalized[field] = copy.deepcopy(style[field])
+
+    return normalized
+
+
+def _normalize_role(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower()
+
+
+def _coerce_number(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        if math.isfinite(value):
+            return value
+        return None
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            number = float(candidate)
+        except ValueError:
+            return None
+        if not math.isfinite(number):
+            return None
+        return int(number) if number.is_integer() else number
+    return None
 
 
 def compile_v2_blocks_to_legacy_templates(blocks: Any) -> dict[str, dict[str, Any]]:

@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import secrets
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,13 @@ METADATA_KEYS = (
     "is_favorite",
     "favorite",
 )
+
+_STORE_LOCKS_GUARD = threading.Lock()
+_STORE_LOCKS: dict[Path, threading.RLock] = {}
+
+
+class SubtitleTemplateStoreError(RuntimeError):
+    pass
 
 
 class SubtitleTemplateStore:
@@ -64,68 +72,73 @@ class SubtitleTemplateStore:
         if (preset_id is None) == (source_id is None):
             raise ValueError("Exactly one of preset_id or source_id is required")
 
-        source = self._get_preset(preset_id) if preset_id else self.get_template_set(source_id or "")
-        now = _utc_now()
-        item = copy.deepcopy(source)
-        item["id"] = f"tmpl-{secrets.token_hex(6)}"
-        item["name"] = name
-        item["created_at"] = now
-        item["updated_at"] = now
-        item.pop("is_builtin", None)
-        item.pop("is_modified", None)
-        if preset_id:
-            item["preset_id"] = preset_id
+        with self._mutation_lock():
+            source = self._get_preset(preset_id) if preset_id else self.get_template_set(source_id or "")
+            now = _utc_now()
+            item = copy.deepcopy(source)
+            item["id"] = f"tmpl-{secrets.token_hex(6)}"
+            item["name"] = name
+            item["created_at"] = now
+            item["updated_at"] = now
+            item.pop("is_builtin", None)
+            item.pop("is_modified", None)
+            if preset_id:
+                item["preset_id"] = preset_id
 
-        normalized = self._normalize_template_set_item(item)
-        data = self._load()
-        data["items"].append(normalized)
-        self._write(data)
-        return copy.deepcopy(normalized)
+            normalized = self._normalize_template_set_item(item)
+            data = self._load()
+            data["items"].append(normalized)
+            self._write(data)
+            return copy.deepcopy(normalized)
 
     def update_template_set(self, template_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        data = self._load()
-        for index, item in enumerate(data["items"]):
-            if isinstance(item, dict) and item.get("id") == template_id:
-                merged = self._merge_dicts(item, patch)
-                merged["id"] = template_id
-                if "updated_at" not in patch:
-                    merged["updated_at"] = _utc_now()
-                normalized = self._normalize_template_set_item(merged)
-                data["items"][index] = normalized
-                self._write(data)
-                return copy.deepcopy(normalized)
+        with self._mutation_lock():
+            data = self._load()
+            for index, item in enumerate(data["items"]):
+                if isinstance(item, dict) and item.get("id") == template_id:
+                    merged = self._merge_dicts(item, patch)
+                    merged["id"] = template_id
+                    if "updated_at" not in patch:
+                        merged["updated_at"] = _utc_now()
+                    normalized = self._normalize_template_set_item(merged)
+                    data["items"][index] = normalized
+                    self._write(data)
+                    return copy.deepcopy(normalized)
 
         raise KeyError(template_id)
 
     def update_preset(self, preset_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        current = self._get_preset(preset_id)
-        merged = self._merge_dicts(current, patch)
-        merged["id"] = preset_id
-        merged["is_builtin"] = True
-        merged["is_modified"] = True
-        if "updated_at" not in patch:
-            merged["updated_at"] = _utc_now()
+        with self._mutation_lock():
+            current = self._get_preset(preset_id)
+            merged = self._merge_dicts(current, patch)
+            merged["id"] = preset_id
+            merged["is_builtin"] = True
+            merged["is_modified"] = True
+            if "updated_at" not in patch:
+                merged["updated_at"] = _utc_now()
 
-        normalized = self._normalize_template_set_item(merged)
-        data = self._load()
-        data["preset_overrides"][preset_id] = normalized
-        self._write(data)
-        return copy.deepcopy(normalized)
+            normalized = self._normalize_template_set_item(merged)
+            data = self._load()
+            data["preset_overrides"][preset_id] = normalized
+            self._write(data)
+            return copy.deepcopy(normalized)
 
     def delete_template_set(self, template_id: str) -> None:
-        data = self._load()
-        filtered = [item for item in data["items"] if not (isinstance(item, dict) and item.get("id") == template_id)]
-        if len(filtered) == len(data["items"]):
-            raise KeyError(template_id)
-        data["items"] = filtered
-        self._write(data)
+        with self._mutation_lock():
+            data = self._load()
+            filtered = [item for item in data["items"] if not (isinstance(item, dict) and item.get("id") == template_id)]
+            if len(filtered) == len(data["items"]):
+                raise KeyError(template_id)
+            data["items"] = filtered
+            self._write(data)
 
     def reset_preset(self, preset_id: str) -> dict[str, Any]:
-        self._get_preset_base(preset_id)
-        data = self._load()
-        data["preset_overrides"].pop(preset_id, None)
-        self._write(data)
-        return self._get_preset_base(preset_id)
+        with self._mutation_lock():
+            self._get_preset_base(preset_id)
+            data = self._load()
+            data["preset_overrides"].pop(preset_id, None)
+            self._write(data)
+            return self._get_preset_base(preset_id)
 
     def select_auto_template_set(self) -> dict[str, Any]:
         custom = self.list_template_sets()
@@ -148,9 +161,13 @@ class SubtitleTemplateStore:
         if not self.store_path.exists():
             return {"items": [], "preset_overrides": {}}
 
-        data = json.loads(self.store_path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(self.store_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise SubtitleTemplateStoreError(f"Invalid subtitle template store JSON: {self.store_path}") from exc
+
         if not isinstance(data, dict):
-            return {"items": [], "preset_overrides": {}}
+            raise SubtitleTemplateStoreError(f"Subtitle template store must contain a JSON object: {self.store_path}")
 
         items = data.get("items") if isinstance(data.get("items"), list) else []
         overrides = data.get("preset_overrides") if isinstance(data.get("preset_overrides"), dict) else {}
@@ -162,9 +179,13 @@ class SubtitleTemplateStore:
             "preset_overrides": data.get("preset_overrides") if isinstance(data.get("preset_overrides"), dict) else {},
         }
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = Path(f"{self.store_path}.tmp")
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(temp_path, self.store_path)
+        temp_path = Path(f"{self.store_path}.{secrets.token_hex(8)}.tmp")
+        try:
+            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+            os.replace(temp_path, self.store_path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _get_preset(self, preset_id: str | None) -> dict[str, Any]:
         if preset_id is None:
@@ -185,6 +206,11 @@ class SubtitleTemplateStore:
 
     def _normalize_template_set_item(self, item: dict[str, Any]) -> dict[str, Any]:
         result = dsl_v2.validate_template_set_v2(item)
+        if not result.get("ok") or not isinstance(result.get("normalized"), dict):
+            warnings = "; ".join(result.get("warnings") or [])
+            detail = f": {warnings}" if warnings else ""
+            raise SubtitleTemplateStoreError(f"Invalid subtitle template set{detail}")
+
         normalized = result["normalized"]
 
         for key in METADATA_KEYS:
@@ -194,6 +220,9 @@ class SubtitleTemplateStore:
             normalized["template_variants"] = copy.deepcopy(item["template_variants"])
 
         return normalized
+
+    def _mutation_lock(self) -> threading.RLock:
+        return _store_lock_for_path(self.store_path)
 
     @staticmethod
     def _merge_dicts(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -205,6 +234,15 @@ class SubtitleTemplateStore:
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _store_lock_for_path(path: Path) -> threading.RLock:
+    with _STORE_LOCKS_GUARD:
+        lock = _STORE_LOCKS.get(path)
+        if lock is None:
+            lock = threading.RLock()
+            _STORE_LOCKS[path] = lock
+        return lock
 
 
 def _is_favorite(item: dict[str, Any]) -> bool:
