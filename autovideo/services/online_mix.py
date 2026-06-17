@@ -47,7 +47,7 @@ EMPTY_SUBTITLE_OPTION_KEYS = frozenset(
 RENDER_ERROR_SENSITIVE_FRAGMENT_RE = re.compile(
     r"(?<![\w-])"
     r"("
-    r"access[-_]?token|refresh[-_]?token|api[-_]?key|"
+    r"access[-_]?token|refresh[-_]?token|(?:x[\s_-]*)?api[\s_-]*key|"
     r"client[-_]?secret|token|secret|password"
     r")"
     r"(?![\w-])\s*(=|:|\s)\s*\S+",
