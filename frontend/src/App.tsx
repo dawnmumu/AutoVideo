@@ -10,7 +10,7 @@ import {
   SquarePlay,
   Volume2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { fetchHealth } from "./api/health";
 import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
@@ -36,6 +36,26 @@ const navItems: NavItem[] = [
   { id: "tasks", label: "任务与输出", shortLabel: "任务", icon: SquarePlay, enabled: false },
   { id: "settings", label: "系统设置", shortLabel: "设置", icon: Settings, enabled: false },
 ];
+
+function activeSectionFromHash(hash: string): ActiveSection {
+  const hashId = hash.replace(/^#/, "");
+  return hashId === "subtitles" ? "subtitles" : "remix";
+}
+
+function currentHash(): string {
+  return typeof window === "undefined" ? "" : window.location.hash;
+}
+
+function normalizeActiveHash(): ActiveSection {
+  const activeSection = activeSectionFromHash(window.location.hash);
+  const normalizedHash = `#${activeSection}`;
+
+  if (window.location.hash && window.location.hash !== normalizedHash) {
+    window.history.replaceState(null, "", normalizedHash);
+  }
+
+  return activeSection;
+}
 
 function RuntimeStatus() {
   const query = useQuery({
@@ -81,7 +101,21 @@ function RuntimeStatus() {
 }
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState<ActiveSection>("remix");
+  const [activeSection, setActiveSection] = useState<ActiveSection>(() =>
+    activeSectionFromHash(currentHash()),
+  );
+
+  useEffect(() => {
+    const syncActiveSection = () => {
+      setActiveSection(normalizeActiveHash());
+    };
+
+    syncActiveSection();
+    window.addEventListener("hashchange", syncActiveSection);
+    return () => {
+      window.removeEventListener("hashchange", syncActiveSection);
+    };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -103,8 +137,7 @@ export default function App() {
                 className={isActive ? "active" : ""}
                 href={`#${item.id}`}
                 key={item.label}
-                onClick={(event) => {
-                  event.preventDefault();
+                onClick={() => {
                   setActiveSection(item.id);
                 }}
               >
@@ -141,8 +174,7 @@ export default function App() {
                 className={item.id === activeSection ? "active" : ""}
                 href={`#${item.id}`}
                 key={item.shortLabel}
-                onClick={(event) => {
-                  event.preventDefault();
+                onClick={() => {
                   setActiveSection(item.id);
                 }}
               >

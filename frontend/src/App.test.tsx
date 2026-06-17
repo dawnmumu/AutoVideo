@@ -141,6 +141,7 @@ function renderApp() {
 describe("AutoVideo shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.pushState(null, "", "/");
     mockedFetchHealth.mockResolvedValue({
       app: "AutoVideo",
       status: "degraded",
@@ -227,6 +228,7 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
 
+    expect(window.location.hash).toBe("#subtitles");
     expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
       "aria-current",
@@ -236,12 +238,69 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("status")).toHaveTextContent("可用模板 1 个");
   });
 
+  it("opens subtitle templates from a direct hash link", async () => {
+    window.history.pushState(null, "", "/#subtitles");
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.queryByLabelText("视频主题")).not.toBeInTheDocument();
+  });
+
+  it("returns to the remix workspace through hash navigation", async () => {
+    const user = userEvent.setup();
+    window.history.pushState(null, "", "/#subtitles");
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "混剪工作台" }));
+
+    expect(window.location.hash).toBe("#remix");
+    expect(await screen.findByLabelText("视频主题")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "混剪工作台" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("syncs the active section when the hash changes", async () => {
+    renderApp();
+
+    await screen.findByLabelText("视频主题");
+    window.history.pushState(null, "", "/#subtitles");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("normalizes unknown hashes to the remix workspace", async () => {
+    window.history.pushState(null, "", "/#unknown");
+
+    renderApp();
+
+    expect(await screen.findByLabelText("视频主题")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#remix");
+    expect(screen.getByRole("link", { name: "混剪工作台" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("opens subtitle templates from mobile navigation and updates active state", async () => {
     const user = userEvent.setup();
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕" }));
 
+    expect(window.location.hash).toBe("#subtitles");
     expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
@@ -681,5 +740,58 @@ describe("subtitle api client contracts", () => {
         body: JSON.stringify({ is_favorite: true }),
       }),
     );
+  });
+
+  it("resolves delete responses with no content", async () => {
+    const actual = await vi.importActual<typeof import("./api/subtitles")>("./api/subtitles");
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    globalThis.fetch = fetchMock;
+
+    try {
+      await expect(actual.deleteSubtitleTemplateSet("template/one")).resolves.toBeUndefined();
+      await expect(actual.resetSubtitlePresetOverride("preset/clean")).resolves.toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/subtitle-template-sets/template%2Fone",
+      { method: "DELETE" },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/subtitle-template-sets/presets/preset%2Fclean",
+      { method: "DELETE" },
+    );
+  });
+
+  it("throws structured subtitle api errors with code and status", async () => {
+    const actual = await vi.importActual<typeof import("./api/subtitles")>("./api/subtitles");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ detail: { code: "SUBTITLE_TEMPLATE_INVALID" } }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    let thrownError: unknown;
+    try {
+      await actual.validateSubtitleTemplateSet(cleanBottomPreset);
+    } catch (error) {
+      thrownError = error;
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(thrownError).toBeInstanceOf(actual.SubtitleTemplateApiError);
+    expect(thrownError).toMatchObject({
+      code: "SUBTITLE_TEMPLATE_INVALID",
+      status: 400,
+    });
   });
 });
