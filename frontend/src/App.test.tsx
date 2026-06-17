@@ -12,6 +12,17 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "./api/onlineRemix";
+import {
+  createSubtitleTemplateSet,
+  deleteSubtitleTemplateSet,
+  fetchSubtitleTemplateSets,
+  previewSubtitleTemplateSet,
+  previewSubtitleTimeline,
+  resetSubtitlePresetOverride,
+  updateSubtitlePresetOverride,
+  updateSubtitleTemplateSet,
+  validateSubtitleTemplateSet,
+} from "./api/subtitles";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -25,12 +36,33 @@ vi.mock("./api/onlineRemix", () => ({
   createOnlineMixTask: vi.fn(),
 }));
 
+vi.mock("./api/subtitles", () => ({
+  fetchSubtitleTemplateSets: vi.fn(),
+  createSubtitleTemplateSet: vi.fn(),
+  updateSubtitleTemplateSet: vi.fn(),
+  deleteSubtitleTemplateSet: vi.fn(),
+  updateSubtitlePresetOverride: vi.fn(),
+  resetSubtitlePresetOverride: vi.fn(),
+  validateSubtitleTemplateSet: vi.fn(),
+  previewSubtitleTemplateSet: vi.fn(),
+  previewSubtitleTimeline: vi.fn(),
+}));
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
 const mockedGenerateScript = vi.mocked(generateScript);
 const mockedSearchOnlineMaterials = vi.mocked(searchOnlineMaterials);
 const mockedCreateOnlineMixTask = vi.mocked(createOnlineMixTask);
+const mockedFetchSubtitleTemplateSets = vi.mocked(fetchSubtitleTemplateSets);
+const mockedCreateSubtitleTemplateSet = vi.mocked(createSubtitleTemplateSet);
+const mockedUpdateSubtitleTemplateSet = vi.mocked(updateSubtitleTemplateSet);
+const mockedDeleteSubtitleTemplateSet = vi.mocked(deleteSubtitleTemplateSet);
+const mockedUpdateSubtitlePresetOverride = vi.mocked(updateSubtitlePresetOverride);
+const mockedResetSubtitlePresetOverride = vi.mocked(resetSubtitlePresetOverride);
+const mockedValidateSubtitleTemplateSet = vi.mocked(validateSubtitleTemplateSet);
+const mockedPreviewSubtitleTemplateSet = vi.mocked(previewSubtitleTemplateSet);
+const mockedPreviewSubtitleTimeline = vi.mocked(previewSubtitleTimeline);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -40,6 +72,26 @@ const removedCopyPattern = new RegExp(
   ].join("|"),
   "i",
 );
+
+const cleanBottomPreset = {
+  id: "preset-clean-bottom",
+  name: "清爽底部字幕",
+  schema_version: 2,
+  renderer_mode: "ass_plus",
+  is_favorite: false,
+  is_modified: false,
+  blocks: [
+    {
+      id: "bottom-main",
+      role: "bottom",
+      style: {
+        font_family: "PingFang SC",
+        primary_color: "#FFFFFF",
+      },
+      spans: [],
+    },
+  ],
+};
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -86,6 +138,32 @@ describe("AutoVideo shell", () => {
       candidate_token_secret_configured: true,
     });
     mockedFetchMaterials.mockResolvedValue([]);
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [],
+      presets: [cleanBottomPreset],
+    });
+    mockedCreateSubtitleTemplateSet.mockResolvedValue(cleanBottomPreset);
+    mockedUpdateSubtitleTemplateSet.mockResolvedValue(cleanBottomPreset);
+    mockedDeleteSubtitleTemplateSet.mockResolvedValue(undefined);
+    mockedUpdateSubtitlePresetOverride.mockResolvedValue(cleanBottomPreset);
+    mockedResetSubtitlePresetOverride.mockResolvedValue(undefined);
+    mockedValidateSubtitleTemplateSet.mockResolvedValue({
+      ok: true,
+      normalized: cleanBottomPreset,
+      warnings: [],
+    });
+    mockedPreviewSubtitleTemplateSet.mockResolvedValue({
+      status: "unavailable",
+      image_url: null,
+      renderer: "ffmpeg",
+      message: "预览渲染器不可用",
+    });
+    mockedPreviewSubtitleTimeline.mockResolvedValue({
+      status: "unavailable",
+      video_url: null,
+      renderer: "ffmpeg",
+      message: "预览渲染器不可用",
+    });
   });
 
   it("renders the Chinese product navigation", async () => {
@@ -111,6 +189,35 @@ describe("AutoVideo shell", () => {
       "page",
     );
     expect(screen.getByRole("link", { name: "混剪" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens subtitle templates from desktop navigation and updates active state", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+
+    expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "字幕" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("status")).toHaveTextContent("可用模板 1 个");
+  });
+
+  it("opens subtitle templates from mobile navigation and updates active state", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕" }));
+
+    expect(screen.getByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "字幕" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("does not render removed auth or netdisk copy", async () => {

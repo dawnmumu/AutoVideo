@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { LucideIcon } from "lucide-react";
 import {
   Captions,
   Clapperboard,
@@ -9,19 +10,31 @@ import {
   SquarePlay,
   Volume2,
 } from "lucide-react";
+import { useState } from "react";
 
 import { fetchHealth } from "./api/health";
 import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
+import { SubtitleTemplateWorkbench } from "./components/SubtitleTemplateWorkbench";
 
-const navItems = [
-  { label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard },
-  { label: "素材库", shortLabel: "素材", icon: FolderOpen },
-  { label: "字幕模板", shortLabel: "字幕", icon: Captions },
-  { label: "BGM 管理", shortLabel: "BGM", icon: Music },
-  { label: "音色中心", shortLabel: "音色", icon: Volume2 },
-  { label: "功能提取处理", shortLabel: "提取", icon: Sparkles },
-  { label: "任务与输出", shortLabel: "任务", icon: SquarePlay },
-  { label: "系统设置", shortLabel: "设置", icon: Settings },
+type ActiveSection = "remix" | "subtitles";
+type BaseNavItem = {
+  label: string;
+  shortLabel: string;
+  icon: LucideIcon;
+};
+type NavItem =
+  | (BaseNavItem & { id: ActiveSection; enabled: true })
+  | (BaseNavItem & { id: string; enabled: false });
+
+const navItems: NavItem[] = [
+  { id: "remix", label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard, enabled: true },
+  { id: "materials", label: "素材库", shortLabel: "素材", icon: FolderOpen, enabled: false },
+  { id: "subtitles", label: "字幕模板", shortLabel: "字幕", icon: Captions, enabled: true },
+  { id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: false },
+  { id: "voices", label: "音色中心", shortLabel: "音色", icon: Volume2, enabled: false },
+  { id: "extract", label: "功能提取处理", shortLabel: "提取", icon: Sparkles, enabled: false },
+  { id: "tasks", label: "任务与输出", shortLabel: "任务", icon: SquarePlay, enabled: false },
+  { id: "settings", label: "系统设置", shortLabel: "设置", icon: Settings, enabled: false },
 ];
 
 function RuntimeStatus() {
@@ -68,6 +81,8 @@ function RuntimeStatus() {
 }
 
 export default function App() {
+  const [activeSection, setActiveSection] = useState<ActiveSection>("remix");
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="主导航">
@@ -79,14 +94,19 @@ export default function App() {
           </div>
         </div>
         <nav className="nav-list">
-          {navItems.map((item, index) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
-            return index === 0 ? (
+            const isActive = item.id === activeSection;
+            return item.enabled ? (
               <a
-                aria-current="page"
-                className={index === 0 ? "active" : ""}
-                href={`#${index}`}
+                aria-current={isActive ? "page" : undefined}
+                className={isActive ? "active" : ""}
+                href={`#${item.id}`}
                 key={item.label}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setActiveSection(item.id);
+                }}
               >
                 <Icon aria-hidden="true" size={18} />
                 <span>{item.label}</span>
@@ -114,9 +134,18 @@ export default function App() {
         </header>
 
         <nav className="mobile-tabs" aria-label="移动端导航">
-          {navItems.map((item, index) =>
-            index === 0 ? (
-              <a aria-current="page" className="active" href="#0" key={item.shortLabel}>
+          {navItems.map((item) =>
+            item.enabled ? (
+              <a
+                aria-current={item.id === activeSection ? "page" : undefined}
+                className={item.id === activeSection ? "active" : ""}
+                href={`#${item.id}`}
+                key={item.shortLabel}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setActiveSection(item.id);
+                }}
+              >
                 {item.shortLabel}
               </a>
             ) : (
@@ -127,10 +156,16 @@ export default function App() {
           )}
         </nav>
 
-        <section className="content-grid" id="0">
-          <OnlineRemixWorkbench />
-          <RuntimeStatus />
-        </section>
+        {activeSection === "remix" ? (
+          <section className="content-grid" id="remix">
+            <OnlineRemixWorkbench />
+            <RuntimeStatus />
+          </section>
+        ) : (
+          <section className="content-grid single-column" id="subtitles">
+            <SubtitleTemplateWorkbench />
+          </section>
+        )}
       </main>
     </div>
   );
