@@ -175,6 +175,37 @@ def test_invalid_renderer_templates_and_block_fields_are_sanitized():
     assert any("unknown block field" in warning and "unknown_field" in warning for warning in result["warnings"])
 
 
+def test_block_shape_fields_are_normalized_to_safe_types():
+    result = dsl_v2.validate_template_set_v2(
+        {
+            "id": "template-block-shapes",
+            "name": "Block Shapes",
+            "blocks": [
+                {
+                    "id": {},
+                    "role": "bottom",
+                    "track_id": [],
+                    "position": "bad",
+                    "animations": ["bad"],
+                    "style": {"font_family": "Inter"},
+                }
+            ],
+        }
+    )
+
+    block = result["normalized"]["blocks"][0]
+
+    assert result["ok"] is True
+    assert block["position"] == {}
+    assert block["animations"] == {}
+    assert isinstance(block["id"], str)
+    assert block["id"]
+    assert isinstance(block["track_id"], str)
+    assert block["track_id"] == "main"
+    assert any("position" in warning for warning in result["warnings"])
+    assert any("animations" in warning for warning in result["warnings"])
+
+
 def test_deep_dict_returns_deep_copy_for_dict_values():
     source = {"style": {"font_family": "Inter"}}
 

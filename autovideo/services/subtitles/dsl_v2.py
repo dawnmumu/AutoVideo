@@ -177,12 +177,27 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
                 item["style"] = _normalize_style(field_value, warning_list, context=f"block {block.get('id') or index + 1}")
             elif field == "spans":
                 item["spans"] = _normalize_spans(field_value, warning_list)
+            elif field in {"position", "animations"}:
+                item[field] = _normalize_block_dict_field(
+                    field_value,
+                    warning_list,
+                    field=field,
+                    context=f"block {block.get('id') or index + 1}",
+                )
+            elif field in {"id", "track_id"}:
+                item[field] = _normalize_string_field(
+                    field_value,
+                    warning_list,
+                    field=field,
+                    default="",
+                    context=f"block {block.get('id') or index + 1}",
+                )
             else:
                 item[field] = copy.deepcopy(field_value)
 
-        if "id" not in item:
+        if not item.get("id"):
             item["id"] = f"{item['role']}-{index + 1}"
-        if "track_id" not in item:
+        if not item.get("track_id"):
             item["track_id"] = "main"
         if "style" not in item:
             item["style"] = {}
@@ -192,6 +207,35 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
         normalized.append(item)
 
     return normalized
+
+
+def _normalize_block_dict_field(
+    value: Any,
+    warnings: list[str],
+    *,
+    field: str,
+    context: str,
+) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return copy.deepcopy(value)
+
+    warnings.append(f"Invalid block field '{field}' in {context}; expected object")
+    return {}
+
+
+def _normalize_string_field(
+    value: Any,
+    warnings: list[str],
+    *,
+    field: str,
+    default: str,
+    context: str,
+) -> str:
+    if isinstance(value, str):
+        return value.strip()
+
+    warnings.append(f"Invalid string field '{field}' in {context}; using default")
+    return default
 
 
 def _normalize_spans(value: Any, warnings: list[str] | None = None) -> list[dict[str, Any]]:

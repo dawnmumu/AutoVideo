@@ -216,7 +216,7 @@ class SubtitleTemplateStore:
         for key in METADATA_KEYS:
             if key in item:
                 normalized[key] = copy.deepcopy(item[key])
-        if "template_variants" in item:
+        if isinstance(item.get("template_variants"), dict):
             normalized["template_variants"] = copy.deepcopy(item["template_variants"])
 
         return normalized

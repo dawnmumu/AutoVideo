@@ -143,3 +143,15 @@ def test_store_rejects_invalid_dsl_validation_result(tmp_path, monkeypatch):
 
     with pytest.raises(template_store.SubtitleTemplateStoreError, match="Invalid subtitle template set"):
         store._normalize_template_set_item({"id": "bad-template"})
+
+
+def test_invalid_template_variants_are_normalized_before_persisting(tmp_path):
+    store = _store(tmp_path)
+    created = store.create_template_set("变体模板", preset_id="preset-clean-bottom")
+
+    updated = store.update_template_set(created["id"], {"template_variants": ["bad"]})
+    persisted = json.loads(store.store_path.read_text(encoding="utf-8"))["items"][0]
+
+    assert updated["template_variants"] == {}
+    assert isinstance(persisted["template_variants"], dict)
+    assert persisted["template_variants"] == {}
