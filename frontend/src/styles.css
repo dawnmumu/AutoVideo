@@ -166,6 +166,10 @@ h2 {
   gap: 18px;
 }
 
+.content-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 8px;

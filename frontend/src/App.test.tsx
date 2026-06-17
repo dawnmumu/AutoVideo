@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -249,6 +251,23 @@ describe("AutoVideo shell", () => {
       "page",
     );
     expect(screen.queryByLabelText("视频主题")).not.toBeInTheDocument();
+  });
+
+  it("uses a single-column grid style for the subtitle workspace", async () => {
+    window.history.pushState(null, "", "/#subtitles");
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(document.querySelector("section#subtitles")).toHaveClass(
+      "content-grid",
+      "single-column",
+    );
+
+    const styles = readFileSync("src/styles.css", "utf-8");
+    expect(styles).toMatch(
+      /\.content-grid\.single-column\s*{[^}]*grid-template-columns:\s*1fr;/,
+    );
   });
 
   it("returns to the remix workspace through hash navigation", async () => {
