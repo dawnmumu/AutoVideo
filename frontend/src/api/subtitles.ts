@@ -3,12 +3,13 @@ export interface SubtitleTemplateSet {
   name: string;
   schema_version: number;
   renderer_mode?: string;
+  favorite?: boolean;
   is_favorite?: boolean;
   is_modified?: boolean;
-  tracks?: unknown[];
-  blocks: unknown[];
-  template_variants?: Record<string, unknown[]>;
-  templates?: Record<string, unknown>;
+  tracks?: Array<Record<string, unknown>>;
+  blocks: Array<Record<string, unknown>>;
+  template_variants?: Record<string, unknown>;
+  templates: Record<string, Record<string, unknown>>;
   created_at?: string;
   updated_at?: string;
 }
@@ -20,7 +21,7 @@ export interface SubtitleTemplateSetList {
 
 export interface SubtitleTemplateValidationResult {
   ok: boolean;
-  normalized?: SubtitleTemplateSet;
+  normalized?: SubtitleTemplateSet | null;
   warnings: string[];
 }
 

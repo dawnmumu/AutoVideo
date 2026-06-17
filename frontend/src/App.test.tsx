@@ -23,6 +23,7 @@ import {
   updateSubtitleTemplateSet,
   validateSubtitleTemplateSet,
 } from "./api/subtitles";
+import type { SubtitleTemplateSet } from "./api/subtitles";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -73,13 +74,29 @@ const removedCopyPattern = new RegExp(
   "i",
 );
 
-const cleanBottomPreset = {
+const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
   name: "清爽底部字幕",
   schema_version: 2,
   renderer_mode: "ass_plus",
+  favorite: false,
   is_favorite: false,
   is_modified: false,
+  templates: {
+    bottom: {
+      font_family: "PingFang SC",
+      primary_color: "#FFFFFF",
+    },
+    highlight: {
+      font_family: "PingFang SC",
+      primary_color: "#FFD54F",
+    },
+    punch: {
+      font_family: "PingFang SC",
+      primary_color: "#FFFFFF",
+      font_size_scale: 1.12,
+    },
+  },
   blocks: [
     {
       id: "bottom-main",
@@ -92,6 +109,18 @@ const cleanBottomPreset = {
     },
   ],
 };
+
+function assertSubtitleEditorTypeContract(template: SubtitleTemplateSet) {
+  const block = template.blocks[0];
+  const role = block.role;
+  const style = block.style;
+  const spans = block.spans;
+  const fontFamily = template.templates.bottom.font_family;
+
+  return { fontFamily, role, spans, style };
+}
+
+assertSubtitleEditorTypeContract(cleanBottomPreset);
 
 function renderApp() {
   const queryClient = new QueryClient({
