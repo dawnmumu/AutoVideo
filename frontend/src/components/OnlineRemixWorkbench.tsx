@@ -194,13 +194,17 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
   );
   const allShotsCovered =
     script?.shots.length ? script.shots.every((shot) => coveredShotIndexes.has(shot.index)) : false;
-  const subtitleTemplateItems = (subtitleTemplates.data?.items ?? []).concat(
-    subtitleTemplates.data?.presets ?? [],
-  );
+  const customSubtitleTemplates = subtitleTemplates.data?.items ?? [];
+  const presetSubtitleTemplates = subtitleTemplates.data?.presets ?? [];
+  const subtitleTemplateItems = customSubtitleTemplates.concat(presetSubtitleTemplates);
+  const automaticSubtitleTemplate =
+    customSubtitleTemplates.find((template) => template.is_favorite || template.favorite) ??
+    customSubtitleTemplates[0] ??
+    presetSubtitleTemplates.find((template) => template.is_favorite || template.favorite) ??
+    presetSubtitleTemplates[0];
   const selectedSubtitleTemplate =
     subtitleTemplateItems.find((template) => template.id === subtitleTemplateSetId) ??
-    subtitleTemplateItems.find((template) => template.is_favorite || template.favorite) ??
-    subtitleTemplateItems[0];
+    automaticSubtitleTemplate;
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);

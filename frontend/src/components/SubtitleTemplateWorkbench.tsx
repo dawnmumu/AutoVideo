@@ -89,6 +89,20 @@ function numericPatchValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
+  name: string;
+  preset_id?: string;
+  source_id?: string;
+} {
+  const name = `我的${template?.name ?? "字幕模板"}`;
+  if (!template) {
+    return { name };
+  }
+  return isPreset(template)
+    ? { name, preset_id: template.id }
+    : { name, source_id: template.id };
+}
+
 export function SubtitleTemplateWorkbench() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -116,18 +130,6 @@ export function SubtitleTemplateWorkbench() {
   const invalidateTemplates = () => {
     void queryClient.invalidateQueries({ queryKey: ["subtitle-template-sets"] });
   };
-
-  const createFromPreset = useMutation({
-    mutationFn: () =>
-      createSubtitleTemplateSet({
-        name: `我的${selected?.name ?? "字幕模板"}`,
-        preset_id: selected?.id ?? null,
-      }),
-    onSuccess: (template) => {
-      setSelectedId(template.id);
-      invalidateTemplates();
-    },
-  });
 
   const saveTemplate = useMutation({
     mutationFn: (patch: Partial<SubtitleTemplateSet>) =>
@@ -186,6 +188,36 @@ export function SubtitleTemplateWorkbench() {
     ? `data:${timelinePreview.data.mime_type};base64,${timelinePreview.data.data}`
     : "";
 
+  const resetTemplateResultState = () => {
+    validateTemplate.reset();
+    precisePreview.reset();
+    timelinePreview.reset();
+  };
+
+  const createFromPreset = useMutation({
+    mutationFn: () => createSubtitleTemplateSet(createTemplateCopyInput(selected)),
+    onSuccess: (template) => {
+      resetTemplateResultState();
+      setSelectedId(template.id);
+      invalidateTemplates();
+    },
+  });
+
+  const handleSelectTemplate = (templateId: string) => {
+    resetTemplateResultState();
+    setSelectedId(templateId);
+  };
+
+  const handleSampleTextChange = (value: string) => {
+    resetTemplateResultState();
+    setSampleText(value);
+  };
+
+  const handlePreviewAspectRatioChange = (value: string) => {
+    resetTemplateResultState();
+    setPreviewAspectRatio(value);
+  };
+
   const saveKeywordHighlight = () => {
     if (!selected) {
       return;
@@ -239,7 +271,7 @@ export function SubtitleTemplateWorkbench() {
               aria-selected={selected?.id === template.id}
               key={template.id}
               type="button"
-              onClick={() => setSelectedId(template.id)}
+              onClick={() => handleSelectTemplate(template.id)}
             >
               <span>{template.name}</span>
               {template.is_favorite || template.favorite ? (
@@ -276,13 +308,16 @@ export function SubtitleTemplateWorkbench() {
         <section className="subtitle-preview-panel" aria-label="字幕预览">
           <label>
             <span>示例文本</span>
-            <input value={sampleText} onChange={(event) => setSampleText(event.target.value)} />
+            <input
+              value={sampleText}
+              onChange={(event) => handleSampleTextChange(event.target.value)}
+            />
           </label>
           <label>
             <span>预览画幅</span>
             <select
               value={previewAspectRatio}
-              onChange={(event) => setPreviewAspectRatio(event.target.value)}
+              onChange={(event) => handlePreviewAspectRatioChange(event.target.value)}
             >
               <option value="9:16">9:16</option>
               <option value="16:9">16:9</option>

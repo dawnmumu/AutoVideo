@@ -112,6 +112,15 @@ const cleanBottomPreset: SubtitleTemplateSet = {
   ],
 };
 
+const customCaptionTemplate: SubtitleTemplateSet = {
+  ...cleanBottomPreset,
+  id: "tmpl-brand-bottom",
+  name: "品牌底部字幕",
+  favorite: false,
+  is_favorite: false,
+  is_modified: true,
+};
+
 function assertSubtitleEditorTypeContract(template: SubtitleTemplateSet) {
   const block = template.blocks[0];
   const role = block.role;
@@ -368,6 +377,32 @@ describe("AutoVideo shell", () => {
     });
   });
 
+  it("creates a new custom subtitle template from a selected custom template source", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedCreateSubtitleTemplateSet.mockResolvedValue({
+      ...customCaptionTemplate,
+      id: "tmpl-brand-copy",
+      name: "我的品牌底部字幕",
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
+    await user.click(screen.getByRole("button", { name: "从预设新建" }));
+
+    expect(mockedCreateSubtitleTemplateSet).toHaveBeenCalledWith({
+      name: "我的品牌底部字幕",
+      source_id: "tmpl-brand-bottom",
+    });
+    expect(mockedCreateSubtitleTemplateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ preset_id: "tmpl-brand-bottom" }),
+    );
+  });
+
   it("shows subtitle validation warnings near the editor", async () => {
     const user = userEvent.setup();
     mockedValidateSubtitleTemplateSet.mockResolvedValueOnce({
@@ -384,6 +419,28 @@ describe("AutoVideo shell", () => {
       expect.objectContaining({ id: "preset-clean-bottom" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("主色格式无效");
+  });
+
+  it("clears subtitle validation warnings after switching templates", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedValidateSubtitleTemplateSet.mockResolvedValueOnce({
+      ok: false,
+      normalized: null,
+      warnings: ["主色格式无效"],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "校验模板" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("主色格式无效");
+
+    await user.click(screen.getByRole("button", { name: "品牌底部字幕" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders precise image and timeline previews from the selected template", async () => {
@@ -478,6 +535,23 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
   });
 
+  it("clears stale preview errors when preview inputs change", async () => {
+    const user = userEvent.setup();
+    mockedPreviewSubtitleTemplateSet.mockRejectedValueOnce(
+      new Error("SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "精准预览" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
+
+    await user.clear(screen.getByLabelText("示例文本"));
+    await user.type(screen.getByLabelText("示例文本"), "换一条示例字幕");
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("submits subtitle options when creating online mix task", async () => {
     const user = userEvent.setup();
     mockedGenerateScript.mockResolvedValue({
@@ -560,6 +634,22 @@ describe("AutoVideo shell", () => {
     expect(screen.getByLabelText("卖点")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成脚本" })).toBeInTheDocument();
     expect(screen.getByText("候选签名密钥未配置")).toBeInTheDocument();
+  });
+
+  it("shows the custom subtitle template summary for automatic subtitle selection", async () => {
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [
+        {
+          ...cleanBottomPreset,
+          favorite: true,
+          is_favorite: true,
+        },
+      ],
+    });
+    renderApp();
+
+    expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
   });
 
   it("shows material provider missing when only candidate secret is configured", async () => {
