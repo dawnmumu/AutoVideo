@@ -9,6 +9,7 @@ from autovideo.api.routes.materials import router as materials_router
 from autovideo.api.routes.online_materials import router as online_materials_router
 from autovideo.api.routes.online_mix import router as online_mix_router
 from autovideo.api.routes.scripts import router as scripts_router
+from autovideo.api.routes.subtitle_templates import router as subtitle_templates_router
 from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
 from autovideo.services.online_materials import build_provider_registry
@@ -93,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(online_materials_router)
     app.include_router(online_mix_router)
     app.include_router(scripts_router)
+    app.include_router(subtitle_templates_router)
     app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
