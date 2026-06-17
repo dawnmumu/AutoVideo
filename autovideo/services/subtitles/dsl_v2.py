@@ -97,6 +97,9 @@ def validate_template_set_v2(payload: Any) -> dict[str, Any]:
         warnings.append("payload must be an object")
         return {"ok": False, "normalized": None, "warnings": warnings}
 
+    if not _top_level_metadata_is_valid(payload, warnings):
+        return {"ok": False, "normalized": None, "warnings": warnings}
+
     normalized = normalize_template_set_v2(payload, warnings=warnings)
     return {"ok": True, "normalized": normalized, "warnings": warnings}
 
@@ -139,6 +142,29 @@ def normalize_template_set_v2(payload: Any, warnings: list[str] | None = None) -
         normalized["template_variants"] = {}
 
     return normalized
+
+
+def _top_level_metadata_is_valid(source: dict[str, Any], warnings: list[str]) -> bool:
+    is_valid = True
+
+    for field in ("id", "name", "created_at", "updated_at", "preset_id"):
+        if field not in source:
+            continue
+        value = source[field]
+        if not isinstance(value, str):
+            warnings.append(f"Invalid top-level field '{field}'; expected string")
+            is_valid = False
+            continue
+        if field in {"id", "name", "preset_id"} and not value.strip():
+            warnings.append(f"Invalid top-level field '{field}'; expected non-empty string")
+            is_valid = False
+
+    for field in ("is_builtin", "is_modified", "is_favorite", "favorite"):
+        if field in source and not isinstance(source[field], bool):
+            warnings.append(f"Invalid top-level field '{field}'; expected boolean")
+            is_valid = False
+
+    return is_valid
 
 
 def _normalize_tracks(value: Any) -> list[dict[str, Any]]:

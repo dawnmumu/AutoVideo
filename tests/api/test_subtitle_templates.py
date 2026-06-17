@@ -120,17 +120,23 @@ def test_update_missing_preset_returns_not_found(tmp_path):
 def test_invalid_payloads_return_structured_template_invalid(tmp_path):
     with _client(tmp_path) as client:
         preset_id = client.get("/api/subtitle-template-sets").json()["presets"][0]["id"]
+        created = client.post("/api/subtitle-template-sets", json={"name": "我的模板", "preset_id": preset_id})
+        template_id = created.json()["id"]
         responses = [
             client.post("/api/subtitle-template-sets", json={"preset_id": preset_id}),
             client.post("/api/subtitle-template-sets", json={"name": "", "preset_id": preset_id}),
             client.put("/api/subtitle-template-sets/missing-template", json=[]),
             client.put(f"/api/subtitle-template-sets/presets/{preset_id}", json=[]),
+            client.put(f"/api/subtitle-template-sets/{template_id}", json={"name": {"bad": "object"}}),
+            client.put(f"/api/subtitle-template-sets/presets/{preset_id}", json={"name": {"bad": "object"}}),
             client.post("/api/subtitle-template-sets/validate", json=[]),
             client.post("/api/subtitle-template-sets/preview", json={"template_type": "bottom"}),
         ]
 
-    assert [response.status_code for response in responses] == [400, 400, 400, 400, 400, 400]
+    assert [response.status_code for response in responses] == [400, 400, 400, 400, 400, 400, 400, 400]
     assert [response.json()["detail"]["code"] for response in responses] == [
+        "SUBTITLE_TEMPLATE_INVALID",
+        "SUBTITLE_TEMPLATE_INVALID",
         "SUBTITLE_TEMPLATE_INVALID",
         "SUBTITLE_TEMPLATE_INVALID",
         "SUBTITLE_TEMPLATE_INVALID",
