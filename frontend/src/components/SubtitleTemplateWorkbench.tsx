@@ -268,7 +268,7 @@ export function SubtitleTemplateWorkbench() {
         >
           {allTemplates.map((template) => (
             <button
-              aria-selected={selected?.id === template.id}
+              aria-pressed={selected?.id === template.id}
               key={template.id}
               type="button"
               onClick={() => handleSelectTemplate(template.id)}

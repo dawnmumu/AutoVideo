@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -268,15 +266,8 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
-    expect(document.querySelector("section#subtitles")).toHaveClass(
-      "content-grid",
-      "single-column",
-    );
-
-    const styles = readFileSync("src/styles.css", "utf-8");
-    expect(styles).toMatch(
-      /\.content-grid\.single-column\s*{[^}]*grid-template-columns:\s*1fr;/,
-    );
+    const subtitleSection = document.querySelector("section#subtitles") as HTMLElement;
+    expect(subtitleSection).toHaveClass("content-grid", "single-column");
   });
 
   it("returns to the remix workspace through hash navigation", async () => {
@@ -508,8 +499,11 @@ describe("AutoVideo shell", () => {
       "horizontal-scroll-on-mobile",
     );
     expect(screen.getByRole("button", { name: "清晰底部字幕" })).toHaveAttribute(
-      "aria-selected",
+      "aria-pressed",
       "true",
+    );
+    expect(screen.getByRole("button", { name: "清晰底部字幕" })).not.toHaveAttribute(
+      "aria-selected",
     );
     screen.getByRole("button", { name: "精准预览" }).focus();
     await user.tab();

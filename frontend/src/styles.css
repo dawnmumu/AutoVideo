@@ -513,7 +513,7 @@ button:disabled,
   text-align: left;
 }
 
-.subtitle-template-list button[aria-selected="true"] {
+.subtitle-template-list button[aria-pressed="true"] {
   border-color: var(--accent);
   color: var(--accent-strong);
   font-weight: 700;
