@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any, Literal
 
 import httpx
@@ -42,6 +43,15 @@ EMPTY_SUBTITLE_OPTION_KEYS = frozenset(
         "subtitle_template_snapshot",
         "subtitle_font_family",
     }
+)
+RENDER_ERROR_SENSITIVE_FRAGMENT_RE = re.compile(
+    r"(?<![\w-])"
+    r"("
+    r"access[-_]?token|refresh[-_]?token|api[-_]?key|"
+    r"client[-_]?secret|token|secret|password"
+    r")"
+    r"(?![\w-])\s*(=|:|\s)\s*\S+",
+    re.IGNORECASE,
 )
 
 
@@ -439,6 +449,8 @@ def _render_plan_from_result(
 def _sanitize_render_error_summary(error_summary: str | None) -> str | None:
     if not error_summary:
         return error_summary
+    if RENDER_ERROR_SENSITIVE_FRAGMENT_RE.search(error_summary):
+        return "[redacted]"
     sanitized = sanitize_manifest_payload(error_summary)
     return sanitized if isinstance(sanitized, str) else ""
 

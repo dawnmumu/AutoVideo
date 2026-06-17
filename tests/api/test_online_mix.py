@@ -87,6 +87,19 @@ def _write_leaky_failing_fake_ffmpeg(tmp_path) -> str:
     return str(ffmpeg_path)
 
 
+def _write_plain_secret_failing_fake_ffmpeg(tmp_path, stderr: str) -> str:
+    ffmpeg_path = tmp_path / "plain-secret-failing-online-mix-ffmpeg"
+    ffmpeg_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        f"sys.stderr.write({stderr!r})\n"
+        "sys.exit(12)\n",
+        encoding="utf-8",
+    )
+    ffmpeg_path.chmod(0o755)
+    return str(ffmpeg_path)
+
+
 def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
     tmp_path,
 ) -> None:
@@ -500,6 +513,71 @@ def test_online_mix_sanitizes_render_error_summary_when_base_video_fails(tmp_pat
     assert str(tmp_path) not in manifest_json
     assert "materials" not in render_plan_json
     assert "outputs" not in render_plan_json
+
+
+def test_online_mix_sanitizes_plain_secret_render_error_summary(tmp_path):
+    for index, stderr in enumerate(
+        [
+            "token=plain-secret-value",
+            "secret: plain-secret-value",
+            "password plain-secret-value",
+            "api_key=plain-secret-value",
+            "ACCESS-token=plain-secret-value",
+        ],
+        start=1,
+    ):
+        data_dir = tmp_path / f"case-{index}"
+        data_dir.mkdir()
+        app = create_app(
+            Settings(
+                data_dir=data_dir,
+                ffmpeg_path=_write_plain_secret_failing_fake_ffmpeg(
+                    data_dir,
+                    stderr,
+                ),
+            )
+        )
+
+        with TestClient(app) as client:
+            material = client.post(
+                "/api/materials", files={"file": ("clip.mp4", b"fake", "video/mp4")}
+            ).json()
+            template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+            response = client.post(
+                "/api/online-mix/tasks",
+                json={
+                    "title": "纯密钥错误摘要脱敏",
+                    "script": _single_shot_script(),
+                    "asset_strategy": "manual",
+                    "shot_materials": [
+                        {"shot_index": 1, "material_id": material["id"]}
+                    ],
+                    "options": {
+                        "subtitle_enabled": True,
+                        "subtitle_template_snapshot": template,
+                        "subtitle_template_set_id": template["id"],
+                    },
+                },
+            )
+            task = response.json()
+            output = client.get(task["output"]["download_url"]).json()
+
+        manifest = json.loads(
+            (data_dir / "outputs" / task["id"] / "manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        summary = output["render_plan"]["error_summary"]
+        serialized = json.dumps(
+            [output["render_plan"], manifest["render_plan"]],
+            ensure_ascii=False,
+        )
+
+        assert response.status_code == 201
+        assert output["render_plan"]["status"] == "base_video_failed"
+        assert summary == "[redacted]"
+        assert "plain-secret-value" not in serialized
+        assert stderr not in serialized
 
 
 def test_online_mix_manifest_records_captioned_local_source_masks(tmp_path):
