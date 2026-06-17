@@ -24,6 +24,22 @@ function isPreset(template: SubtitleTemplateSet | undefined): boolean {
   return Boolean(template?.id.startsWith("preset-"));
 }
 
+function isFavoriteTemplate(template: SubtitleTemplateSet | undefined): boolean {
+  return Boolean(template?.is_favorite || template?.favorite);
+}
+
+function selectAutomaticTemplate(
+  customTemplates: SubtitleTemplateSet[],
+  presetTemplates: SubtitleTemplateSet[],
+): SubtitleTemplateSet | undefined {
+  return (
+    customTemplates.find(isFavoriteTemplate) ??
+    customTemplates[0] ??
+    presetTemplates.find(isFavoriteTemplate) ??
+    presetTemplates[0]
+  );
+}
+
 function blockStyle(block: Record<string, unknown> | undefined): Record<string, unknown> {
   return typeof block?.style === "object" && block.style !== null
     ? (block.style as Record<string, unknown>)
@@ -89,6 +105,25 @@ function numericPatchValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function persistentStyleValue(key: string, value: string): string | number {
+  if (key === "font_size_scale") {
+    return numericPatchValue(value, 1);
+  }
+  if (key === "max_width") {
+    return numericPatchValue(value, 0.86);
+  }
+  if (
+    key === "outline_width" ||
+    key === "shadow" ||
+    key === "margin_v" ||
+    key === "rotate" ||
+    key === "skew"
+  ) {
+    return numericPatchValue(value, 0);
+  }
+  return value;
+}
+
 function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
   name: string;
   preset_id?: string;
@@ -106,6 +141,7 @@ function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
 export function SubtitleTemplateWorkbench() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [templateDrafts, setTemplateDrafts] = useState<Record<string, SubtitleTemplateSet>>({});
   const [sampleText, setSampleText] = useState("AI 自动完成重复工作");
   const [previewAspectRatio, setPreviewAspectRatio] = useState("9:16");
   const [keyword, setKeyword] = useState("AI");
@@ -115,14 +151,16 @@ export function SubtitleTemplateWorkbench() {
     queryKey: ["subtitle-template-sets"],
     queryFn: fetchSubtitleTemplateSets,
   });
+  const customTemplates = templates.data?.items ?? [];
+  const presetTemplates = templates.data?.presets ?? [];
   const allTemplates = useMemo(
-    () => [...(templates.data?.presets ?? []), ...(templates.data?.items ?? [])],
-    [templates.data],
+    () => [...presetTemplates, ...customTemplates],
+    [customTemplates, presetTemplates],
   );
-  const defaultTemplate =
-    allTemplates.find((template) => template.is_favorite || template.favorite) ?? allTemplates[0];
+  const defaultTemplate = selectAutomaticTemplate(customTemplates, presetTemplates);
   const selected =
     allTemplates.find((template) => template.id === selectedId) ?? defaultTemplate;
+  const selectedDraft = selected ? (templateDrafts[selected.id] ?? selected) : undefined;
   const isSelectedPreset = isPreset(selected);
   const isEditable = Boolean(selected && !isSelectedPreset);
   const availableTemplateCount = allTemplates.length;
@@ -132,9 +170,12 @@ export function SubtitleTemplateWorkbench() {
   };
 
   const saveTemplate = useMutation({
-    mutationFn: (patch: Partial<SubtitleTemplateSet>) =>
-      updateSubtitleTemplateSet({ id: String(selected?.id), patch }),
-    onSuccess: invalidateTemplates,
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<SubtitleTemplateSet> }) =>
+      updateSubtitleTemplateSet({ id, patch }),
+    onSuccess: (template) => {
+      setTemplateDrafts((current) => ({ ...current, [template.id]: template }));
+      invalidateTemplates();
+    },
   });
 
   const markDefault = useMutation({
@@ -157,13 +198,13 @@ export function SubtitleTemplateWorkbench() {
   });
 
   const validateTemplate = useMutation({
-    mutationFn: () => validateSubtitleTemplateSet(selected as SubtitleTemplateSet),
+    mutationFn: () => validateSubtitleTemplateSet(selectedDraft as SubtitleTemplateSet),
   });
 
   const precisePreview = useMutation({
     mutationFn: () =>
       previewSubtitleTemplateSet({
-        template_set: selected as SubtitleTemplateSet,
+        template_set: selectedDraft as SubtitleTemplateSet,
         template_type: "bottom",
         aspect_ratio: previewAspectRatio,
         sample_text: sampleText,
@@ -173,7 +214,7 @@ export function SubtitleTemplateWorkbench() {
   const timelinePreview = useMutation({
     mutationFn: () =>
       previewSubtitleTimeline({
-        template_set: selected as SubtitleTemplateSet,
+        template_set: selectedDraft as SubtitleTemplateSet,
         template_type: "bottom",
         aspect_ratio: previewAspectRatio,
         sample_text: sampleText,
@@ -218,25 +259,55 @@ export function SubtitleTemplateWorkbench() {
     setPreviewAspectRatio(value);
   };
 
+  const updateStyleDraft = (role: string, key: string, value: string) => {
+    if (!selected || !isEditable) {
+      return;
+    }
+    setTemplateDrafts((current) => {
+      const base = current[selected.id] ?? selected;
+      return {
+        ...current,
+        [selected.id]: {
+          ...base,
+          ...stylePatch(base, role, { [key]: value }),
+        },
+      };
+    });
+  };
+
+  const saveStyleValue = (role: string, key: string, value: string) => {
+    if (!selected || !isEditable) {
+      return;
+    }
+    const base = templateDrafts[selected.id] ?? selected;
+    const patch = stylePatch(base, role, { [key]: persistentStyleValue(key, value) });
+    const nextTemplate = { ...base, ...patch };
+    setTemplateDrafts((current) => ({ ...current, [selected.id]: nextTemplate }));
+    saveTemplate.mutate({ id: selected.id, patch });
+  };
+
   const saveKeywordHighlight = () => {
-    if (!selected) {
+    if (!selected || !selectedDraft) {
       return;
     }
     saveTemplate.mutate({
-      blocks: selected.blocks.map((block) =>
-        block.role === "bottom"
-          ? {
-              ...block,
-              spans: [
-                ...(Array.isArray(block.spans) ? block.spans : []),
-                {
-                  selector: { type: "keyword", value: keyword },
-                  style: { primary_color: keywordColor },
-                },
-              ],
-            }
-          : block,
-      ),
+      id: selected.id,
+      patch: {
+        blocks: selectedDraft.blocks.map((block) =>
+          block.role === "bottom"
+            ? {
+                ...block,
+                spans: [
+                  ...(Array.isArray(block.spans) ? block.spans : []),
+                  {
+                    selector: { type: "keyword", value: keyword },
+                    style: { primary_color: keywordColor },
+                  },
+                ],
+              }
+            : block,
+        ),
+      },
     });
   };
 
@@ -399,11 +470,12 @@ export function SubtitleTemplateWorkbench() {
               <label>
                 <span>字体</span>
                 <select
-                  disabled={!isEditable || saveTemplate.isPending}
-                  value={styleValue(selected, role, "font_family", "PingFang SC")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(stylePatch(selected, role, { font_family: event.target.value }))
-                  }
+                  disabled={!isEditable}
+                  value={styleValue(selectedDraft, role, "font_family", "PingFang SC")}
+                  onChange={(event) => {
+                    updateStyleDraft(role, "font_family", event.target.value);
+                    saveStyleValue(role, "font_family", event.target.value);
+                  }}
                 >
                   <option value="PingFang SC">PingFang SC</option>
                   <option value="Noto Sans CJK SC">Noto Sans CJK SC</option>
@@ -412,116 +484,86 @@ export function SubtitleTemplateWorkbench() {
               <label>
                 <span>主色</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
-                  value={styleValue(selected, role, "primary_color", "#FFFFFF")}
+                  disabled={!isEditable}
+                  value={styleValue(selectedDraft, role, "primary_color", "#FFFFFF")}
+                  onBlur={(event) => saveStyleValue(role, "primary_color", event.target.value)}
                   onChange={(event) =>
-                    saveTemplate.mutate(stylePatch(selected, role, { primary_color: event.target.value }))
+                    updateStyleDraft(role, "primary_color", event.target.value)
                   }
                 />
               </label>
               <label>
                 <span>字号比例</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="decimal"
-                  value={styleValue(selected, role, "font_size_scale", "1")}
+                  value={styleValue(selectedDraft, role, "font_size_scale", "1")}
+                  onBlur={(event) => saveStyleValue(role, "font_size_scale", event.target.value)}
                   onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        font_size_scale: numericPatchValue(event.target.value, 1),
-                      }),
-                    )
+                    updateStyleDraft(role, "font_size_scale", event.target.value)
                   }
                 />
               </label>
               <label>
                 <span>描边宽度</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="numeric"
-                  value={styleValue(selected, role, "outline_width", "2")}
+                  value={styleValue(selectedDraft, role, "outline_width", "2")}
+                  onBlur={(event) => saveStyleValue(role, "outline_width", event.target.value)}
                   onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        outline_width: numericPatchValue(event.target.value, 0),
-                      }),
-                    )
+                    updateStyleDraft(role, "outline_width", event.target.value)
                   }
                 />
               </label>
               <label>
                 <span>阴影强度</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="numeric"
-                  value={styleValue(selected, role, "shadow", "0")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        shadow: numericPatchValue(event.target.value, 0),
-                      }),
-                    )
-                  }
+                  value={styleValue(selectedDraft, role, "shadow", "0")}
+                  onBlur={(event) => saveStyleValue(role, "shadow", event.target.value)}
+                  onChange={(event) => updateStyleDraft(role, "shadow", event.target.value)}
                 />
               </label>
               <label>
                 <span>垂直位置</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="numeric"
-                  value={styleValue(selected, role, "margin_v", "96")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        margin_v: numericPatchValue(event.target.value, 0),
-                      }),
-                    )
-                  }
+                  value={styleValue(selectedDraft, role, "margin_v", "96")}
+                  onBlur={(event) => saveStyleValue(role, "margin_v", event.target.value)}
+                  onChange={(event) => updateStyleDraft(role, "margin_v", event.target.value)}
                 />
               </label>
               <label>
                 <span>最大宽度</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="decimal"
-                  value={styleValue(selected, role, "max_width", "0.86")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        max_width: numericPatchValue(event.target.value, 0.86),
-                      }),
-                    )
-                  }
+                  value={styleValue(selectedDraft, role, "max_width", "0.86")}
+                  onBlur={(event) => saveStyleValue(role, "max_width", event.target.value)}
+                  onChange={(event) => updateStyleDraft(role, "max_width", event.target.value)}
                 />
               </label>
               <label>
                 <span>旋转</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="numeric"
-                  value={styleValue(selected, role, "rotate", "0")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        rotate: numericPatchValue(event.target.value, 0),
-                      }),
-                    )
-                  }
+                  value={styleValue(selectedDraft, role, "rotate", "0")}
+                  onBlur={(event) => saveStyleValue(role, "rotate", event.target.value)}
+                  onChange={(event) => updateStyleDraft(role, "rotate", event.target.value)}
                 />
               </label>
               <label>
                 <span>倾斜</span>
                 <input
-                  disabled={!isEditable || saveTemplate.isPending}
+                  disabled={!isEditable}
                   inputMode="numeric"
-                  value={styleValue(selected, role, "skew", "0")}
-                  onChange={(event) =>
-                    saveTemplate.mutate(
-                      stylePatch(selected, role, {
-                        skew: numericPatchValue(event.target.value, 0),
-                      }),
-                    )
-                  }
+                  value={styleValue(selectedDraft, role, "skew", "0")}
+                  onBlur={(event) => saveStyleValue(role, "skew", event.target.value)}
+                  onChange={(event) => updateStyleDraft(role, "skew", event.target.value)}
                 />
               </label>
             </fieldset>

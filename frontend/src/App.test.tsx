@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -394,6 +394,72 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("selects a custom subtitle template before a favorite preset by default", async () => {
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [
+        {
+          ...cleanBottomPreset,
+          favorite: true,
+          is_favorite: true,
+        },
+      ],
+    });
+    window.history.pushState(null, "", "/#subtitles");
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "品牌底部字幕" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "清晰底部字幕" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("keeps custom style edits visible while a style save is pending", async () => {
+    const user = userEvent.setup();
+    let resolveUpdate: ((template: SubtitleTemplateSet) => void) | undefined;
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
+    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+
+    await user.clear(primaryColor);
+    await user.type(primaryColor, "#123456");
+    await user.tab();
+
+    expect(mockedUpdateSubtitleTemplateSet).toHaveBeenCalled();
+    expect(primaryColor).toHaveValue("#123456");
+    expect(primaryColor).not.toBeDisabled();
+
+    resolveUpdate?.({
+      ...customCaptionTemplate,
+      templates: {
+        ...customCaptionTemplate.templates,
+        bottom: {
+          ...customCaptionTemplate.templates.bottom,
+          primary_color: "#123456",
+        },
+      },
+    });
+  });
+
   it("shows subtitle validation warnings near the editor", async () => {
     const user = userEvent.setup();
     mockedValidateSubtitleTemplateSet.mockResolvedValueOnce({
@@ -631,6 +697,7 @@ describe("AutoVideo shell", () => {
   });
 
   it("shows the custom subtitle template summary for automatic subtitle selection", async () => {
+    const user = userEvent.setup();
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [customCaptionTemplate],
       presets: [
@@ -644,6 +711,15 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
+    expect(within(subtitleWorkbench).getByText("当前模板：品牌底部字幕")).toBeInTheDocument();
+    expect(within(subtitleWorkbench).getByRole("button", { name: "品牌底部字幕" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("shows material provider missing when only candidate secret is configured", async () => {
