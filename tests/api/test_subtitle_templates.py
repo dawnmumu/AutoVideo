@@ -95,6 +95,28 @@ def test_preset_override_reset_and_timeline_preview_routes(tmp_path):
     assert reset.status_code == 204
 
 
+def test_preview_timeline_normalizes_non_finite_duration_inputs_at_endpoint(tmp_path):
+    ffmpeg_path = _write_preview_fake_ffmpeg(tmp_path)
+    with TestClient(create_app(Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path=ffmpeg_path))) as client:
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        responses = [
+            client.post(
+                "/api/subtitle-template-sets/preview-timeline",
+                json={
+                    "template_set": template,
+                    "template_type": "bottom",
+                    "aspect_ratio": "9:16",
+                    "sample_text": "AI 提升效率",
+                    "duration_ms": duration_ms,
+                },
+            )
+            for duration_ms in ("nan", "-inf", None)
+        ]
+
+    assert [response.status_code for response in responses] == [200, 200, 200]
+    assert [response.json()["duration_ms"] for response in responses] == [1200, 1200, 1200]
+
+
 def test_clean_timeline_duration_uses_default_for_non_finite_numbers():
     assert preview_renderer._clean_timeline_duration_ms(math.nan) == preview_renderer.DEFAULT_PREVIEW_DURATION_MS
     assert preview_renderer._clean_timeline_duration_ms(math.inf) == preview_renderer.DEFAULT_PREVIEW_DURATION_MS

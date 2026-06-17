@@ -30,7 +30,7 @@ class PreviewRequest(BaseModel):
     template_type: str = "bottom"
     aspect_ratio: str = "9:16"
     sample_text: str = "AI 提升效率"
-    duration_ms: int = 1200
+    duration_ms: Any = 1200
 
 
 def _store(settings: Settings) -> SubtitleTemplateStore:
