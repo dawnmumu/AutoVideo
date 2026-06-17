@@ -54,6 +54,8 @@ def events_from_render_timeline(timeline: Any) -> list[SubtitleEvent]:
 
         start_ms = _seconds_to_ms(start_seconds)
         end_ms = _seconds_to_ms(end_seconds)
+        if start_ms < 0 or end_ms < 0:
+            continue
         if end_ms <= start_ms:
             continue
 

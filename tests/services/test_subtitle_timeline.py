@@ -59,6 +59,23 @@ def test_events_from_render_timeline_skips_zero_duration_items():
     assert events == []
 
 
+def test_events_from_render_timeline_skips_negative_time_items():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": -2,
+                    "end_time": -1,
+                    "subtitle": "片头幽灵字幕",
+                }
+            ]
+        }
+    )
+
+    assert events == []
+
+
 def test_events_from_render_timeline_keeps_short_duration_split_events_visible():
     events = events_from_render_timeline(
         {

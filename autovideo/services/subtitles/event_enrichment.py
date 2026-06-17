@@ -124,7 +124,14 @@ def _merge_blocks(base_block: dict[str, Any] | None, variant_block: dict[str, An
 
 def _merge_defaults(defaults: Any, current: dict[str, Any]) -> dict[str, Any]:
     merged = copy.deepcopy(defaults) if isinstance(defaults, dict) else {}
-    merged.update(copy.deepcopy(current) if isinstance(current, dict) else {})
+    if not isinstance(current, dict):
+        return merged
+
+    for key, value in current.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_defaults(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
     return merged
 
 

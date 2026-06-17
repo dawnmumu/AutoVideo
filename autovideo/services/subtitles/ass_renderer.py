@@ -80,10 +80,12 @@ def _template_style(template_set: dict[str, Any], role: str) -> dict[str, Any]:
 
 def _style_line(role: str, style: dict[str, Any]) -> str:
     font_size = _scaled_font_size(style)
-    outline = _number(style.get("outline_width", DEFAULT_STYLE["outline_width"]))
-    shadow = _number(style.get("shadow_depth", style.get("shadow", DEFAULT_STYLE["shadow_depth"])))
+    outline = _number(_non_negative_numeric(style.get("outline_width"), DEFAULT_STYLE["outline_width"]))
+    shadow = _number(
+        _non_negative_numeric(style.get("shadow_depth", style.get("shadow")), DEFAULT_STYLE["shadow_depth"])
+    )
     angle = _number(style.get("rotate", DEFAULT_STYLE["rotate"]))
-    margin_v = int(_numeric(style.get("margin_v", DEFAULT_STYLE["margin_v"]), DEFAULT_STYLE["margin_v"]))
+    margin_v = int(_non_negative_numeric(style.get("margin_v"), DEFAULT_STYLE["margin_v"]))
 
     fields = [
         role,
@@ -118,8 +120,9 @@ def _dialogue_line(
     resolution: tuple[int, int],
     time_range: tuple[int, int],
 ) -> str:
-    override_tags = _event_override_tags(event, resolution)
-    text = _render_text(event.text, event.spans, reset_tags=override_tags)
+    event_font_size = _event_font_size(event)
+    override_tags = _event_override_tags(event, resolution, event_font_size)
+    text = _render_text(event.text, event.spans, reset_tags=override_tags, base_font_size=event_font_size)
     if override_tags:
         text = f"{override_tags}{text}"
     start_text, end_text = (_format_ass_centiseconds(time_range[0]), _format_ass_centiseconds(time_range[1]))
@@ -149,19 +152,19 @@ def _monotonic_dialogue_ranges(events: list[SubtitleEvent]) -> dict[int, tuple[i
     return ranges
 
 
-def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
+def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int], event_font_size: int) -> str:
     tags: list[str] = []
     style = event.style if isinstance(event.style, dict) else {}
     position = event.position if isinstance(event.position, dict) else {}
 
-    if "font_size" in style:
-        tags.append(f"\\fs{_scaled_font_size(style)}")
+    if any(key in style for key in ("font_size", "font_size_scale", "font_scale")):
+        tags.append(f"\\fs{event_font_size}")
 
     primary_color = style.get("primary_color")
     if isinstance(primary_color, str) and _is_hex_color(primary_color.strip()):
         tags.append(f"\\c{_inline_color(primary_color)}")
 
-    outline_width = _optional_numeric(style.get("outline_width")) if "outline_width" in style else None
+    outline_width = _non_negative_numeric(style.get("outline_width")) if "outline_width" in style else None
     if outline_width is not None:
         tags.append(f"\\bord{_format_coordinate(outline_width)}")
 
@@ -170,7 +173,7 @@ def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int]) -> s
         tags.append(f"\\3c{_inline_color(outline_color)}")
 
     shadow_source = style.get("shadow_depth") if "shadow_depth" in style else style.get("shadow")
-    shadow_depth = _optional_numeric(shadow_source) if ("shadow_depth" in style or "shadow" in style) else None
+    shadow_depth = _non_negative_numeric(shadow_source) if ("shadow_depth" in style or "shadow" in style) else None
     if shadow_depth is not None:
         tags.append(f"\\shad{_format_coordinate(shadow_depth)}")
 
@@ -193,7 +196,7 @@ def _event_margin_v(event: SubtitleEvent) -> str:
     style = event.style if isinstance(event.style, dict) else {}
     if "margin_v" not in style:
         return "0"
-    margin_v = _optional_numeric(style.get("margin_v"))
+    margin_v = _non_negative_numeric(style.get("margin_v"))
     if margin_v is None:
         return "0"
     return str(int(margin_v))
@@ -211,7 +214,13 @@ def _position_tag(position: dict[str, Any], resolution: tuple[int, int]) -> str:
     return f"\\pos({_format_coordinate(x_value)},{_format_coordinate(y_value)})"
 
 
-def _render_text(text: str, spans: list[dict[str, Any]], *, reset_tags: str = "") -> str:
+def _render_text(
+    text: str,
+    spans: list[dict[str, Any]],
+    *,
+    reset_tags: str = "",
+    base_font_size: int = DEFAULT_STYLE["font_size"],
+) -> str:
     selected_ranges: list[tuple[int, int, str]] = []
     for span in spans:
         if not isinstance(span, dict):
@@ -222,27 +231,46 @@ def _render_text(text: str, spans: list[dict[str, Any]], *, reset_tags: str = ""
             continue
 
         keyword = selector.get("value")
-        color = style.get("primary_color")
-        if not isinstance(keyword, str) or not keyword or not isinstance(color, str):
+        span_tags = _span_override_tags(style, base_font_size)
+        if not isinstance(keyword, str) or not keyword or not span_tags:
             continue
 
         match_range = _find_first_available_range(text, keyword, selected_ranges)
         if match_range is None:
             continue
-        selected_ranges.append((match_range[0], match_range[1], color))
+        selected_ranges.append((match_range[0], match_range[1], span_tags))
 
     if not selected_ranges:
         return _escape_ass_text(text)
 
     rendered_parts: list[str] = []
     cursor = 0
-    for start, end, color in sorted(selected_ranges, key=lambda item: item[0]):
+    for start, end, span_tags in sorted(selected_ranges, key=lambda item: item[0]):
         rendered_parts.append(_escape_ass_text(text[cursor:start]))
-        rendered_parts.append(f"{{\\c{_inline_color(color)}}}{_escape_ass_text(text[start:end])}{{\\r}}{reset_tags}")
+        rendered_parts.append(f"{{{span_tags}}}{_escape_ass_text(text[start:end])}{{\\r}}{reset_tags}")
         cursor = end
 
     rendered_parts.append(_escape_ass_text(text[cursor:]))
     return "".join(rendered_parts)
+
+
+def _span_override_tags(style: dict[str, Any], base_font_size: int) -> str:
+    tags: list[str] = []
+
+    primary_color = style.get("primary_color")
+    if isinstance(primary_color, str) and _is_hex_color(primary_color.strip()):
+        tags.append(f"\\c{_inline_color(primary_color)}")
+
+    if "font_size" in style:
+        font_size = _positive_numeric(style.get("font_size"))
+        if font_size is not None:
+            tags.append(f"\\fs{max(1, int(font_size))}")
+    elif "font_scale" in style:
+        font_scale = _positive_numeric(style.get("font_scale"))
+        if font_scale is not None:
+            tags.append(f"\\fs{max(1, int(base_font_size * font_scale))}")
+
+    return "".join(tags)
 
 
 def _find_first_available_range(
@@ -264,9 +292,14 @@ def _overlaps_selected_range(start: int, end: int, selected_ranges: list[tuple[i
 
 
 def _scaled_font_size(style: dict[str, Any]) -> int:
-    font_size = _numeric(style.get("font_size", DEFAULT_STYLE["font_size"]), DEFAULT_STYLE["font_size"])
+    font_size = _positive_numeric(style.get("font_size"), DEFAULT_STYLE["font_size"])
     scale = style.get("font_size_scale", style.get("font_scale", 1))
-    return int(font_size * _numeric(scale, 1))
+    return max(1, int(font_size * _positive_numeric(scale, 1)))
+
+
+def _event_font_size(event: SubtitleEvent) -> int:
+    style = event.style if isinstance(event.style, dict) else {}
+    return _scaled_font_size(style)
 
 
 def _numeric(value: Any, default: int | float) -> int | float:
@@ -309,6 +342,20 @@ def _optional_numeric(value: Any) -> int | float | None:
             return None
         return int(number) if number.is_integer() else number
     return None
+
+
+def _positive_numeric(value: Any, default: int | float | None = None) -> int | float | None:
+    number = _optional_numeric(value)
+    if number is None or number <= 0:
+        return default
+    return number
+
+
+def _non_negative_numeric(value: Any, default: int | float | None = None) -> int | float | None:
+    number = _optional_numeric(value)
+    if number is None or number < 0:
+        return default
+    return number
 
 
 def _format_coordinate(value: int | float) -> str:

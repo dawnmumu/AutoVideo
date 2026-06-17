@@ -144,6 +144,7 @@ def test_variant_block_merges_base_defaults_before_event_overrides():
             template_variant="emphasis",
             style={"outline_width": 5},
             spans=[{"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FF00FF"}}],
+            event_animations={"in": {"delay_ms": 20}},
         )
     ]
 
@@ -162,6 +163,8 @@ def test_variant_block_merges_base_defaults_before_event_overrides():
     assert enriched[0].track_id == "variant-track"
     assert enriched[0].position == {"x": 0.5, "y": 0.7}
     assert enriched[0].event_animations["in"]["type"] == "pop_in"
+    assert enriched[0].event_animations["in"]["duration_ms"] == 140
+    assert enriched[0].event_animations["in"]["delay_ms"] == 20
     assert enriched[0].event_animations["out"]["type"] == "fade_out"
     assert enriched[0].style["font_size"] == 60
     assert enriched[0].style["outline_width"] == 5
@@ -310,6 +313,36 @@ def test_ass_renderer_ignores_non_finite_event_style_and_position_values():
     assert "\\pos(" not in content
 
 
+def test_ass_renderer_ignores_negative_size_outline_shadow_and_margin_values():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="负值样式",
+        template="bottom",
+        style={
+            "font_size": -10,
+            "primary_color": "#00E5FF",
+            "outline_width": -2,
+            "shadow_depth": -3,
+            "rotate": -7,
+            "margin_v": -20,
+        },
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+    fields = _dialogue_fields(content)[0]
+    dialogue = ",".join(fields)
+
+    assert fields[7] == "0"
+    assert "\\fs-" not in dialogue
+    assert "\\bord-" not in dialogue
+    assert "\\shad-" not in dialogue
+    assert "\\frz-7" in dialogue
+    assert ",-20," not in dialogue
+
+
 def test_ass_renderer_emits_event_outline_shadow_rotate_and_margin_overrides():
     event = SubtitleEvent(
         index=1,
@@ -405,6 +438,33 @@ def test_keyword_span_restores_event_override_tags_after_reset():
     content = ass_renderer.render_ass([event], _template(), (1080, 1920))
 
     assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}{\\c&H4FD5FF&}AI{\\r}{\\fs72\\c&HFFE500&\\pos(270,1440)} 办公" in content
+
+
+def test_keyword_span_font_scale_and_font_size_restore_event_overrides_after_reset():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 效率",
+        template="bottom",
+        spans=[
+            {
+                "selector": {"type": "keyword", "value": "AI"},
+                "style": {"primary_color": "#FFD54F", "font_scale": 1.5},
+            },
+            {
+                "selector": {"type": "keyword", "value": "效率"},
+                "style": {"primary_color": "#00E5FF", "font_size": 80},
+            },
+        ],
+        style={"font_size": 60, "primary_color": "#FFFFFF"},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\c&H4FD5FF&\\fs90}AI{\\r}{\\fs60\\c&HFFFFFF&} " in content
+    assert "{\\c&HFFE500&\\fs80}效率{\\r}{\\fs60\\c&HFFFFFF&}" in content
 
 
 def test_keyword_spans_do_not_match_inside_generated_ass_tags():
