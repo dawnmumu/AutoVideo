@@ -55,5 +55,5 @@ export function selectAutoSubtitleTemplate(
     return favoritePreset;
   }
 
-  return sortSubtitleTemplatesForSelection(presetTemplates)[0];
+  return presetTemplates[0];
 }

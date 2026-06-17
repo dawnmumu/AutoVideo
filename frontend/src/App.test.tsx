@@ -433,6 +433,42 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("keeps API preset order when no custom or favorite preset is available", async () => {
+    const user = userEvent.setup();
+    const firstPreset = templateFixture({
+      id: "preset-api-first",
+      name: "API 首个预设",
+      favorite: false,
+      is_favorite: false,
+      created_at: "2026-06-01T00:00:00+00:00",
+      updated_at: "2026-06-01T00:00:00+00:00",
+    });
+    const newerPreset = templateFixture({
+      id: "preset-newer-second",
+      name: "较新的第二预设",
+      favorite: false,
+      is_favorite: false,
+      created_at: "2026-06-02T00:00:00+00:00",
+      updated_at: "2026-06-12T00:00:00+00:00",
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [],
+      presets: [firstPreset, newerPreset],
+    });
+    renderApp();
+
+    expect(await screen.findByText("当前模板：API 首个预设")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
+    expect(within(subtitleWorkbench).getByText("当前模板：API 首个预设")).toBeInTheDocument();
+    expect(within(subtitleWorkbench).getByRole("button", { name: "API 首个预设" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("selects the newest favorite custom subtitle template like the backend", async () => {
     const olderFavorite = templateFixture({
       id: "tmpl-brand-old",
@@ -666,6 +702,25 @@ describe("AutoVideo shell", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("字幕模板保存失败");
     expect(alert).not.toHaveTextContent("SECRET_TOKEN_LEAK");
+  });
+
+  it("clears subtitle save errors when preview inputs change", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockRejectedValueOnce(new Error("SAVE_FAILED"));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "保存局部高亮" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("字幕模板保存失败");
+
+    await user.clear(screen.getByLabelText("示例文本"));
+    await user.type(screen.getByLabelText("示例文本"), "新的预览文案");
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders precise image and timeline previews from the selected template", async () => {

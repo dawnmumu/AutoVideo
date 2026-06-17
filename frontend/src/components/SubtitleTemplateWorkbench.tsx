@@ -241,6 +241,7 @@ export function SubtitleTemplateWorkbench() {
     validateTemplate.reset();
     precisePreview.reset();
     timelinePreview.reset();
+    saveTemplate.reset();
   };
 
   const createFromPreset = useMutation({
