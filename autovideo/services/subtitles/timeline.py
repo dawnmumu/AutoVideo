@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,6 +57,8 @@ def events_from_render_timeline(timeline: Any) -> list[SubtitleEvent]:
         shot_index = _coerce_int(item.get("shot_index"), default=item_index)
         parts = _split_text(text)
         for part_start, part_end, part_text in _allocate_parts(parts, start_ms, end_ms):
+            if part_end <= part_start:
+                continue
             events.append(
                 SubtitleEvent(
                     index=len(events) + 1,
@@ -131,8 +134,15 @@ def _allocate_parts(parts: list[str], start_ms: int, end_ms: int) -> list[tuple[
             current_end = end_ms
         else:
             consumed_weight += weight
-            current_end = start_ms + int(round(duration_ms * consumed_weight / total_weight))
-            current_end = max(current_start, min(current_end, end_ms))
+            remaining_parts = len(parts) - index - 1
+            proportional_end = start_ms + int(round(duration_ms * consumed_weight / total_weight))
+            min_end = current_start + 1
+            max_end = end_ms - remaining_parts
+            if max_end < min_end:
+                return [(start_ms, end_ms, "".join(parts))]
+            current_end = min(max(proportional_end, min_end), max_end)
+        if current_end <= current_start:
+            return [(start_ms, end_ms, "".join(parts))]
         allocated.append((current_start, current_end, part))
         current_start = current_end
 
@@ -147,15 +157,17 @@ def _coerce_seconds(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int | float):
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else None
     if isinstance(value, str):
         candidate = value.strip()
         if not candidate:
             return None
         try:
-            return float(candidate)
+            number = float(candidate)
         except ValueError:
             return None
+        return number if math.isfinite(number) else None
     return None
 
 

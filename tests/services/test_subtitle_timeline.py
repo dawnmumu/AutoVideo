@@ -77,3 +77,50 @@ def test_events_from_render_timeline_keeps_short_duration_split_events_visible()
     assert events
     assert all(event.end_ms > event.start_ms for event in events)
     assert "".join(event.text for event in events) == "abc"
+
+
+def test_events_from_render_timeline_does_not_emit_zero_width_weighted_splits():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "end_time": 0.002,
+                    "duration": 0.002,
+                    "subtitle": "短,这是一段很长的字幕",
+                }
+            ]
+        }
+    )
+
+    assert events
+    assert all(event.end_ms > event.start_ms for event in events)
+    assert "".join(event.text for event in events) == "短这是一段很长的字幕"
+
+
+def test_events_from_render_timeline_skips_non_finite_times():
+    assert events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": "nan",
+                    "end_time": 1,
+                    "subtitle": "无效开始时间",
+                }
+            ]
+        }
+    ) == []
+    assert events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "end_time": "inf",
+                    "subtitle": "无效结束时间",
+                }
+            ]
+        }
+    ) == []
