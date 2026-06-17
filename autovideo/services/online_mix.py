@@ -425,13 +425,22 @@ def _render_plan_from_result(
         "subtitles_ass": render_result.subtitles_ass_path,
         "base_video_skipped": render_result.base_video_skipped,
         "subtitle_burn_skipped": render_result.subtitle_burn_skipped,
-        "error_summary": render_result.error_summary,
+        "error_summary": _sanitize_render_error_summary(
+            render_result.error_summary
+        ),
         "source_subtitle_masked": any(source_subtitle_masks),
         "source_subtitle_mask_count": sum(
             1 for item in source_subtitle_masks if item
         ),
         "source_subtitle_masks": source_subtitle_masks,
     }
+
+
+def _sanitize_render_error_summary(error_summary: str | None) -> str | None:
+    if not error_summary:
+        return error_summary
+    sanitized = sanitize_manifest_payload(error_summary)
+    return sanitized if isinstance(sanitized, str) else ""
 
 
 def _render_online_mix_output_builder(
@@ -557,6 +566,7 @@ def create_online_mix_task(
         shot_materials,
         asset_strategy,
     )
+    subtitle_options = normalize_subtitle_options(store, options)
 
     for item in shot_assets:
         assert token_service is not None
@@ -704,7 +714,6 @@ def create_online_mix_task(
     if {item["shot_index"] for item in manifest_shots} != _shot_indexes(script):
         raise OnlineMixNoMaterialMatchError()
 
-    subtitle_options = normalize_subtitle_options(store, options)
     sanitized_options = sanitized_online_mix_options({**options, **subtitle_options})
 
     return create_task(
