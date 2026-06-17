@@ -32,6 +32,21 @@ def _failing_fake_ffmpeg(tmp_path):
     return str(ffmpeg_path)
 
 
+def _burn_failing_fake_ffmpeg(tmp_path):
+    ffmpeg_path = tmp_path / "burn-failing-ffmpeg"
+    ffmpeg_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "if '-vf' in sys.argv:\n"
+        "    sys.stderr.write('burn render failed')\n"
+        "    sys.exit(17)\n"
+        "pathlib.Path(sys.argv[-1]).write_bytes(b'base video')\n",
+        encoding="utf-8",
+    )
+    os.chmod(ffmpeg_path, 0o755)
+    return str(ffmpeg_path)
+
+
 def _timeline():
     return {
         "title": "字幕渲染",
@@ -130,6 +145,26 @@ def test_render_mix_video_base_failure_keeps_subtitle_artifacts(tmp_path):
     assert (tmp_path / "outputs" / "timeline.json").is_file()
     assert (tmp_path / "outputs" / "subtitles.srt").is_file()
     assert (tmp_path / "outputs" / "subtitles.ass").is_file()
+
+
+def test_render_mix_video_burn_failure_keeps_base_video_and_subtitle_artifacts(tmp_path):
+    result = rendering.render_mix_video(
+        settings=Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path=_burn_failing_fake_ffmpeg(tmp_path)),
+        output_dir=tmp_path / "outputs",
+        timeline=_timeline(),
+        materials_by_id=_materials(tmp_path),
+        aspect_ratio="9:16",
+        subtitle_enabled=True,
+        subtitle_template_set=_template(),
+        source_subtitle_masks=[False],
+    )
+
+    base_output_path = tmp_path / "outputs" / "output.base.mp4"
+    assert result.status == "subtitle_burn_failed"
+    assert result.output_path == base_output_path
+    assert result.base_output_path == "output.base.mp4"
+    assert (tmp_path / "outputs" / "subtitles.ass").is_file()
+    assert "burn render failed" in result.error_summary
 
 
 def test_source_subtitle_masks_follow_material_source_and_markers(tmp_path):

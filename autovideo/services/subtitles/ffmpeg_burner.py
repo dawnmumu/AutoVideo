@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from autovideo.services.subtitles.ffmpeg_paths import ass_filter
+
 
 def burn_ass_subtitles(
     ffmpeg_binary: str,
@@ -17,7 +19,7 @@ def burn_ass_subtitles(
         "-i",
         str(input_path),
         "-vf",
-        f"ass={_escape_filter_path(ass_path)}",
+        ass_filter(ass_path),
         "-an",
         "-movflags",
         "+faststart",
@@ -42,10 +44,6 @@ def burn_ass_subtitles(
     if not output_path.is_file():
         raise _render_error("FFmpeg 未生成字幕烧录输出视频", "")
     return output_path
-
-
-def _escape_filter_path(path: Path) -> str:
-    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 
 def _render_error(message: str, stderr: str):

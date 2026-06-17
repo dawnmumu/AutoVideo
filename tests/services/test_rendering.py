@@ -36,6 +36,32 @@ def test_ffmpeg_command_burns_ass_when_subtitles_enabled(tmp_path):
     assert argv_has_output(command, output_path)
 
 
+def test_ffmpeg_command_escapes_ass_filter_path_special_chars(tmp_path):
+    material_path = tmp_path / "clip.mp4"
+    ass_path = tmp_path / "sub,clip;[v1]quote'colon:name.ass"
+    output_path = tmp_path / "output.mp4"
+    material_path.write_bytes(b"video")
+    ass_path.write_text("[Script Info]\n", encoding="utf-8")
+
+    command = rendering._build_ffmpeg_command(
+        ffmpeg_binary="ffmpeg",
+        render_items=[({"duration": 1}, {"storage_path": str(material_path), "content_type": "video/mp4"})],
+        output_path=output_path,
+        aspect_ratio="9:16",
+        source_subtitle_masks=[False],
+        ass_path=ass_path,
+    )
+
+    filter_index = command.index("-filter_complex") + 1
+    filter_arg = command[filter_index]
+    assert "ass=filename=" in filter_arg
+    assert "sub\\,clip\\;\\[v1\\]quote\\'colon\\:name.ass" in filter_arg
+    assert "sub,clip" not in filter_arg
+    assert "clip;" not in filter_arg
+    assert "[v1]quote" not in filter_arg
+    assert "colon:name.ass" not in filter_arg
+
+
 def test_ffmpeg_command_masks_source_subtitles_before_concat(tmp_path):
     material_path = tmp_path / "clip.mp4"
     output_path = tmp_path / "output.mp4"

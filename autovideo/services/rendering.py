@@ -15,6 +15,7 @@ from autovideo.services.subtitles import (
     keyword_spans,
     template_assignment,
 )
+from autovideo.services.subtitles.ffmpeg_paths import ass_filter
 from autovideo.services.subtitles.source_masks import drawbox_filter
 from autovideo.services.subtitles.timeline import events_from_render_timeline
 from autovideo.services.tasks import sanitize_manifest_payload
@@ -414,7 +415,7 @@ def _build_ffmpeg_command(
         f"format=yuv420p"
     )
     if ass_path is not None:
-        concat_filter = f"{concat_filter},ass={_escape_filter_path(ass_path)}"
+        concat_filter = f"{concat_filter},{ass_filter(ass_path)}"
     filters.append(f"{concat_filter}[v]")
     command.extend(
         [
@@ -464,11 +465,6 @@ def _write_subtitle_ass_artifact(
         template_set,
         resolution,
     )
-
-
-def _escape_filter_path(path: Path) -> str:
-    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-
 
 def _resolution_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
     if aspect_ratio == "16:9":
