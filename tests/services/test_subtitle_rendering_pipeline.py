@@ -1,6 +1,8 @@
 import json
 import os
 
+import pytest
+
 from autovideo.core.settings import Settings
 from autovideo.services import rendering
 
@@ -125,6 +127,26 @@ def test_render_mix_video_without_ffmpeg_still_writes_timeline_srt_and_ass(tmp_p
     assert (tmp_path / "outputs" / "subtitles.srt").is_file()
     assert (tmp_path / "outputs" / "subtitles.ass").is_file()
     assert not (tmp_path / "outputs" / "output.base.mp4").exists()
+
+
+def test_render_mix_video_without_render_items_raises_before_ffmpeg_availability(tmp_path):
+    output_dir = tmp_path / "outputs"
+
+    with pytest.raises(rendering.FfmpegRenderFailedError, match="没有可用于渲染的镜头素材"):
+        rendering.render_mix_video(
+            settings=Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg"),
+            output_dir=output_dir,
+            timeline=_timeline(),
+            materials_by_id={},
+            aspect_ratio="9:16",
+            subtitle_enabled=True,
+            subtitle_template_set=_template(),
+            source_subtitle_masks=[],
+        )
+
+    assert (output_dir / "timeline.json").is_file()
+    assert (output_dir / "subtitles.srt").is_file()
+    assert (output_dir / "subtitles.ass").is_file()
 
 
 def test_render_mix_video_base_failure_keeps_subtitle_artifacts(tmp_path):

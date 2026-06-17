@@ -137,6 +137,9 @@ def render_mix_video(
     ) if subtitle_enabled and subtitle_template_set else None
 
     render_items = _timeline_items_with_materials(safe_timeline, materials_by_id)
+    if not render_items:
+        raise FfmpegRenderFailedError("没有可用于渲染的镜头素材")
+
     ffmpeg_binary = shutil.which(settings.ffmpeg_path)
     if ffmpeg_binary is None:
         return RenderResult(
@@ -147,9 +150,6 @@ def render_mix_video(
             base_video_skipped=True,
             subtitle_burn_skipped=ass_path is not None,
         )
-
-    if not render_items:
-        raise FfmpegRenderFailedError("没有可用于渲染的镜头素材")
 
     base_output_path = output_dir / "output.base.mp4" if ass_path else output_path
     command = _build_ffmpeg_command(
