@@ -44,6 +44,7 @@ def render_ass(
     resolution: tuple[int, int],
 ) -> str:
     width, height = resolution
+    dialogue_ranges = _monotonic_dialogue_ranges(events)
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -62,7 +63,7 @@ def render_ass(
             f"Format: {EVENT_FORMAT}",
         ]
     )
-    lines.extend(_dialogue_line(event, resolution) for event in events)
+    lines.extend(_dialogue_line(event, resolution, dialogue_ranges[index]) for index, event in enumerate(events))
     return "\n".join(lines) + "\n"
 
 
@@ -112,16 +113,39 @@ def _style_line(role: str, style: dict[str, Any]) -> str:
     return "Style: " + ",".join(fields)
 
 
-def _dialogue_line(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
+def _dialogue_line(
+    event: SubtitleEvent,
+    resolution: tuple[int, int],
+    time_range: tuple[int, int],
+) -> str:
     override_tags = _event_override_tags(event, resolution)
     text = _render_text(event.text, event.spans, reset_tags=override_tags)
     if override_tags:
         text = f"{override_tags}{text}"
-    start_text, end_text = _format_ass_time_range(event.start_ms, event.end_ms)
+    start_text, end_text = (_format_ass_centiseconds(time_range[0]), _format_ass_centiseconds(time_range[1]))
     return (
         f"Dialogue: 0,{start_text},{end_text},"
         f"{event.template},,0,0,0,,{text}"
     )
+
+
+def _monotonic_dialogue_ranges(events: list[SubtitleEvent]) -> dict[int, tuple[int, int]]:
+    ranges: dict[int, tuple[int, int]] = {}
+    grouped_indexes: dict[str, list[int]] = {}
+    for index, event in enumerate(events):
+        grouped_indexes.setdefault(event.track_id, []).append(index)
+
+    for indexes in grouped_indexes.values():
+        previous_end_cs = 0
+        for index in sorted(indexes, key=lambda item: (events[item].start_ms, events[item].index, item)):
+            event = events[index]
+            raw_start_cs, raw_end_cs = _raw_ass_centisecond_range(event.start_ms, event.end_ms)
+            start_cs = max(raw_start_cs, previous_end_cs)
+            end_cs = max(raw_end_cs, start_cs + 1)
+            ranges[index] = (start_cs, end_cs)
+            previous_end_cs = end_cs
+
+    return ranges
 
 
 def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
@@ -284,12 +308,12 @@ def _is_hex_color(value: str) -> bool:
     return len(value) == 7 and value.startswith("#") and all(char in "0123456789abcdefABCDEF" for char in value[1:])
 
 
-def _format_ass_time_range(start_ms: int, end_ms: int) -> tuple[str, str]:
+def _raw_ass_centisecond_range(start_ms: int, end_ms: int) -> tuple[int, int]:
     start_cs = max(0, int(math.floor(start_ms / 10)))
     end_cs = max(0, int(math.ceil(end_ms / 10)))
     if end_cs <= start_cs:
         end_cs = start_cs + 1
-    return (_format_ass_centiseconds(start_cs), _format_ass_centiseconds(end_cs))
+    return (start_cs, end_cs)
 
 
 def _format_ass_centiseconds(centiseconds: int) -> str:

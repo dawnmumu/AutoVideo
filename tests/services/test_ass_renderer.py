@@ -5,6 +5,27 @@ from autovideo.services.subtitles import ass_renderer, event_enrichment, keyword
 from autovideo.services.subtitles.timeline import SubtitleEvent
 
 
+def _dialogue_ranges(content: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for line in content.splitlines():
+        if not line.startswith("Dialogue: "):
+            continue
+        fields = line.split(",", 3)
+        ranges.append((_ass_time_to_centiseconds(fields[1]), _ass_time_to_centiseconds(fields[2])))
+    return ranges
+
+
+def _ass_time_to_centiseconds(value: str) -> int:
+    hours_text, minutes_text, seconds_text = value.split(":")
+    seconds, centiseconds = seconds_text.split(".")
+    return (
+        int(hours_text) * 360000
+        + int(minutes_text) * 6000
+        + int(seconds) * 100
+        + int(centiseconds)
+    )
+
+
 def _template():
     return {
         "id": "template-1",
@@ -229,6 +250,42 @@ def test_ass_renderer_keeps_one_millisecond_event_visible():
     content = ass_renderer.render_ass([event], _template(), (1080, 1920))
 
     assert "Dialogue: 0,0:00:00.00,0:00:00.01,bottom" in content
+
+
+def test_ass_renderer_keeps_adjacent_same_track_dialogues_monotonic():
+    events = [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=333, text="一", template="bottom"),
+        SubtitleEvent(index=2, shot_index=1, start_ms=333, end_ms=667, text="二", template="bottom"),
+        SubtitleEvent(index=3, shot_index=1, start_ms=667, end_ms=1000, text="三", template="bottom"),
+    ]
+
+    ranges = _dialogue_ranges(ass_renderer.render_ass(events, _template(), (1080, 1920)))
+
+    assert all(end > start for start, end in ranges)
+    assert ranges[1][0] >= ranges[0][1]
+    assert ranges[2][0] >= ranges[1][1]
+
+
+def test_ass_renderer_extends_tiny_same_track_dialogues_monotonically():
+    events = [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1, text="一", template="bottom"),
+        SubtitleEvent(index=2, shot_index=1, start_ms=1, end_ms=2, text="二", template="bottom"),
+    ]
+
+    ranges = _dialogue_ranges(ass_renderer.render_ass(events, _template(), (1080, 1920)))
+
+    assert ranges == [(0, 1), (1, 2)]
+
+
+def test_ass_renderer_times_independent_tracks_separately():
+    events = [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1, text="主轨", template="bottom", track_id="main"),
+        SubtitleEvent(index=2, shot_index=1, start_ms=0, end_ms=1, text="副轨", template="bottom", track_id="alt"),
+    ]
+
+    ranges = _dialogue_ranges(ass_renderer.render_ass(events, _template(), (1080, 1920)))
+
+    assert ranges == [(0, 1), (0, 1)]
 
 
 def test_ass_renderer_ignores_non_finite_event_style_and_position_values():
