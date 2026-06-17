@@ -136,6 +136,45 @@ def test_numeric_style_fields_are_coerced_or_dropped_with_warning():
     assert any("font_scale" in warning for warning in result["warnings"])
 
 
+def test_invalid_renderer_templates_and_block_fields_are_sanitized():
+    result = dsl_v2.validate_template_set_v2(
+        {
+            "id": "template-shapes",
+            "name": "Shapes",
+            "renderer_mode": {"bad": "shape"},
+            "templates": {
+                "bottom": "bad",
+                "caption": {"font_family": "Caption"},
+                "highlight": {"font_family": "Legacy Highlight"},
+            },
+            "blocks": [
+                {
+                    "id": "bottom-main",
+                    "role": "bottom",
+                    "style": {"font_family": "Inter", "primary_color": "#FFFFFF"},
+                    "mask": {"type": "rounded_rect"},
+                    "unknown_field": {"keep": False},
+                }
+            ],
+        }
+    )
+
+    block = result["normalized"]["blocks"][0]
+
+    assert result["ok"] is True
+    assert result["normalized"]["renderer_mode"] == "ass_plus"
+    assert isinstance(result["normalized"]["templates"]["bottom"], dict)
+    assert result["normalized"]["templates"]["bottom"]["font_family"] == "Inter"
+    assert result["normalized"]["templates"]["highlight"]["font_family"] == "Legacy Highlight"
+    assert "caption" not in result["normalized"]["templates"]
+    assert "unknown_field" not in block
+    assert "mask" not in block
+    assert any("renderer_mode" in warning for warning in result["warnings"])
+    assert any("template" in warning and "bottom" in warning for warning in result["warnings"])
+    assert any("template" in warning and "caption" in warning for warning in result["warnings"])
+    assert any("unknown block field" in warning and "unknown_field" in warning for warning in result["warnings"])
+
+
 def test_deep_dict_returns_deep_copy_for_dict_values():
     source = {"style": {"font_family": "Inter"}}
 

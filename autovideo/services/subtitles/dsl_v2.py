@@ -39,6 +39,16 @@ ADVANCED_BLOCK_FIELDS = {
     "layers",
 }
 
+ALLOWED_BLOCK_FIELDS = {
+    "id",
+    "role",
+    "track_id",
+    "position",
+    "style",
+    "spans",
+    "animations",
+}
+
 SUPPORTED_STYLE_FIELDS = {
     "font_family",
     "font_size",
@@ -115,11 +125,11 @@ def normalize_template_set_v2(payload: Any, warnings: list[str] | None = None) -
             normalized[field] = copy.deepcopy(source[field])
 
     normalized["schema_version"] = SCHEMA_VERSION
-    normalized["renderer_mode"] = source.get("renderer_mode") or RENDERER_MODE
+    normalized["renderer_mode"] = _normalize_renderer_mode(source, warning_list)
     normalized["tracks"] = _normalize_tracks(source.get("tracks"))
     normalized["blocks"] = _normalize_blocks(source.get("blocks"), warning_list)
 
-    templates = copy.deepcopy(source.get("templates")) if isinstance(source.get("templates"), dict) else {}
+    templates = _normalize_legacy_templates(source.get("templates"), warning_list) if "templates" in source else {}
     templates.update(compile_v2_blocks_to_legacy_templates(normalized["blocks"]))
     normalized["templates"] = templates
 
@@ -155,6 +165,14 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
         for field, field_value in block.items():
             if field == "role":
                 continue
+            if field in ADVANCED_BLOCK_FIELDS:
+                warning_list.append(
+                    f"Block {block.get('id') or index + 1} uses advanced field '{field}' not supported by current renderer"
+                )
+                continue
+            if field not in ALLOWED_BLOCK_FIELDS:
+                warning_list.append(f"Block {block.get('id') or index + 1} has unknown block field '{field}' ignored")
+                continue
             if field == "style":
                 item["style"] = _normalize_style(field_value, warning_list, context=f"block {block.get('id') or index + 1}")
             elif field == "spans":
@@ -170,12 +188,6 @@ def _normalize_blocks(value: Any, warnings: list[str] | None = None) -> list[dic
             item["style"] = {}
         if "spans" not in item:
             item["spans"] = []
-
-        for advanced_field in ADVANCED_BLOCK_FIELDS:
-            if advanced_field in block:
-                warning_list.append(
-                    f"Block {item['id']} uses advanced field '{advanced_field}' not supported by current renderer"
-                )
 
         normalized.append(item)
 
@@ -218,6 +230,37 @@ def _normalize_style(value: Any, warnings: list[str] | None = None, *, context: 
             normalized[field] = copy.deepcopy(style[field])
 
     return normalized
+
+
+def _normalize_renderer_mode(source: dict[str, Any], warnings: list[str]) -> str:
+    if "renderer_mode" not in source:
+        return RENDERER_MODE
+
+    value = source.get("renderer_mode")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    warnings.append("Invalid renderer_mode; using default renderer mode")
+    return RENDERER_MODE
+
+
+def _normalize_legacy_templates(value: Any, warnings: list[str]) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        warnings.append("Invalid templates field; expected object")
+        return {}
+
+    templates: dict[str, dict[str, Any]] = {}
+    for raw_role, raw_template in value.items():
+        role = _normalize_role(raw_role)
+        if role not in TEMPLATE_ROLES:
+            warnings.append(f"Legacy template has unsupported role: {raw_role!r}")
+            continue
+        if not isinstance(raw_template, dict):
+            warnings.append(f"Legacy template for role '{role}' must be an object; ignored")
+            continue
+        templates[role] = _normalize_style(raw_template, warnings, context=f"legacy template {role}")
+
+    return templates
 
 
 def _normalize_role(value: Any) -> str:
