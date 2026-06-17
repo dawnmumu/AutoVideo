@@ -6,6 +6,7 @@ from typing import Any
 
 SPLIT_PUNCTUATION = {",", "，", ".", "。", "!", "！", "?", "？", ";", "；"}
 TRIM_PUNCTUATION = "".join(SPLIT_PUNCTUATION)
+MISSING_TIME = object()
 
 
 @dataclass
@@ -39,13 +40,15 @@ def events_from_render_timeline(timeline: Any) -> list[SubtitleEvent]:
         if not text:
             continue
 
-        start_seconds = _coerce_seconds(item.get("start_time"))
-        end_seconds = _coerce_seconds(item.get("end_time"))
-        if start_seconds is None:
+        start_seconds = _timeline_time(item, "start_time")
+        end_seconds = _timeline_time(item, "end_time")
+        if start_seconds is MISSING_TIME or start_seconds is None:
             continue
         if end_seconds is None:
-            duration_seconds = _coerce_seconds(item.get("duration"))
-            if duration_seconds is None:
+            continue
+        if end_seconds is MISSING_TIME:
+            duration_seconds = _timeline_time(item, "duration")
+            if duration_seconds is MISSING_TIME or duration_seconds is None:
                 continue
             end_seconds = start_seconds + duration_seconds
 
@@ -151,6 +154,15 @@ def _allocate_parts(parts: list[str], start_ms: int, end_ms: int) -> list[tuple[
 
 def _seconds_to_ms(value: int | float) -> int:
     return int(round(value * 1000))
+
+
+def _timeline_time(item: dict[str, Any], key: str) -> float | object | None:
+    if key not in item or item.get(key) is None:
+        return MISSING_TIME
+    value = item.get(key)
+    if isinstance(value, str) and not value.strip():
+        return MISSING_TIME
+    return _coerce_seconds(value)
 
 
 def _coerce_seconds(value: Any) -> float | None:

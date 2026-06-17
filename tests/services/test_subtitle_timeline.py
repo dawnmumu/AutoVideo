@@ -126,6 +126,59 @@ def test_events_from_render_timeline_skips_non_finite_times():
     ) == []
 
 
+def test_events_from_render_timeline_rejects_explicit_invalid_end_time_without_duration_fallback():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "end_time": "nan",
+                    "duration": 1,
+                    "subtitle": "无效结束时间不回退",
+                }
+            ]
+        }
+    )
+
+    assert events == []
+
+
+def test_events_from_render_timeline_uses_duration_when_end_time_missing_or_empty():
+    missing_events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "duration": 1,
+                    "subtitle": "缺失结束时间",
+                }
+            ]
+        }
+    )
+    empty_events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 0,
+                    "end_time": "",
+                    "duration": 1,
+                    "subtitle": "空结束时间",
+                }
+            ]
+        }
+    )
+
+    assert missing_events == [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="缺失结束时间", template="bottom")
+    ]
+    assert empty_events == [
+        SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="空结束时间", template="bottom")
+    ]
+
+
 def test_events_from_render_timeline_uses_default_shot_index_for_non_finite_value():
     events = events_from_render_timeline(
         {
