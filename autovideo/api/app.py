@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -9,12 +11,14 @@ from autovideo.api.routes.materials import router as materials_router
 from autovideo.api.routes.online_materials import router as online_materials_router
 from autovideo.api.routes.online_mix import router as online_mix_router
 from autovideo.api.routes.scripts import router as scripts_router
+from autovideo.api.routes.subtitle_templates import router as subtitle_templates_router
 from autovideo.api.routes.tasks import router as tasks_router
 from autovideo.core.settings import Settings
 from autovideo.services.online_materials import build_provider_registry
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 FRONTEND_DIST_DIR = PROJECT_DIR / "frontend" / "dist"
+SUBTITLE_TEMPLATE_API_PREFIX = "/api/subtitle-template-sets"
 
 
 def _request_length_error_response(request: Request) -> JSONResponse | None:
@@ -54,11 +58,27 @@ def _request_too_large_response(
     )
 
 
+def _is_subtitle_template_api_path(path: str) -> bool:
+    return path == SUBTITLE_TEMPLATE_API_PREFIX or path.startswith(f"{SUBTITLE_TEMPLATE_API_PREFIX}/")
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     active_settings = settings or Settings()
     app = FastAPI(title=active_settings.app_name)
     app.state.settings = active_settings
     app.state.online_material_providers = build_provider_registry(active_settings)
+
+    @app.exception_handler(RequestValidationError)
+    async def normalize_subtitle_template_validation_errors(
+        request: Request,
+        exc: RequestValidationError,
+    ):
+        if _is_subtitle_template_api_path(request.url.path):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": {"code": "SUBTITLE_TEMPLATE_INVALID"}},
+            )
+        return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def reject_oversized_request(request: Request, call_next):
@@ -93,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(online_materials_router)
     app.include_router(online_mix_router)
     app.include_router(scripts_router)
+    app.include_router(subtitle_templates_router)
     app.include_router(tasks_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():

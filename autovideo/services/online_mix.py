@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import re
 from typing import Any, Literal
 
 import httpx
@@ -22,6 +24,9 @@ from autovideo.services.rendering import (
     sanitize_render_timeline,
     write_timeline_artifacts,
 )
+from autovideo.services.subtitles import dsl_v2
+from autovideo.services.subtitles.source_masks import build_source_subtitle_masks
+from autovideo.services.subtitles.template_store import SubtitleTemplateStore
 from autovideo.services.tasks import (
     MaterialNotFoundError,
     create_task,
@@ -31,6 +36,23 @@ from autovideo.storage.database import AutoVideoStore
 
 AssetStrategy = Literal["auto", "manual"]
 ProviderSelection = Literal["auto", "pexels", "pixabay"]
+EMPTY_SUBTITLE_OPTION_KEYS = frozenset(
+    {
+        "subtitle_template_set_id",
+        "subtitle_template_set_name",
+        "subtitle_template_snapshot",
+        "subtitle_font_family",
+    }
+)
+RENDER_ERROR_SENSITIVE_FRAGMENT_RE = re.compile(
+    r"(?<![\w-])"
+    r"("
+    r"access[-_]?token|refresh[-_]?token|(?:x[\s_-]*)?api[\s_-]*key|"
+    r"client[-_]?secret|token|secret|password"
+    r")"
+    r"(?![\w-])\s*(=|:|\s)\s*\S+",
+    re.IGNORECASE,
+)
 
 
 class OnlineMixShotSelectionInvalidError(Exception):
@@ -49,6 +71,10 @@ class OnlineMaterialProviderNotAvailableError(Exception):
     def __init__(self, provider: str) -> None:
         self.provider = provider
         super().__init__(provider)
+
+
+class SubtitleTemplateInvalidError(ValueError):
+    pass
 
 
 def _shot_indexes(script: dict[str, Any]) -> set[int]:
@@ -224,7 +250,209 @@ def _source_attribution(material: dict[str, Any]) -> dict[str, Any] | None:
 
 def sanitized_online_mix_options(options: dict[str, Any]) -> dict[str, Any]:
     sanitized = sanitize_manifest_payload(options)
-    return sanitized if isinstance(sanitized, dict) else {}
+    if not isinstance(sanitized, dict):
+        return {}
+    return {
+        key: value
+        for key, value in sanitized.items()
+        if not (key in EMPTY_SUBTITLE_OPTION_KEYS and value is None)
+    }
+
+
+def normalize_subtitle_options(
+    store: AutoVideoStore,
+    options: dict[str, Any],
+) -> dict[str, Any]:
+    subtitle_enabled = bool(options.get("subtitle_enabled", True))
+    if not subtitle_enabled:
+        return {
+            "subtitle_enabled": False,
+            "subtitle_template_set_id": None,
+            "subtitle_template_set_name": None,
+            "subtitle_template_snapshot": None,
+            "subtitle_font_family": None,
+        }
+
+    template_store = SubtitleTemplateStore(store.settings)
+    requested_template_id = _optional_text(options.get("subtitle_template_set_id"))
+    snapshot = options.get("subtitle_template_snapshot")
+    template_set: dict[str, Any]
+
+    if snapshot is not None:
+        if not isinstance(snapshot, dict):
+            raise SubtitleTemplateInvalidError("字幕模板快照必须是对象")
+        snapshot_id = _required_template_text(snapshot, "id")
+        _required_template_text(snapshot, "name")
+        if requested_template_id and requested_template_id != snapshot_id:
+            raise SubtitleTemplateInvalidError("字幕模板快照 ID 与请求模板 ID 不一致")
+        template_set = copy.deepcopy(snapshot)
+    elif requested_template_id:
+        try:
+            template_set = template_store.get_template_set(requested_template_id)
+        except KeyError as exc:
+            raise SubtitleTemplateInvalidError("字幕模板不存在") from exc
+    else:
+        try:
+            template_set = template_store.select_auto_template_set()
+        except KeyError as exc:
+            raise SubtitleTemplateInvalidError("没有可用的字幕模板") from exc
+
+    result = dsl_v2.validate_template_set_v2(template_set)
+    normalized = result.get("normalized")
+    if not result.get("ok") or not isinstance(normalized, dict):
+        warnings = "; ".join(str(item) for item in result.get("warnings") or [])
+        message = f"字幕模板无效: {warnings}" if warnings else "字幕模板无效"
+        raise SubtitleTemplateInvalidError(message)
+
+    template_id = _required_template_text(normalized, "id")
+    template_name = _required_template_text(normalized, "name")
+    normalized.setdefault("template_variants", {})
+    font_family = _optional_text(options.get("subtitle_font_family"))
+    snapshot_with_font = _override_subtitle_template_font_family(
+        normalized,
+        font_family,
+    )
+
+    return {
+        "subtitle_enabled": True,
+        "subtitle_template_set_id": template_id,
+        "subtitle_template_set_name": template_name,
+        "subtitle_template_snapshot": snapshot_with_font,
+        "subtitle_font_family": font_family,
+    }
+
+
+def _optional_text(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _required_template_text(template_set: dict[str, Any], field: str) -> str:
+    value = template_set.get(field)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    raise SubtitleTemplateInvalidError(f"字幕模板缺少 {field}")
+
+
+def _override_subtitle_template_font_family(
+    template_set: dict[str, Any],
+    font_family: str | None,
+) -> dict[str, Any]:
+    normalized = copy.deepcopy(template_set)
+    if not font_family:
+        return normalized
+
+    templates = normalized.get("templates")
+    if isinstance(templates, dict):
+        for template in templates.values():
+            if isinstance(template, dict):
+                template["font_family"] = font_family
+
+    _override_subtitle_blocks_font_family(normalized.get("blocks"), font_family)
+    _override_subtitle_variants_font_family(
+        normalized.get("template_variants"),
+        font_family,
+    )
+    return normalized
+
+
+def _override_subtitle_blocks_font_family(blocks: Any, font_family: str) -> None:
+    if not isinstance(blocks, list):
+        return
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        style = block.get("style")
+        if not isinstance(style, dict):
+            style = {}
+            block["style"] = style
+        style["font_family"] = font_family
+
+
+def _override_subtitle_variants_font_family(value: Any, font_family: str) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _override_subtitle_variants_font_family(item, font_family)
+        return
+
+    if not isinstance(value, dict):
+        return
+
+    template = value.get("template")
+    if isinstance(template, dict):
+        template["font_family"] = font_family
+    _override_subtitle_blocks_font_family(value.get("blocks"), font_family)
+
+    for item in value.values():
+        if item is template:
+            continue
+        _override_subtitle_variants_font_family(item, font_family)
+
+
+def _material_source_for_manifest_shots(manifest_shots: list[dict[str, Any]]) -> str:
+    has_online = any(bool(item.get("provider")) for item in manifest_shots)
+    has_local = any(not item.get("provider") for item in manifest_shots)
+    if has_online and has_local:
+        return "hybrid"
+    if has_online:
+        return "online"
+    return "local"
+
+
+def _material_paths_for_manifest_shots(
+    manifest_shots: list[dict[str, Any]],
+    materials_by_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    paths: list[str] = []
+    for item in manifest_shots:
+        material_id = item.get("material_id")
+        material = (
+            materials_by_id.get(str(material_id))
+            if material_id is not None
+            else None
+        )
+        path = material.get("storage_path") if isinstance(material, dict) else None
+        paths.append(str(path) if path is not None else "")
+    return paths
+
+
+def _render_plan_from_result(
+    render_result: Any,
+    source_subtitle_masks: list[bool],
+) -> dict[str, Any]:
+    return {
+        "status": render_result.status,
+        "renderer": render_result.renderer,
+        "output": (
+            render_result.output_path.name
+            if render_result.output_path is not None
+            else None
+        ),
+        "base_output": render_result.base_output_path,
+        "timeline": render_result.timeline_path,
+        "subtitles": render_result.subtitles_path,
+        "subtitles_ass": render_result.subtitles_ass_path,
+        "base_video_skipped": render_result.base_video_skipped,
+        "subtitle_burn_skipped": render_result.subtitle_burn_skipped,
+        "error_summary": _sanitize_render_error_summary(
+            render_result.error_summary
+        ),
+        "source_subtitle_masked": any(source_subtitle_masks),
+        "source_subtitle_mask_count": sum(
+            1 for item in source_subtitle_masks if item
+        ),
+        "source_subtitle_masks": source_subtitle_masks,
+    }
+
+
+def _sanitize_render_error_summary(error_summary: str | None) -> str | None:
+    if not error_summary:
+        return error_summary
+    if RENDER_ERROR_SENSITIVE_FRAGMENT_RE.search(error_summary):
+        return "[redacted]"
+    sanitized = sanitize_manifest_payload(error_summary)
+    return sanitized if isinstance(sanitized, str) else ""
 
 
 def _render_online_mix_output_builder(
@@ -235,6 +463,7 @@ def _render_online_mix_output_builder(
     manifest_shots: list[dict[str, Any]],
     materials_by_id: dict[str, dict[str, Any]],
     options: dict[str, Any],
+    subtitle_options: dict[str, Any],
 ):
     def build(output_payload: dict[str, Any], output_dir: Any):
         timeline = build_render_timeline(
@@ -245,30 +474,33 @@ def _render_online_mix_output_builder(
         safe_timeline = sanitize_render_timeline(timeline)
         output_payload["timeline"] = safe_timeline
         write_timeline_artifacts(output_dir, safe_timeline)
-        rendered_path = render_mix_video(
+        subtitle_enabled = bool(subtitle_options.get("subtitle_enabled"))
+        material_paths = _material_paths_for_manifest_shots(
+            manifest_shots,
+            materials_by_id,
+        )
+        source_subtitle_masks = build_source_subtitle_masks(
+            _material_source_for_manifest_shots(manifest_shots),
+            material_paths,
+            subtitle_enabled=subtitle_enabled,
+        )
+        render_result = render_mix_video(
             settings=store.settings,
             output_dir=output_dir,
             timeline=safe_timeline,
             materials_by_id=materials_by_id,
-            aspect_ratio=str(options.get("aspect_ratio") or script.get("aspect_ratio") or "9:16"),
+            aspect_ratio=str(
+                options.get("aspect_ratio") or script.get("aspect_ratio") or "9:16"
+            ),
+            subtitle_enabled=subtitle_enabled,
+            subtitle_template_set=subtitle_options.get("subtitle_template_snapshot"),
+            source_subtitle_masks=source_subtitle_masks,
         )
-        if rendered_path is None:
-            output_payload["render_plan"] = {
-                "status": "manifest_only",
-                "renderer": "ffmpeg_unavailable",
-                "timeline": "timeline.json",
-                "subtitles": "subtitles.srt",
-            }
-            return None
-
-        output_payload["render_plan"] = {
-            "status": "rendered",
-            "renderer": "ffmpeg",
-            "output": rendered_path.name,
-            "timeline": "timeline.json",
-            "subtitles": "subtitles.srt",
-        }
-        return rendered_path
+        output_payload["render_plan"] = _render_plan_from_result(
+            render_result,
+            source_subtitle_masks,
+        )
+        return render_result.output_path
 
     return build
 
@@ -346,6 +578,7 @@ def create_online_mix_task(
         shot_materials,
         asset_strategy,
     )
+    subtitle_options = normalize_subtitle_options(store, options)
 
     for item in shot_assets:
         assert token_service is not None
@@ -493,11 +726,13 @@ def create_online_mix_task(
     if {item["shot_index"] for item in manifest_shots} != _shot_indexes(script):
         raise OnlineMixNoMaterialMatchError()
 
+    sanitized_options = sanitized_online_mix_options({**options, **subtitle_options})
+
     return create_task(
         store,
         title=title,
         material_ids=material_ids,
-        options=sanitized_online_mix_options(options),
+        options=sanitized_options,
         manifest_payload={
             "script": script,
             "shot_materials": manifest_shots,
@@ -506,6 +741,11 @@ def create_online_mix_task(
                 "status": "manifest_only",
                 "renderer": "not_enabled",
             },
+            "subtitle_enabled": subtitle_options["subtitle_enabled"],
+            "subtitle_template_set_id": subtitle_options["subtitle_template_set_id"],
+            "subtitle_template_set_name": subtitle_options["subtitle_template_set_name"],
+            "subtitle_template_snapshot": subtitle_options["subtitle_template_snapshot"],
+            "subtitle_font_family": subtitle_options["subtitle_font_family"],
             "provider_status_snapshot": provider_status_snapshot,
         },
         output_builder=_render_online_mix_output_builder(
@@ -515,5 +755,6 @@ def create_online_mix_task(
             manifest_shots=manifest_shots,
             materials_by_id=materials_by_id,
             options=options,
+            subtitle_options=subtitle_options,
         ),
     )

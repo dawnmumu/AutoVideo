@@ -4,10 +4,20 @@ import json
 import math
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from autovideo.core.settings import Settings
+from autovideo.services.subtitles import (
+    ass_renderer,
+    event_enrichment,
+    keyword_spans,
+    template_assignment,
+)
+from autovideo.services.subtitles.ffmpeg_paths import ass_filter
+from autovideo.services.subtitles.source_masks import drawbox_filter
+from autovideo.services.subtitles.timeline import events_from_render_timeline
 from autovideo.services.tasks import sanitize_manifest_payload
 
 VIDEO_MEDIA_TYPE = "video/mp4"
@@ -24,6 +34,20 @@ class FfmpegRenderFailedError(RuntimeError):
     def __init__(self, message: str, stderr: str = "") -> None:
         self.stderr = stderr
         super().__init__(message)
+
+
+@dataclass(frozen=True)
+class RenderResult:
+    output_path: Path | None
+    status: str
+    renderer: str
+    timeline_path: str = "timeline.json"
+    subtitles_path: str = "subtitles.srt"
+    subtitles_ass_path: str | None = None
+    base_output_path: str | None = None
+    base_video_skipped: bool = False
+    subtitle_burn_skipped: bool = False
+    error_summary: str = ""
 
 
 def media_type_for_output(path: Path) -> str:
@@ -88,12 +112,11 @@ def render_mix_video(
     timeline: dict[str, Any],
     materials_by_id: dict[str, dict[str, Any]],
     aspect_ratio: str,
-) -> Path | None:
+    subtitle_enabled: bool = False,
+    subtitle_template_set: dict[str, Any] | None = None,
+    source_subtitle_masks: list[bool] | None = None,
+) -> RenderResult:
     _validate_render_timeline(timeline)
-    ffmpeg_binary = shutil.which(settings.ffmpeg_path)
-    if ffmpeg_binary is None:
-        return None
-
     safe_timeline = sanitize_render_timeline(timeline)
     output_dir.mkdir(parents=True, exist_ok=True)
     timeline_path = output_dir / "timeline.json"
@@ -105,38 +128,87 @@ def render_mix_video(
     )
     subtitles_path.write_text(_format_srt(safe_timeline), encoding="utf-8")
 
+    resolution = _resolution_for_aspect_ratio(aspect_ratio)
+    ass_path = _write_subtitle_ass_artifact(
+        output_dir=output_dir,
+        timeline=safe_timeline,
+        template_set=subtitle_template_set,
+        resolution=resolution,
+    ) if subtitle_enabled and subtitle_template_set else None
+
     render_items = _timeline_items_with_materials(safe_timeline, materials_by_id)
     if not render_items:
         raise FfmpegRenderFailedError("没有可用于渲染的镜头素材")
 
+    ffmpeg_binary = shutil.which(settings.ffmpeg_path)
+    if ffmpeg_binary is None:
+        return RenderResult(
+            output_path=None,
+            status="manifest_only",
+            renderer="ffmpeg_unavailable",
+            subtitles_ass_path=ass_path.name if ass_path else None,
+            base_video_skipped=True,
+            subtitle_burn_skipped=ass_path is not None,
+        )
+
+    base_output_path = output_dir / "output.base.mp4" if ass_path else output_path
     command = _build_ffmpeg_command(
         ffmpeg_binary=ffmpeg_binary,
         render_items=render_items,
-        subtitles_path=subtitles_path,
-        output_path=output_path,
+        output_path=base_output_path,
         aspect_ratio=aspect_ratio,
+        source_subtitle_masks=source_subtitle_masks,
+        ass_path=None,
     )
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=_ffmpeg_timeout_seconds(safe_timeline),
+        _run_ffmpeg_command(command, safe_timeline)
+        if not base_output_path.is_file():
+            raise FfmpegRenderFailedError("FFmpeg 未生成输出视频")
+    except FfmpegRenderFailedError as exc:
+        if ass_path is None:
+            raise
+        return RenderResult(
+            output_path=None,
+            status="base_video_failed",
+            renderer="ffmpeg",
+            subtitles_ass_path=ass_path.name,
+            error_summary=_clean_ffmpeg_stderr(exc.stderr) or str(exc),
         )
-    except subprocess.TimeoutExpired as exc:
-        raise FfmpegRenderFailedError(
-            "FFmpeg 渲染超时",
-            stderr=_timeout_output(exc),
-        ) from exc
-    if completed.returncode != 0:
-        raise FfmpegRenderFailedError(
-            "FFmpeg 渲染失败",
-            stderr=(completed.stderr or completed.stdout or "").strip(),
+
+    if ass_path is None:
+        return RenderResult(
+            output_path=output_path,
+            status="video_rendered",
+            renderer="ffmpeg",
         )
-    if not output_path.is_file():
-        raise FfmpegRenderFailedError("FFmpeg 未生成输出视频")
-    return output_path
+
+    from autovideo.services.subtitles import ffmpeg_burner
+
+    try:
+        ffmpeg_burner.burn_ass_subtitles(
+            ffmpeg_binary,
+            base_output_path,
+            ass_path,
+            output_path,
+            _ffmpeg_timeout_seconds(safe_timeline),
+        )
+    except FfmpegRenderFailedError as exc:
+        return RenderResult(
+            output_path=base_output_path,
+            status="subtitle_burn_failed",
+            renderer="ffmpeg",
+            subtitles_ass_path=ass_path.name,
+            base_output_path=base_output_path.name,
+            error_summary=_clean_ffmpeg_stderr(exc.stderr) or str(exc),
+        )
+
+    return RenderResult(
+        output_path=output_path,
+        status="subtitle_burned",
+        renderer="ffmpeg",
+        subtitles_ass_path=ass_path.name,
+        base_output_path=base_output_path.name,
+    )
 
 
 def write_timeline_artifacts(output_dir: Path, timeline: dict[str, Any]) -> None:
@@ -254,6 +326,31 @@ def _timeout_output(exc: subprocess.TimeoutExpired) -> str:
     return str(output).strip()
 
 
+def _run_ffmpeg_command(command: list[str], timeline: dict[str, Any]) -> None:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_ffmpeg_timeout_seconds(timeline),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise FfmpegRenderFailedError(
+            "FFmpeg 渲染超时",
+            stderr=_timeout_output(exc),
+        ) from exc
+    if completed.returncode != 0:
+        raise FfmpegRenderFailedError(
+            "FFmpeg 渲染失败",
+            stderr=_clean_ffmpeg_stderr(completed.stderr or completed.stdout or ""),
+        )
+
+
+def _clean_ffmpeg_stderr(stderr: str) -> str:
+    return (stderr or "").strip()[-1200:]
+
+
 def _timeline_items_with_materials(
     timeline: dict[str, Any],
     materials_by_id: dict[str, dict[str, Any]],
@@ -275,9 +372,10 @@ def _build_ffmpeg_command(
     *,
     ffmpeg_binary: str,
     render_items: list[tuple[dict[str, Any], dict[str, Any]]],
-    subtitles_path: Path,
     output_path: Path,
     aspect_ratio: str,
+    source_subtitle_masks: list[bool] | None = None,
+    ass_path: Path | None = None,
 ) -> list[str]:
     width, height = _resolution_for_aspect_ratio(aspect_ratio)
     command = [ffmpeg_binary, "-y"]
@@ -294,18 +392,31 @@ def _build_ffmpeg_command(
     video_labels = []
     for index, _ in enumerate(render_items):
         label = f"v{index}"
+        input_filters = [
+            f"scale={width}:{height}:force_original_aspect_ratio=increase",
+            f"crop={width}:{height}",
+            "setsar=1",
+            "fps=30",
+            "format=yuv420p",
+        ]
+        if (
+            source_subtitle_masks is not None
+            and index < len(source_subtitle_masks)
+            and source_subtitle_masks[index]
+        ):
+            input_filters.append(drawbox_filter(width, height))
         filters.append(
-            f"[{index}:v]"
-            f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=yuv420p"
-            f"[{label}]"
+            f"[{index}:v]{','.join(input_filters)}[{label}]"
         )
         video_labels.append(f"[{label}]")
 
-    filters.append(
+    concat_filter = (
         f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0,"
-        f"format=yuv420p[v]"
+        f"format=yuv420p"
     )
+    if ass_path is not None:
+        concat_filter = f"{concat_filter},{ass_filter(ass_path)}"
+    filters.append(f"{concat_filter}[v]")
     command.extend(
         [
             "-filter_complex",
@@ -324,6 +435,36 @@ def _build_ffmpeg_command(
     )
     return command
 
+
+def _write_subtitle_ass_artifact(
+    *,
+    output_dir: Path,
+    timeline: dict[str, Any],
+    template_set: dict[str, Any],
+    resolution: tuple[int, int],
+) -> Path:
+    events = events_from_render_timeline(timeline)
+    assigned = template_assignment.assign_template_roles(
+        events,
+        template_set,
+        random_seed=1,
+    )
+    keyworded = keyword_spans.apply_keyword_spans(
+        assigned,
+        template_set,
+        random_seed=1,
+    )
+    enriched = event_enrichment.enrich_subtitle_events(
+        keyworded,
+        template_set,
+        resolution,
+    )
+    return ass_renderer.write_ass_file(
+        output_dir / "subtitles.ass",
+        enriched,
+        template_set,
+        resolution,
+    )
 
 def _resolution_for_aspect_ratio(aspect_ratio: str) -> tuple[int, int]:
     if aspect_ratio == "16:9":

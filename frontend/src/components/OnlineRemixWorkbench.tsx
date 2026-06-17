@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react";
+import { Captions, FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
 
+import { fetchSubtitleTemplateSets } from "../api/subtitles";
 import {
   GeneratedScript,
   LocalMaterial,
@@ -13,6 +14,7 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "../api/onlineRemix";
+import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 type ShotSearchState = "idle" | "searching" | "ready" | "failed" | "empty";
 
@@ -41,7 +43,11 @@ function shotQuery(shot: ScriptShot): string {
   return shot.keywords[0] ?? shot.visual_description;
 }
 
-export function OnlineRemixWorkbench() {
+interface OnlineRemixWorkbenchProps {
+  onOpenSubtitleTemplates?: () => void;
+}
+
+export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWorkbenchProps) {
   const [topic, setTopic] = useState("");
   const [durationSeconds, setDurationSeconds] = useState(30);
   const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -49,6 +55,9 @@ export function OnlineRemixWorkbench() {
   const [targetAudience, setTargetAudience] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
   const [provider, setProvider] = useState("auto");
+  const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+  const [subtitleTemplateSetId, setSubtitleTemplateSetId] = useState("");
+  const [subtitleFontFamily, setSubtitleFontFamily] = useState("");
   const [script, setScript] = useState<GeneratedScript | null>(null);
   const [shotState, setShotState] = useState<Record<number, ShotSearchState>>({});
   const [openShots, setOpenShots] = useState<Record<number, boolean>>({});
@@ -70,6 +79,10 @@ export function OnlineRemixWorkbench() {
   const materials = useQuery({
     queryKey: ["materials"],
     queryFn: fetchMaterials,
+  });
+  const subtitleTemplates = useQuery({
+    queryKey: ["subtitle-template-sets"],
+    queryFn: fetchSubtitleTemplateSets,
   });
 
   const generate = useMutation({
@@ -148,6 +161,9 @@ export function OnlineRemixWorkbench() {
         options: {
           aspect_ratio: script.aspect_ratio,
           resolution: "1080p",
+          subtitle_enabled: subtitleEnabled,
+          subtitle_template_set_id: subtitleEnabled ? subtitleTemplateSetId || null : null,
+          subtitle_font_family: subtitleEnabled ? subtitleFontFamily || null : null,
         },
       });
     },
@@ -179,6 +195,16 @@ export function OnlineRemixWorkbench() {
   );
   const allShotsCovered =
     script?.shots.length ? script.shots.every((shot) => coveredShotIndexes.has(shot.index)) : false;
+  const customSubtitleTemplates = subtitleTemplates.data?.items ?? [];
+  const presetSubtitleTemplates = subtitleTemplates.data?.presets ?? [];
+  const subtitleTemplateItems = customSubtitleTemplates.concat(presetSubtitleTemplates);
+  const automaticSubtitleTemplate = selectAutoSubtitleTemplate(
+    customSubtitleTemplates,
+    presetSubtitleTemplates,
+  );
+  const selectedSubtitleTemplate =
+    subtitleTemplateItems.find((template) => template.id === subtitleTemplateSetId) ??
+    automaticSubtitleTemplate;
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);
@@ -281,6 +307,53 @@ export function OnlineRemixWorkbench() {
             <option value="pixabay">Pixabay 素材</option>
           </select>
         </label>
+        <fieldset className="subtitle-settings">
+          <legend>字幕设置</legend>
+          <label className="switch-row">
+            <input
+              checked={subtitleEnabled}
+              onChange={(event) => setSubtitleEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span>启用字幕</span>
+          </label>
+          <label>
+            <span>字幕模板</span>
+            <select
+              disabled={!subtitleEnabled || subtitleTemplates.isLoading}
+              value={subtitleTemplateSetId}
+              onChange={(event) => setSubtitleTemplateSetId(event.target.value)}
+            >
+              <option value="">自动选择默认模板</option>
+              {subtitleTemplateItems.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>字幕字体</span>
+            <select
+              disabled={!subtitleEnabled}
+              value={subtitleFontFamily}
+              onChange={(event) => setSubtitleFontFamily(event.target.value)}
+            >
+              <option value="">跟随字幕模板</option>
+              <option value="PingFang SC">PingFang SC</option>
+              <option value="Noto Sans CJK SC">Noto Sans CJK SC</option>
+            </select>
+          </label>
+          {subtitleEnabled && selectedSubtitleTemplate ? (
+            <p className="subtitle-template-summary">
+              当前模板：{selectedSubtitleTemplate.name}
+            </p>
+          ) : null}
+          <button type="button" onClick={onOpenSubtitleTemplates}>
+            <Captions aria-hidden="true" size={16} />
+            去字幕模板页编辑
+          </button>
+        </fieldset>
         <button className="primary-action" disabled={!topic.trim() || generate.isPending} type="submit">
           <Sparkles aria-hidden="true" size={18} />
           {generate.isPending ? "生成中" : "生成脚本"}
@@ -498,6 +571,7 @@ export function OnlineRemixWorkbench() {
             type="button"
             onClick={() => createTask.mutate()}
           >
+            <Sparkles aria-hidden="true" size={18} />
             {createTask.isPending ? "创建中" : "创建任务"}
           </button>
           <span className="selected-material">

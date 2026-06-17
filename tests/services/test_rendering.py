@@ -6,12 +6,12 @@ from autovideo.core.settings import Settings
 from autovideo.services import rendering
 
 
-def test_ffmpeg_command_keeps_subtitles_as_sidecar_only(tmp_path):
+def test_ffmpeg_command_burns_ass_when_subtitles_enabled(tmp_path):
     material_path = tmp_path / "clip.mp4"
-    subtitle_path = tmp_path / "subtitles.srt"
+    ass_path = tmp_path / "subtitles.ass"
     output_path = tmp_path / "output.mp4"
     material_path.write_bytes(b"video")
-    subtitle_path.write_text("1\n00:00:00,000 --> 00:00:01,000\n字幕\n", encoding="utf-8")
+    ass_path.write_text("[Script Info]\n", encoding="utf-8")
 
     command = rendering._build_ffmpeg_command(
         ffmpeg_binary="ffmpeg",
@@ -24,17 +24,72 @@ def test_ffmpeg_command_keeps_subtitles_as_sidecar_only(tmp_path):
                 },
             )
         ],
-        subtitles_path=subtitle_path,
         output_path=output_path,
         aspect_ratio="9:16",
+        source_subtitle_masks=[False],
+        ass_path=ass_path,
     )
 
     filter_index = command.index("-filter_complex") + 1
-    assert "subtitles=" not in command[filter_index]
-    assert "drawtext=" not in command[filter_index]
-    assert str(subtitle_path) not in command
-    assert "-c:s" not in command
-    assert "mov_text" not in command
+    assert "ass=" in command[filter_index]
+    assert "subtitles.ass" in command[filter_index]
+    assert argv_has_output(command, output_path)
+
+
+def test_ffmpeg_command_escapes_ass_filter_path_special_chars(tmp_path):
+    material_path = tmp_path / "clip.mp4"
+    ass_path = tmp_path / "sub,clip;[v1]quote'colon:name.ass"
+    output_path = tmp_path / "output.mp4"
+    material_path.write_bytes(b"video")
+    ass_path.write_text("[Script Info]\n", encoding="utf-8")
+
+    command = rendering._build_ffmpeg_command(
+        ffmpeg_binary="ffmpeg",
+        render_items=[({"duration": 1}, {"storage_path": str(material_path), "content_type": "video/mp4"})],
+        output_path=output_path,
+        aspect_ratio="9:16",
+        source_subtitle_masks=[False],
+        ass_path=ass_path,
+    )
+
+    filter_index = command.index("-filter_complex") + 1
+    filter_arg = command[filter_index]
+    assert "ass=filename=" in filter_arg
+    assert "sub\\,clip\\;\\[v1\\]quote\\'colon\\:name.ass" in filter_arg
+    assert "sub,clip" not in filter_arg
+    assert "clip;" not in filter_arg
+    assert "[v1]quote" not in filter_arg
+    assert "colon:name.ass" not in filter_arg
+
+
+def test_ffmpeg_command_masks_source_subtitles_before_concat(tmp_path):
+    material_path = tmp_path / "clip.mp4"
+    output_path = tmp_path / "output.mp4"
+    material_path.write_bytes(b"video")
+
+    command = rendering._build_ffmpeg_command(
+        ffmpeg_binary="ffmpeg",
+        render_items=[
+            (
+                {"duration": 1},
+                {
+                    "storage_path": str(material_path),
+                    "content_type": "video/mp4",
+                },
+            )
+        ],
+        output_path=output_path,
+        aspect_ratio="9:16",
+        source_subtitle_masks=[True],
+        ass_path=None,
+    )
+
+    filter_index = command.index("-filter_complex") + 1
+    assert "drawbox=x=0:y=1498:w=1080:h=422:color=black@1:t=fill" in command[filter_index]
+
+
+def argv_has_output(command: list[str], output_path):
+    return command[-1] == str(output_path)
 
 
 @pytest.mark.parametrize("duration", [float("inf"), float("nan"), 301])
