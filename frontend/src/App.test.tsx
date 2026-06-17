@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -118,6 +118,18 @@ const customCaptionTemplate: SubtitleTemplateSet = {
   is_favorite: false,
   is_modified: true,
 };
+
+function templateFixture(overrides: Partial<SubtitleTemplateSet>): SubtitleTemplateSet {
+  return {
+    ...cleanBottomPreset,
+    ...overrides,
+    templates: {
+      ...cleanBottomPreset.templates,
+      ...(overrides.templates ?? {}),
+    },
+    blocks: overrides.blocks ?? cleanBottomPreset.blocks,
+  };
+}
 
 function assertSubtitleEditorTypeContract(template: SubtitleTemplateSet) {
   const block = template.blocks[0];
@@ -421,6 +433,51 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("selects the newest favorite custom subtitle template like the backend", async () => {
+    const olderFavorite = templateFixture({
+      id: "tmpl-brand-old",
+      name: "旧版品牌字幕",
+      favorite: true,
+      is_favorite: true,
+      is_modified: true,
+      created_at: "2026-06-01T00:00:00+00:00",
+      updated_at: "2026-06-10T00:00:00+00:00",
+    });
+    const newerFavorite = templateFixture({
+      id: "tmpl-brand-new",
+      name: "新版品牌字幕",
+      favorite: true,
+      is_favorite: true,
+      is_modified: true,
+      created_at: "2026-06-02T00:00:00+00:00",
+      updated_at: "2026-06-12T00:00:00+00:00",
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [olderFavorite, newerFavorite],
+      presets: [
+        templateFixture({
+          id: "preset-clean-new",
+          name: "新版预设字幕",
+          favorite: true,
+          is_favorite: true,
+          updated_at: "2026-06-14T00:00:00+00:00",
+        }),
+      ],
+    });
+    renderApp();
+
+    expect(await screen.findByText("当前模板：新版品牌字幕")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
+
+    expect(await screen.findByRole("heading", { name: "字幕模板" })).toBeInTheDocument();
+    const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
+    expect(within(subtitleWorkbench).getByText("当前模板：新版品牌字幕")).toBeInTheDocument();
+    expect(within(subtitleWorkbench).getByRole("button", { name: "新版品牌字幕" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("keeps custom style edits visible while a style save is pending", async () => {
     const user = userEvent.setup();
     let resolveUpdate: ((template: SubtitleTemplateSet) => void) | undefined;
@@ -458,6 +515,74 @@ describe("AutoVideo shell", () => {
         },
       },
     });
+  });
+
+  it("ignores stale style save responses after a newer draft is saved", async () => {
+    const user = userEvent.setup();
+    const requests: Array<{
+      resolve: (template: SubtitleTemplateSet) => void;
+    }> = [];
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          requests.push({ resolve });
+        }),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
+    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    const fontScale = screen.getAllByLabelText("字号比例")[0] as HTMLInputElement;
+
+    await user.clear(primaryColor);
+    await user.type(primaryColor, "#111111");
+    await user.tab();
+    await user.clear(fontScale);
+    await user.type(fontScale, "1.6");
+    await user.tab();
+
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    await act(async () => {
+      requests[1].resolve(
+        templateFixture({
+          ...customCaptionTemplate,
+          templates: {
+            ...customCaptionTemplate.templates,
+            bottom: {
+              ...customCaptionTemplate.templates.bottom,
+              primary_color: "#111111",
+              font_size_scale: 1.6,
+            },
+          },
+        }),
+      );
+    });
+    expect(fontScale).toHaveValue("1.6");
+
+    await act(async () => {
+      requests[0].resolve(
+        templateFixture({
+          ...customCaptionTemplate,
+          templates: {
+            ...customCaptionTemplate.templates,
+            bottom: {
+              ...customCaptionTemplate.templates.bottom,
+              primary_color: "#111111",
+              font_size_scale: 1,
+            },
+          },
+        }),
+      );
+    });
+
+    expect(primaryColor).toHaveValue("#111111");
+    expect(fontScale).toHaveValue("1.6");
   });
 
   it("shows subtitle validation warnings near the editor", async () => {
@@ -498,6 +623,49 @@ describe("AutoVideo shell", () => {
     await user.click(screen.getByRole("button", { name: "品牌底部字幕" }));
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("clears stale preview errors when custom subtitle style changes", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedPreviewSubtitleTemplateSet.mockRejectedValueOnce(
+      new Error("SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "精准预览" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
+
+    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    await user.clear(primaryColor);
+    await user.type(primaryColor, "#223344");
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows safe error feedback when saving subtitle style fails", async () => {
+    const user = userEvent.setup();
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [customCaptionTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockRejectedValueOnce(new Error("SECRET_TOKEN_LEAK"));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+
+    await user.clear(primaryColor);
+    await user.type(primaryColor, "#334455");
+    await user.tab();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("字幕模板保存失败");
+    expect(alert).not.toHaveTextContent("SECRET_TOKEN_LEAK");
   });
 
   it("renders precise image and timeline previews from the selected template", async () => {

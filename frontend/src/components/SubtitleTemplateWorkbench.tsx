@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CopyPlus, Play, RotateCcw, Save, WandSparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   SubtitleTemplateSet,
@@ -13,6 +13,7 @@ import {
   updateSubtitleTemplateSet,
   validateSubtitleTemplateSet,
 } from "../api/subtitles";
+import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 const editableRoles = [
   { role: "bottom", label: "底部字幕" },
@@ -22,22 +23,6 @@ const editableRoles = [
 
 function isPreset(template: SubtitleTemplateSet | undefined): boolean {
   return Boolean(template?.id.startsWith("preset-"));
-}
-
-function isFavoriteTemplate(template: SubtitleTemplateSet | undefined): boolean {
-  return Boolean(template?.is_favorite || template?.favorite);
-}
-
-function selectAutomaticTemplate(
-  customTemplates: SubtitleTemplateSet[],
-  presetTemplates: SubtitleTemplateSet[],
-): SubtitleTemplateSet | undefined {
-  return (
-    customTemplates.find(isFavoriteTemplate) ??
-    customTemplates[0] ??
-    presetTemplates.find(isFavoriteTemplate) ??
-    presetTemplates[0]
-  );
 }
 
 function blockStyle(block: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -100,6 +85,10 @@ function previewErrorText(error: unknown): string {
     : "预览生成失败";
 }
 
+function mutationErrorText(_error: unknown, fallback: string): string {
+  return fallback;
+}
+
 function numericPatchValue(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -138,14 +127,24 @@ function createTemplateCopyInput(template: SubtitleTemplateSet | undefined): {
     : { name, source_id: template.id };
 }
 
+type SaveTemplateVariables = {
+  id: string;
+  patch: Partial<SubtitleTemplateSet>;
+  draftRevision: number;
+};
+
+type SaveErrorPlacement = "editor" | "preview";
+
 export function SubtitleTemplateWorkbench() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [templateDrafts, setTemplateDrafts] = useState<Record<string, SubtitleTemplateSet>>({});
+  const [saveErrorPlacement, setSaveErrorPlacement] = useState<SaveErrorPlacement>("editor");
   const [sampleText, setSampleText] = useState("AI 自动完成重复工作");
   const [previewAspectRatio, setPreviewAspectRatio] = useState("9:16");
   const [keyword, setKeyword] = useState("AI");
   const [keywordColor, setKeywordColor] = useState("#FFD54F");
+  const draftRevisionByTemplate = useRef<Record<string, number>>({});
 
   const templates = useQuery({
     queryKey: ["subtitle-template-sets"],
@@ -157,7 +156,7 @@ export function SubtitleTemplateWorkbench() {
     () => [...presetTemplates, ...customTemplates],
     [customTemplates, presetTemplates],
   );
-  const defaultTemplate = selectAutomaticTemplate(customTemplates, presetTemplates);
+  const defaultTemplate = selectAutoSubtitleTemplate(customTemplates, presetTemplates);
   const selected =
     allTemplates.find((template) => template.id === selectedId) ?? defaultTemplate;
   const selectedDraft = selected ? (templateDrafts[selected.id] ?? selected) : undefined;
@@ -169,10 +168,19 @@ export function SubtitleTemplateWorkbench() {
     void queryClient.invalidateQueries({ queryKey: ["subtitle-template-sets"] });
   };
 
+  const nextDraftRevision = (templateId: string): number => {
+    const revision = (draftRevisionByTemplate.current[templateId] ?? 0) + 1;
+    draftRevisionByTemplate.current[templateId] = revision;
+    return revision;
+  };
+
   const saveTemplate = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<SubtitleTemplateSet> }) =>
+    mutationFn: ({ id, patch }: SaveTemplateVariables) =>
       updateSubtitleTemplateSet({ id, patch }),
-    onSuccess: (template) => {
+    onSuccess: (template, variables) => {
+      if (draftRevisionByTemplate.current[variables.id] !== variables.draftRevision) {
+        return;
+      }
       setTemplateDrafts((current) => ({ ...current, [template.id]: template }));
       invalidateTemplates();
     },
@@ -259,10 +267,22 @@ export function SubtitleTemplateWorkbench() {
     setPreviewAspectRatio(value);
   };
 
+  const handleKeywordChange = (value: string) => {
+    resetTemplateResultState();
+    setKeyword(value);
+  };
+
+  const handleKeywordColorChange = (value: string) => {
+    resetTemplateResultState();
+    setKeywordColor(value);
+  };
+
   const updateStyleDraft = (role: string, key: string, value: string) => {
     if (!selected || !isEditable) {
       return;
     }
+    resetTemplateResultState();
+    nextDraftRevision(selected.id);
     setTemplateDrafts((current) => {
       const base = current[selected.id] ?? selected;
       return {
@@ -279,35 +299,50 @@ export function SubtitleTemplateWorkbench() {
     if (!selected || !isEditable) {
       return;
     }
+    resetTemplateResultState();
+    setSaveErrorPlacement("editor");
+    const draftRevision = nextDraftRevision(selected.id);
     const base = templateDrafts[selected.id] ?? selected;
     const patch = stylePatch(base, role, { [key]: persistentStyleValue(key, value) });
     const nextTemplate = { ...base, ...patch };
     setTemplateDrafts((current) => ({ ...current, [selected.id]: nextTemplate }));
-    saveTemplate.mutate({ id: selected.id, patch });
+    saveTemplate.mutate({ id: selected.id, patch, draftRevision });
   };
 
   const saveKeywordHighlight = () => {
     if (!selected || !selectedDraft) {
       return;
     }
+    resetTemplateResultState();
+    setSaveErrorPlacement("preview");
+    const draftRevision = nextDraftRevision(selected.id);
+    const patch = {
+      blocks: selectedDraft.blocks.map((block) =>
+        block.role === "bottom"
+          ? {
+              ...block,
+              spans: [
+                ...(Array.isArray(block.spans) ? block.spans : []),
+                {
+                  selector: { type: "keyword", value: keyword },
+                  style: { primary_color: keywordColor },
+                },
+              ],
+            }
+          : block,
+      ),
+    };
+    setTemplateDrafts((current) => ({
+      ...current,
+      [selected.id]: {
+        ...selectedDraft,
+        ...patch,
+      },
+    }));
     saveTemplate.mutate({
       id: selected.id,
-      patch: {
-        blocks: selectedDraft.blocks.map((block) =>
-          block.role === "bottom"
-            ? {
-                ...block,
-                spans: [
-                  ...(Array.isArray(block.spans) ? block.spans : []),
-                  {
-                    selector: { type: "keyword", value: keyword },
-                    style: { primary_color: keywordColor },
-                  },
-                ],
-              }
-            : block,
-        ),
-      },
+      patch,
+      draftRevision,
     });
   };
 
@@ -369,11 +404,27 @@ export function SubtitleTemplateWorkbench() {
           <button
             disabled={!isSelectedPreset || resetPreset.isPending}
             type="button"
-            onClick={() => resetPreset.mutate()}
+            onClick={() => {
+              resetTemplateResultState();
+              resetPreset.mutate();
+            }}
           >
             <RotateCcw aria-hidden="true" size={16} />
             还原预设
           </button>
+          {createFromPreset.isError ? (
+            <p role="alert">
+              {mutationErrorText(createFromPreset.error, "字幕模板新建失败")}
+            </p>
+          ) : null}
+          {markDefault.isError ? (
+            <p role="alert">
+              {mutationErrorText(markDefault.error, "默认字幕模板设置失败")}
+            </p>
+          ) : null}
+          {resetPreset.isError ? (
+            <p role="alert">{mutationErrorText(resetPreset.error, "预设还原失败")}</p>
+          ) : null}
         </section>
 
         <section className="subtitle-preview-panel" aria-label="字幕预览">
@@ -396,13 +447,13 @@ export function SubtitleTemplateWorkbench() {
           </label>
           <label>
             <span>局部关键词</span>
-            <input value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <input value={keyword} onChange={(event) => handleKeywordChange(event.target.value)} />
           </label>
           <label>
             <span>局部高亮色</span>
             <input
               value={keywordColor}
-              onChange={(event) => setKeywordColor(event.target.value)}
+              onChange={(event) => handleKeywordColorChange(event.target.value)}
             />
           </label>
           <div
@@ -446,6 +497,11 @@ export function SubtitleTemplateWorkbench() {
               时间线预览
             </button>
           </div>
+          {saveTemplate.isError && saveErrorPlacement === "preview" ? (
+            <p role="alert">
+              {mutationErrorText(saveTemplate.error, "字幕模板保存失败")}
+            </p>
+          ) : null}
           {imagePreviewSrc ? <img alt="字幕精准预览" src={imagePreviewSrc} /> : null}
           {timelinePreviewSrc ? (
             <video controls data-testid="subtitle-timeline-preview" src={timelinePreviewSrc}>
@@ -464,6 +520,11 @@ export function SubtitleTemplateWorkbench() {
         </section>
 
         <section className="subtitle-editor-panel" aria-label="字幕块编辑">
+          {saveTemplate.isError && saveErrorPlacement === "editor" ? (
+            <p role="alert">
+              {mutationErrorText(saveTemplate.error, "字幕模板保存失败")}
+            </p>
+          ) : null}
           {editableRoles.map(({ role, label }) => (
             <fieldset key={role}>
               <legend>{label}</legend>

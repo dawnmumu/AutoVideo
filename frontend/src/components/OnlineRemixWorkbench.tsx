@@ -14,6 +14,7 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "../api/onlineRemix";
+import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 type ShotSearchState = "idle" | "searching" | "ready" | "failed" | "empty";
 
@@ -197,11 +198,10 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
   const customSubtitleTemplates = subtitleTemplates.data?.items ?? [];
   const presetSubtitleTemplates = subtitleTemplates.data?.presets ?? [];
   const subtitleTemplateItems = customSubtitleTemplates.concat(presetSubtitleTemplates);
-  const automaticSubtitleTemplate =
-    customSubtitleTemplates.find((template) => template.is_favorite || template.favorite) ??
-    customSubtitleTemplates[0] ??
-    presetSubtitleTemplates.find((template) => template.is_favorite || template.favorite) ??
-    presetSubtitleTemplates[0];
+  const automaticSubtitleTemplate = selectAutoSubtitleTemplate(
+    customSubtitleTemplates,
+    presetSubtitleTemplates,
+  );
   const selectedSubtitleTemplate =
     subtitleTemplateItems.find((template) => template.id === subtitleTemplateSetId) ??
     automaticSubtitleTemplate;
