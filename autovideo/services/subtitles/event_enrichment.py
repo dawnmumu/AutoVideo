@@ -109,13 +109,38 @@ def _merge_defaults(defaults: Any, current: dict[str, Any]) -> dict[str, Any]:
 
 def _merge_spans(default_spans: Any, current_spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: list[dict[str, Any]] = []
-    for source in (default_spans, current_spans):
+    selector_indexes: dict[tuple[str, str], int] = {}
+
+    for source_index, source in enumerate((default_spans, current_spans)):
         if not isinstance(source, list):
             continue
         for span in source:
             if not isinstance(span, dict):
                 continue
             candidate = copy.deepcopy(span)
-            if candidate not in merged:
-                merged.append(candidate)
+            selector_key = _span_selector_key(candidate)
+            if selector_key is None:
+                if candidate not in merged:
+                    merged.append(candidate)
+                continue
+
+            if selector_key in selector_indexes:
+                if source_index == 1:
+                    merged[selector_indexes[selector_key]] = candidate
+                continue
+
+            selector_indexes[selector_key] = len(merged)
+            merged.append(candidate)
     return merged
+
+
+def _span_selector_key(span: dict[str, Any]) -> tuple[str, str] | None:
+    selector = span.get("selector")
+    if not isinstance(selector, dict):
+        return None
+
+    selector_type = selector.get("type")
+    selector_value = selector.get("value")
+    if not isinstance(selector_type, str) or not isinstance(selector_value, str):
+        return None
+    return (selector_type, selector_value)

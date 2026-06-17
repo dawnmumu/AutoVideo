@@ -20,6 +20,7 @@ def apply_keyword_spans(
 ) -> list[SubtitleEvent]:
     copied = copy.deepcopy(events)
     for event in copied:
+        _remove_previous_keyword_spans(event)
         event.keyword_spans = []
 
     selected = _sample_events(copied, sample_rate=sample_rate, random_seed=random_seed)
@@ -54,6 +55,19 @@ def apply_keyword_spans(
             event.spans.append(span)
 
     return copied
+
+
+def _remove_previous_keyword_spans(event: SubtitleEvent) -> None:
+    if not event.keyword_spans:
+        return
+
+    spans = list(event.spans)
+    for generated_span in event.keyword_spans:
+        for index in range(len(spans) - 1, -1, -1):
+            if spans[index] == generated_span:
+                del spans[index]
+                break
+    event.spans = spans
 
 
 def _sample_events(

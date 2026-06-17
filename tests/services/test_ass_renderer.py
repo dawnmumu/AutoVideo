@@ -103,3 +103,65 @@ def test_keyword_extractor_failure_keeps_events_renderable():
 
     assert result[0].text == "AI 办公"
     assert result[0].keyword_spans == []
+
+
+def test_keyword_extractor_failure_removes_previous_generated_spans():
+    events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="AI 办公", template="bottom")]
+    keyworded = keyword_spans.apply_keyword_spans(
+        events,
+        _template(),
+        keyword_extractor=lambda payload, context: [{"index": 1, "terms": ["AI"]}],
+        sample_rate=1,
+        random_seed=1,
+    )
+
+    result = keyword_spans.apply_keyword_spans(
+        keyworded,
+        _template(),
+        keyword_extractor=lambda payload, context: (_ for _ in ()).throw(RuntimeError("llm failed")),
+        sample_rate=1,
+        random_seed=1,
+    )
+
+    content = ass_renderer.render_ass(result, _template(), (1080, 1920))
+    assert result[0].keyword_spans == []
+    assert "{\\c&H4FD5FF&}AI{\\r}" not in content
+
+
+def test_event_span_overrides_block_span_with_same_selector():
+    events = [
+        SubtitleEvent(
+            index=1,
+            shot_index=1,
+            start_ms=0,
+            end_ms=1000,
+            text="AI 办公",
+            template="bottom",
+            spans=[{"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#00E5FF"}}],
+        )
+    ]
+
+    enriched = event_enrichment.enrich_subtitle_events(events, _template(), (1080, 1920))
+    ai_spans = [
+        span
+        for span in enriched[0].spans
+        if span.get("selector") == {"type": "keyword", "value": "AI"}
+    ]
+    content = ass_renderer.render_ass(enriched, _template(), (1080, 1920))
+
+    assert len(ai_spans) == 1
+    assert ai_spans[0]["style"]["primary_color"] == "#00E5FF"
+    assert "{\\c&HFFE500&}AI{\\r}" in content
+    assert "{\\c&H4FD5FF&}AI{\\r}" not in content
+
+
+def test_ass_renderer_emits_event_style_and_position_override_tags():
+    template = _template()
+    template["blocks"][0]["style"] = {"font_size": 72, "primary_color": "#00E5FF"}
+    template["blocks"][0]["position"] = {"x": 0.25, "y": 0.75}
+    events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="业务字幕", template="bottom")]
+
+    enriched = event_enrichment.enrich_subtitle_events(events, template, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, template, (1080, 1920))
+
+    assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}业务字幕" in content

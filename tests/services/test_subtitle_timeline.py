@@ -39,3 +39,21 @@ def test_events_from_render_timeline_uses_narration_when_subtitle_missing():
     assert events == [
         SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=3000, text="这是旁白", template="bottom")
     ]
+
+
+def test_events_from_render_timeline_skips_zero_duration_items():
+    events = events_from_render_timeline(
+        {
+            "items": [
+                {
+                    "shot_index": 1,
+                    "start_time": 2,
+                    "end_time": 2,
+                    "duration": 0,
+                    "subtitle": "不可见字幕",
+                }
+            ]
+        }
+    )
+
+    assert events == []

@@ -61,7 +61,7 @@ def render_ass(
             f"Format: {EVENT_FORMAT}",
         ]
     )
-    lines.extend(_dialogue_line(event) for event in events)
+    lines.extend(_dialogue_line(event, resolution) for event in events)
     return "\n".join(lines) + "\n"
 
 
@@ -111,12 +111,46 @@ def _style_line(role: str, style: dict[str, Any]) -> str:
     return "Style: " + ",".join(fields)
 
 
-def _dialogue_line(event: SubtitleEvent) -> str:
+def _dialogue_line(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
     text = _render_text(event.text, event.spans)
+    override_tags = _event_override_tags(event, resolution)
+    if override_tags:
+        text = f"{override_tags}{text}"
     return (
         f"Dialogue: 0,{_format_ass_time(event.start_ms)},{_format_ass_time(event.end_ms)},"
         f"{event.template},,0,0,0,,{text}"
     )
+
+
+def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int]) -> str:
+    tags: list[str] = []
+    style = event.style if isinstance(event.style, dict) else {}
+    position = event.position if isinstance(event.position, dict) else {}
+
+    if "font_size" in style:
+        tags.append(f"\\fs{_scaled_font_size(style)}")
+
+    primary_color = style.get("primary_color")
+    if isinstance(primary_color, str) and _is_hex_color(primary_color.strip()):
+        tags.append(f"\\c{_inline_color(primary_color)}")
+
+    position_tag = _position_tag(position, resolution)
+    if position_tag:
+        tags.append(position_tag)
+
+    return "{" + "".join(tags) + "}" if tags else ""
+
+
+def _position_tag(position: dict[str, Any], resolution: tuple[int, int]) -> str:
+    x = _optional_numeric(position.get("x"))
+    y = _optional_numeric(position.get("y"))
+    if x is None or y is None:
+        return ""
+
+    width, height = resolution
+    x_value = x * width if 0 <= x <= 1 else x
+    y_value = y * height if 0 <= y <= 1 else y
+    return f"\\pos({_format_coordinate(x_value)},{_format_coordinate(y_value)})"
 
 
 def _render_text(text: str, spans: list[dict[str, Any]]) -> str:
@@ -163,6 +197,27 @@ def _numeric(value: Any, default: int | float) -> int | float:
             return default
         return int(number) if number.is_integer() else number
     return default
+
+
+def _optional_numeric(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            number = float(candidate)
+        except ValueError:
+            return None
+        return int(number) if number.is_integer() else number
+    return None
+
+
+def _format_coordinate(value: int | float) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)
 
 
 def _number(value: Any) -> str:

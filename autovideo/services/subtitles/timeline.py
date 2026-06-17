@@ -50,7 +50,7 @@ def events_from_render_timeline(timeline: Any) -> list[SubtitleEvent]:
 
         start_ms = _seconds_to_ms(start_seconds)
         end_ms = _seconds_to_ms(end_seconds)
-        if end_ms < start_ms:
+        if end_ms <= start_ms:
             continue
 
         shot_index = _coerce_int(item.get("shot_index"), default=item_index)
