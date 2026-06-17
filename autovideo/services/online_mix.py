@@ -15,6 +15,13 @@ from autovideo.services.online_materials import (
     public_candidate,
     rank_candidates,
 )
+from autovideo.services.rendering import (
+    FfmpegRenderFailedError,
+    build_render_timeline,
+    render_mix_video,
+    sanitize_render_timeline,
+    write_timeline_artifacts,
+)
 from autovideo.services.tasks import (
     MaterialNotFoundError,
     create_task,
@@ -220,6 +227,52 @@ def sanitized_online_mix_options(options: dict[str, Any]) -> dict[str, Any]:
     return sanitized if isinstance(sanitized, dict) else {}
 
 
+def _render_online_mix_output_builder(
+    *,
+    store: AutoVideoStore,
+    title: str,
+    script: dict[str, Any],
+    manifest_shots: list[dict[str, Any]],
+    materials_by_id: dict[str, dict[str, Any]],
+    options: dict[str, Any],
+):
+    def build(output_payload: dict[str, Any], output_dir: Any):
+        timeline = build_render_timeline(
+            title=title,
+            script=script,
+            shot_materials=manifest_shots,
+        )
+        safe_timeline = sanitize_render_timeline(timeline)
+        output_payload["timeline"] = safe_timeline
+        write_timeline_artifacts(output_dir, safe_timeline)
+        rendered_path = render_mix_video(
+            settings=store.settings,
+            output_dir=output_dir,
+            timeline=safe_timeline,
+            materials_by_id=materials_by_id,
+            aspect_ratio=str(options.get("aspect_ratio") or script.get("aspect_ratio") or "9:16"),
+        )
+        if rendered_path is None:
+            output_payload["render_plan"] = {
+                "status": "manifest_only",
+                "renderer": "ffmpeg_unavailable",
+                "timeline": "timeline.json",
+                "subtitles": "subtitles.srt",
+            }
+            return None
+
+        output_payload["render_plan"] = {
+            "status": "rendered",
+            "renderer": "ffmpeg",
+            "output": rendered_path.name,
+            "timeline": "timeline.json",
+            "subtitles": "subtitles.srt",
+        }
+        return rendered_path
+
+    return build
+
+
 def _online_asset_key_from_payload(payload: dict[str, Any]) -> tuple[str, str]:
     return (_token_text(payload, "provider"), _token_text(payload, "asset_id"))
 
@@ -419,6 +472,7 @@ def create_online_mix_task(
 
     material_ids: list[str] = []
     manifest_shots: list[dict[str, Any]] = []
+    materials_by_id: dict[str, dict[str, Any]] = {}
     source_attribution_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for selection in sorted(resolved_materials, key=lambda value: int(value["shot_index"])):
         material_id = str(selection["material_id"])
@@ -426,6 +480,7 @@ def create_online_mix_task(
         if material is None:
             raise MaterialNotFoundError(material_id)
         material_ids.append(material_id)
+        materials_by_id[material_id] = material
         manifest_shots.append(_material_manifest_item(material, selection))
         attribution = _source_attribution(material)
         if attribution is not None:
@@ -453,4 +508,12 @@ def create_online_mix_task(
             },
             "provider_status_snapshot": provider_status_snapshot,
         },
+        output_builder=_render_online_mix_output_builder(
+            store=store,
+            title=title,
+            script=script,
+            manifest_shots=manifest_shots,
+            materials_by_id=materials_by_id,
+            options=options,
+        ),
     )

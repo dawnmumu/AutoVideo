@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -113,6 +115,9 @@ class OutputNotFoundError(Exception):
         super().__init__(task_id)
 
 
+TaskOutputBuilder = Callable[[dict[str, Any], Any], Any | None]
+
+
 def encoded_json_size(value: Any) -> int:
     return len(
         json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -172,6 +177,7 @@ def create_task(
     material_ids: list[str],
     options: dict[str, Any],
     manifest_payload: dict[str, Any] | None = None,
+    output_builder: TaskOutputBuilder | None = None,
 ) -> dict[str, Any]:
     material_count = len(material_ids)
     if material_count > store.settings.max_task_materials:
@@ -201,7 +207,8 @@ def create_task(
     now = datetime.now(UTC).isoformat()
     output_dir = store.paths.outputs / task_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "manifest.json"
+    manifest_path = output_dir / "manifest.json"
+    output_path = manifest_path
     output_payload = {
         "task_id": task_id,
         "title": title,
@@ -221,26 +228,40 @@ def create_task(
         for key, value in sanitize_manifest_payload(manifest_payload).items():
             if key not in RESERVED_MANIFEST_PAYLOAD_KEYS:
                 output_payload[key] = value
-    output_path.write_text(
-        json.dumps(output_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
-    return store.insert_task(
-        {
-            "id": task_id,
-            "title": title,
-            "status": "succeeded",
-            "material_ids": material_ids,
-            "options": sanitized_options,
-            "output": {
-                "path": str(output_path),
-                "download_url": f"/api/tasks/{task_id}/output",
-            },
-            "created_at": now,
-            "updated_at": now,
-        }
-    )
+    try:
+        if output_builder is not None:
+            built_output_path = output_builder(output_payload, output_dir)
+            if built_output_path is not None:
+                output_path = built_output_path
+                try:
+                    output_path.resolve().relative_to(output_dir.resolve())
+                except ValueError as exc:
+                    raise ValueError("任务输出必须位于任务输出目录内") from exc
+
+        manifest_path.write_text(
+            json.dumps(output_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        return store.insert_task(
+            {
+                "id": task_id,
+                "title": title,
+                "status": "succeeded",
+                "material_ids": material_ids,
+                "options": sanitized_options,
+                "output": {
+                    "path": str(output_path),
+                    "download_url": f"/api/tasks/{task_id}/output",
+                },
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    except Exception:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        raise
 
 
 def require_task(store: AutoVideoStore, task_id: str) -> dict[str, Any]:

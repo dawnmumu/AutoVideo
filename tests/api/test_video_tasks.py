@@ -427,6 +427,35 @@ def test_create_task_merges_sanitized_manifest_payload(client) -> None:
     assert "<OLD_PROJECT_INTERNAL_ADDRESS>" not in serialized
 
 
+def test_create_task_cleans_output_dir_when_output_builder_raises(client) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+
+    from autovideo.services.tasks import create_task
+
+    def failing_output_builder(output_payload, output_dir):
+        (output_dir / "timeline.json").write_text("{}", encoding="utf-8")
+        (output_dir / "subtitles.srt").write_text("", encoding="utf-8")
+        (output_dir / "output.mp4").write_bytes(b"partial video")
+        raise RuntimeError("builder failed")
+
+    store = AutoVideoStore(client.app.state.settings)
+    with pytest.raises(RuntimeError, match="builder failed"):
+        create_task(
+            store,
+            title="失败清理",
+            material_ids=[material["id"]],
+            options={"aspect_ratio": "9:16"},
+            output_builder=failing_output_builder,
+        )
+
+    assert store.list_tasks() == []
+    assert list(store.paths.outputs.iterdir()) == []
+
+
 def test_create_task_sanitizes_options_in_response_and_manifest(client) -> None:
     upload_response = client.post(
         "/api/materials",

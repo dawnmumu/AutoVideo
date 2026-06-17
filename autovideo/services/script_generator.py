@@ -1880,6 +1880,118 @@ def _build_plain_text_script(
     return _build_plain_text_script_heuristic(parts, topic)
 
 
+def _is_ai_sme_efficiency_topic(topic: str) -> bool:
+    normalized = _normalize_compare_text(topic).lower()
+    return (
+        ("中小企业" in normalized or "企业" in normalized or "公司" in normalized)
+        and ("ai" in normalized or "人工智能" in normalized)
+        and ("效率" in normalized or "提效" in normalized)
+    )
+
+
+def _allocate_fallback_durations(duration: int, weights: list[float]) -> list[float]:
+    total_duration = max(float(duration or 30), float(len(weights) or 1))
+    total_weight = sum(max(float(item), 0.1) for item in weights) or 1.0
+    durations = [
+        max(round(total_duration * max(float(weight), 0.1) / total_weight, 1), 1.0)
+        for weight in weights
+    ]
+    delta = round(total_duration - sum(durations), 1)
+    if durations:
+        durations[-1] = max(round(durations[-1] + delta, 1), 1.0)
+    return durations
+
+
+def _ai_sme_efficiency_fallback_specs(topic: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "weight": 5,
+            "visual_description": "老板坐在办公室，桌上堆满文件，不断接电话、回复消息。",
+            "narration": "还在为人手不足、工作繁杂而烦恼吗？",
+            "subtitle": "人少事多，效率跟不上？",
+            "keywords": ["中小企业", "办公室", "文件", "电话", "工作繁忙"],
+        },
+        {
+            "weight": 7,
+            "visual_description": "员工手动整理Excel、回复客户邮件、制作报表。",
+            "narration": "很多中小企业每天把大量时间花在重复性工作上。",
+            "subtitle": "数据整理、客户回复、报表制作……",
+            "keywords": ["中小企业", "Excel", "客户邮件", "报表", "重复工作"],
+        },
+        {
+            "weight": 8,
+            "visual_description": "AI界面快速生成报表、自动回复客户、整理会议记录。",
+            "narration": "AI可以帮助您自动处理文档、生成报表、整理会议记录，甚至协助客服工作。",
+            "subtitle": "AI 自动完成重复工作",
+            "keywords": ["AI办公", "自动报表", "客户回复", "会议记录", "智能客服"],
+        },
+        {
+            "weight": 7,
+            "visual_description": "员工轻松协作，老板查看实时数据仪表盘。",
+            "narration": "把时间留给业务拓展和客户服务，让团队创造更高价值。",
+            "subtitle": "效率提升 × 成本降低",
+            "keywords": ["团队协作", "数据仪表盘", "业务拓展", "客户服务", "效率提升"],
+        },
+        {
+            "weight": 3,
+            "visual_description": "企业Logo出现，背景为数字化办公场景。",
+            "narration": "AI不是未来，而是现在。让您的企业更高效地成长。",
+            "subtitle": "立即开启 AI 办公新时代",
+            "keywords": ["企业Logo", "数字化办公", "AI办公", "企业成长"],
+        },
+    ]
+
+
+def _generic_spoken_fallback_specs(
+    topic: str,
+    selling_points: list[str],
+) -> list[dict[str, Any]]:
+    topic_text = topic or "这条视频"
+    highlight_text = "、".join(selling_points[:3])
+    value_line = (
+        f"重点关注{highlight_text}，能更快看清{topic_text}的价值。"
+        if highlight_text
+        else f"找准关键问题，才能真正看见{topic_text}的价值。"
+    )
+    return [
+        {
+            "weight": 5,
+            "visual_description": f"{topic_text}相关真实使用场景，人物正在处理眼前的问题。",
+            "narration": f"你是否也在关注{topic_text}带来的变化？",
+            "subtitle": f"关注{topic_text}",
+            "keywords": [topic_text, "真实场景", "人物", "问题"],
+        },
+        {
+            "weight": 7,
+            "visual_description": f"{topic_text}相关工作或生活场景，问题被清晰呈现。",
+            "narration": f"很多人面对{topic_text}时，最困扰的是信息太多、行动太慢。",
+            "subtitle": "信息太多，行动太慢",
+            "keywords": [topic_text, "困扰", "信息", "行动"],
+        },
+        {
+            "weight": 8,
+            "visual_description": f"{topic_text}的核心方法、工具或流程被逐步展示。",
+            "narration": value_line,
+            "subtitle": "找准关键方法",
+            "keywords": [topic_text, *selling_points[:3], "方法", "工具"],
+        },
+        {
+            "weight": 7,
+            "visual_description": f"{topic_text}带来的效率、体验或结果变化。",
+            "narration": "把注意力放在真正重要的结果上，效率和体验都会提升。",
+            "subtitle": "效率提升，体验更好",
+            "keywords": [topic_text, "效率提升", "体验", "结果"],
+        },
+        {
+            "weight": 3,
+            "visual_description": f"{topic_text}的总结画面，人物或品牌信息自然收束。",
+            "narration": f"现在开始，用更简单的方式看见{topic_text}的价值。",
+            "subtitle": "现在开始行动",
+            "keywords": [topic_text, "总结", "行动", "价值"],
+        },
+    ]
+
+
 def generate_fallback_script(
     topic: str,
     duration: int,
@@ -1891,78 +2003,36 @@ def generate_fallback_script(
         for item in (selling_points or [])
         if str(item).strip()
     ]
-    seg = max(round(duration / 4, 1), 1.0)
     topic_text = resolved_topic or "这条视频"
-    highlight_text = "、".join(resolved_selling_points[:3])
-    first_narration = f"{topic_text}，先用一个真实场景把注意力拉住。"
-    second_narration = (
-        f"围绕{topic_text}，突出{highlight_text}，让信息自然出现。"
-        if highlight_text
-        else f"镜头持续围绕{topic_text}展开，交代人物、场景和核心变化。"
-    )
-    third_narration = f"用细节镜头补足{topic_text}的现场感，让画面和旁白保持一致。"
-    fourth_narration = f"最后回到{topic_text}的结果，让观众记住这条内容。"
-    topic_keywords = [resolved_topic, *resolved_selling_points] if resolved_topic else resolved_selling_points
+
+    if _is_ai_sme_efficiency_topic(topic_text):
+        shot_specs = _ai_sme_efficiency_fallback_specs(topic_text)
+    else:
+        shot_specs = _generic_spoken_fallback_specs(topic_text, resolved_selling_points)
+
+    durations = _allocate_fallback_durations(duration, [item["weight"] for item in shot_specs])
     return VideoScript(
         title=resolved_topic or "视频脚本",
         total_duration=duration,
         shots=[
             SceneShot(
-                index=1,
-                duration=seg,
-                narration=first_narration,
-                subtitle=first_narration,
-                visual_description=f"{topic_text}相关开场场景，人物或环境建立镜头",
+                index=index,
+                duration=shot_duration,
+                narration=str(spec["narration"]),
+                subtitle=str(spec["subtitle"]),
+                visual_description=str(spec["visual_description"]),
                 keywords=build_search_keywords(
                     topic_text,
-                    first_narration,
-                    f"{topic_text}相关开场场景",
-                    topic_keywords,
+                    str(spec["narration"]),
+                    str(spec["visual_description"]),
+                    spec["keywords"],
                 ),
-                delivery=build_delivery_for_narration(first_narration),
-            ),
-            SceneShot(
-                index=2,
-                duration=seg,
-                narration=second_narration,
-                subtitle=second_narration,
-                visual_description=f"{topic_text}核心场景，动作和关键信息特写",
-                keywords=build_search_keywords(
-                    topic_text,
-                    second_narration,
-                    f"{topic_text}核心场景",
-                    topic_keywords,
-                ),
-                delivery=build_delivery_for_narration(second_narration),
-            ),
-            SceneShot(
-                index=3,
-                duration=seg,
-                narration=third_narration,
-                subtitle=third_narration,
-                visual_description=f"{topic_text}细节补充，环境、动作或状态变化镜头",
-                keywords=build_search_keywords(
-                    topic_text,
-                    third_narration,
-                    f"{topic_text}细节镜头",
-                    topic_keywords,
-                ),
-                delivery=build_delivery_for_narration(third_narration),
-            ),
-            SceneShot(
-                index=4,
-                duration=seg,
-                narration=fourth_narration,
-                subtitle=fourth_narration,
-                visual_description=f"{topic_text}结果画面或收束镜头",
-                keywords=build_search_keywords(
-                    topic_text,
-                    fourth_narration,
-                    f"{topic_text}结果画面",
-                    topic_keywords,
-                ),
-                delivery=build_delivery_for_narration(fourth_narration),
-            ),
+                delivery=build_delivery_for_narration(str(spec["narration"])),
+            )
+            for index, (spec, shot_duration) in enumerate(
+                zip(shot_specs, durations),
+                start=1,
+            )
         ],
     )
 
