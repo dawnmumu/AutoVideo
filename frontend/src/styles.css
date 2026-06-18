@@ -244,6 +244,129 @@ h2 {
   line-height: 1.5;
 }
 
+.task-output-panel,
+.task-output-list,
+.task-output-main {
+  display: grid;
+  gap: 14px;
+}
+
+.task-output-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, max-content);
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.task-output-title-row,
+.task-meta,
+.task-output-actions,
+.status-pill,
+.secondary-action,
+.disabled-action {
+  display: flex;
+  align-items: center;
+}
+
+.task-output-title-row {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-output-title-row h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.task-meta {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-meta span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  padding: 6px 10px;
+}
+
+.task-output-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.status-pill {
+  min-height: 32px;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 10px;
+}
+
+.status-pill.succeeded {
+  border-color: #a8d5bd;
+  background: #edf8f2;
+  color: var(--success);
+}
+
+.status-pill.failed {
+  border-color: #f0b8ae;
+  background: #fff4f1;
+  color: #8a1f11;
+}
+
+.status-pill.partial {
+  border-color: #edd08c;
+  background: #fff8e8;
+  color: var(--warning);
+}
+
+.status-pill.manifest {
+  border-color: #bed8e5;
+  background: #eef7fb;
+  color: var(--accent-strong);
+}
+
+.status-pill.running,
+.status-pill.pending {
+  border-color: #edd08c;
+  background: #fff8e8;
+  color: var(--warning);
+}
+
+.task-output-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.disabled-action {
+  min-height: 44px;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
 .online-remix-panel,
 .online-remix-form,
 .shot-list,
@@ -287,6 +410,7 @@ h2 {
 }
 
 button,
+.secondary-action,
 .primary-action {
   min-height: 44px;
   display: inline-flex;
@@ -305,12 +429,15 @@ button,
 
 button:hover,
 button:focus-visible,
+.secondary-action:hover,
+.secondary-action:focus-visible,
 .primary-action:hover,
 .primary-action:focus-visible {
   border-color: var(--accent);
 }
 
 button:focus-visible,
+.secondary-action:focus-visible,
 .primary-action:focus-visible,
 .online-remix-panel input:focus-visible,
 .online-remix-panel select:focus-visible,
@@ -326,6 +453,12 @@ button:focus-visible,
   background: var(--accent);
   color: #ffffff;
   font-weight: 700;
+}
+
+.secondary-action {
+  color: var(--accent-strong);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 button:disabled,
@@ -531,7 +664,9 @@ button:disabled,
 .subtitle-editor-panel select:focus-visible,
 .subtitle-settings input:focus-visible,
 .subtitle-settings select:focus-visible,
-.subtitle-settings button:focus-visible {
+.subtitle-settings button:focus-visible,
+.task-output-panel button:focus-visible,
+.task-output-panel a:focus-visible {
   outline: 3px solid rgba(23, 107, 135, 0.25);
   outline-offset: 2px;
 }
@@ -642,12 +777,14 @@ button:disabled,
   .shot-actions,
   .create-task-row,
   .candidate-row,
+  .task-output-card,
   .inline-error,
   .local-material-dialog {
     grid-template-columns: 1fr;
   }
 
   .candidate-row,
+  .task-output-actions,
   .inline-error,
   .shot-actions,
   .create-task-row {
@@ -737,12 +874,14 @@ button:disabled,
   .shot-actions,
   .create-task-row,
   .candidate-row,
+  .task-output-card,
   .inline-error,
   .local-material-dialog {
     grid-template-columns: 1fr;
   }
 
   .candidate-row,
+  .task-output-actions,
   .inline-error,
   .shot-actions,
   .create-task-row {
@@ -752,6 +891,8 @@ button:disabled,
   .candidate-row a,
   .candidate-row button,
   .candidate-row img,
+  .task-output-actions a,
+  .task-output-actions .disabled-action,
   .inline-error button,
   .shot-actions button,
   .create-task-row button,

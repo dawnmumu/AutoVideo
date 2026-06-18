@@ -210,6 +210,9 @@ def test_material_upload_task_creation_and_output_download(client) -> None:
     assert task["material_ids"] == [material["id"]]
     assert task["options"]["aspect_ratio"] == "16:9"
     assert task["output"]["download_url"] == f"/api/tasks/{task['id']}/output"
+    assert task["output"]["filename"] == "manifest.json"
+    assert task["output"]["media_type"] == "application/json"
+    assert task["output"]["kind"] == "manifest"
     assert "path" not in task["output"]
 
     detail_response = client.get(f"/api/tasks/{task['id']}")
@@ -226,6 +229,93 @@ def test_material_upload_task_creation_and_output_download(client) -> None:
     assert output["title"] == "测试混剪任务"
     assert output["materials"][0]["id"] == material["id"]
     assert output["note"] == "这是任务骨架生成的占位输出，尚未执行真实混剪渲染。"
+
+
+def test_task_response_describes_rendered_video_output(client) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+
+    from autovideo.services.tasks import create_task
+
+    def rendered_output_builder(output_payload, output_dir):
+        output_path = output_dir / "output.mp4"
+        output_path.write_bytes(b"rendered video")
+        output_payload["render_plan"] = {
+            "status": "subtitle_burned",
+            "renderer": "ffmpeg",
+            "output": "output.mp4",
+        }
+        return output_path
+
+    store = AutoVideoStore(client.app.state.settings)
+    task = create_task(
+        store,
+        title="成片输出",
+        material_ids=[material["id"]],
+        options={"aspect_ratio": "9:16"},
+        output_builder=rendered_output_builder,
+    )
+
+    response = client.get(f"/api/tasks/{task['id']}")
+
+    assert response.status_code == 200
+    output = response.json()["output"]
+    assert output == {
+        "download_url": f"/api/tasks/{task['id']}/output",
+        "filename": "output.mp4",
+        "media_type": "video/mp4",
+        "kind": "video",
+        "render_status": "subtitle_burned",
+    }
+
+
+def test_task_response_describes_partial_video_failure_without_sensitive_details(
+    client,
+) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+
+    from autovideo.services.tasks import create_task
+
+    def partial_output_builder(output_payload, output_dir):
+        output_path = output_dir / "output.base.mp4"
+        output_path.write_bytes(b"partial video")
+        output_payload["render_plan"] = {
+            "status": "subtitle_burn_failed",
+            "renderer": "ffmpeg",
+            "base_output": "output.base.mp4",
+            "error_summary": "ASS burn failed at /Users/sha/private/token.txt",
+        }
+        return output_path
+
+    store = AutoVideoStore(client.app.state.settings)
+    task = create_task(
+        store,
+        title="字幕烧录失败",
+        material_ids=[material["id"]],
+        options={"subtitle_enabled": True},
+        output_builder=partial_output_builder,
+    )
+
+    response = client.get(f"/api/tasks/{task['id']}")
+
+    assert response.status_code == 200
+    output = response.json()["output"]
+    assert output["download_url"] == f"/api/tasks/{task['id']}/output"
+    assert output["filename"] == "output.base.mp4"
+    assert output["media_type"] == "video/mp4"
+    assert output["kind"] == "partial_video"
+    assert output["render_status"] == "subtitle_burn_failed"
+    assert output["failure_reason"] == "[redacted]"
+    assert "path" not in output
+    assert "token" not in json.dumps(output, ensure_ascii=False)
+    assert "/Users/sha" not in json.dumps(output, ensure_ascii=False)
 
 
 def test_material_source_metadata_is_public_but_storage_path_is_hidden(

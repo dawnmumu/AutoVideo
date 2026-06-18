@@ -24,6 +24,7 @@ import {
   validateSubtitleTemplateSet,
 } from "./api/subtitles";
 import type { SubtitleTemplateSet } from "./api/subtitles";
+import { fetchTasks } from "./api/tasks";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -49,9 +50,14 @@ vi.mock("./api/subtitles", () => ({
   previewSubtitleTimeline: vi.fn(),
 }));
 
+vi.mock("./api/tasks", () => ({
+  fetchTasks: vi.fn(),
+}));
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
+const mockedFetchTasks = vi.mocked(fetchTasks);
 const mockedGenerateScript = vi.mocked(generateScript);
 const mockedSearchOnlineMaterials = vi.mocked(searchOnlineMaterials);
 const mockedCreateOnlineMixTask = vi.mocked(createOnlineMixTask);
@@ -189,6 +195,7 @@ describe("AutoVideo shell", () => {
       candidate_token_secret_configured: true,
     });
     mockedFetchMaterials.mockResolvedValue([]);
+    mockedFetchTasks.mockResolvedValue([]);
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [],
       presets: [cleanBottomPreset],
@@ -338,6 +345,136 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "字幕" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("keeps enabled mobile navigation entries before disabled placeholders", async () => {
+    renderApp();
+
+    await screen.findByRole("heading", { name: "混剪工作台" });
+
+    const mobileNav = screen.getByRole("navigation", { name: "移动端导航" });
+    const labels = Array.from(mobileNav.querySelectorAll("a, span")).map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(labels.slice(0, 3)).toEqual(["混剪", "字幕", "任务"]);
+  });
+
+  it("opens the task output list and links rendered videos for download", async () => {
+    const user = userEvent.setup();
+    mockedFetchTasks.mockResolvedValue([
+      {
+        id: "task-video-1",
+        title: "中小企业 AI 效率",
+        status: "succeeded",
+        material_ids: ["material-1", "material-2"],
+        options: {
+          aspect_ratio: "9:16",
+          resolution: "1080x1920",
+          subtitle_enabled: true,
+        },
+        output: {
+          download_url: "/api/tasks/task-video-1/output",
+          filename: "output.mp4",
+          media_type: "video/mp4",
+          kind: "video",
+          render_status: "subtitle_burned",
+        },
+        created_at: "2026-06-18T09:30:00+08:00",
+        updated_at: "2026-06-18T09:31:30+08:00",
+      },
+    ]);
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "任务与输出" }));
+
+    expect(window.location.hash).toBe("#tasks");
+    expect(screen.getByRole("heading", { name: "任务与输出", level: 1 })).toBeInTheDocument();
+    const taskCard = await screen.findByRole("article", { name: "中小企业 AI 效率" });
+    expect(within(taskCard).getByText("成功")).toBeInTheDocument();
+    expect(within(taskCard).getByText("素材 2 个")).toBeInTheDocument();
+    expect(within(taskCard).getByText("9:16")).toBeInTheDocument();
+    expect(within(taskCard).getByText("1080x1920")).toBeInTheDocument();
+    const downloadLink = within(taskCard).getByRole("link", { name: "下载视频" });
+    expect(downloadLink).toHaveAttribute("href", "/api/tasks/task-video-1/output");
+    expect(downloadLink).toHaveAttribute("download", "中小企业 AI 效率.mp4");
+    expect(mockedFetchTasks).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+  });
+
+  it("labels manifest-only task outputs as manifest downloads", async () => {
+    const user = userEvent.setup();
+    mockedFetchTasks.mockResolvedValue([
+      {
+        id: "task-manifest-1",
+        title: "未渲染任务",
+        status: "succeeded",
+        material_ids: ["material-1"],
+        options: {},
+        output: {
+          download_url: "/api/tasks/task-manifest-1/output",
+          filename: "manifest.json",
+          media_type: "application/json",
+          kind: "manifest",
+          render_status: "manifest_only",
+          failure_reason: "FFmpeg 不可用，仅保留任务清单。",
+        },
+        created_at: "2026-06-18T09:30:00+08:00",
+        updated_at: "2026-06-18T09:31:30+08:00",
+      },
+    ]);
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "任务与输出" }));
+
+    const taskCard = await screen.findByRole("article", { name: "未渲染任务" });
+    const downloadLink = within(taskCard).getByRole("link", { name: "下载清单" });
+    expect(downloadLink).toHaveAttribute("href", "/api/tasks/task-manifest-1/output");
+    expect(downloadLink).toHaveAttribute("download", "未渲染任务.json");
+    expect(within(taskCard).queryByRole("link", { name: "下载视频" })).not.toBeInTheDocument();
+    expect(within(taskCard).getByText("FFmpeg 不可用，仅保留任务清单。")).toBeInTheDocument();
+  });
+
+  it("shows partial render failure reasons without offering video download", async () => {
+    const user = userEvent.setup();
+    mockedFetchTasks.mockResolvedValue([
+      {
+        id: "task-partial-1",
+        title: "字幕烧录失败",
+        status: "succeeded",
+        material_ids: ["material-1"],
+        options: { subtitle_enabled: true },
+        output: {
+          download_url: "/api/tasks/task-partial-1/output",
+          filename: "output.base.mp4",
+          media_type: "video/mp4",
+          kind: "partial_video",
+          render_status: "subtitle_burn_failed",
+          failure_reason: "字幕烧录失败：ASS 字幕滤镜不可用。",
+        },
+        created_at: "2026-06-18T09:30:00+08:00",
+        updated_at: "2026-06-18T09:31:30+08:00",
+      },
+    ]);
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "任务与输出" }));
+
+    const taskCard = await screen.findByRole("article", { name: "字幕烧录失败" });
+    expect(within(taskCard).getByText("部分输出")).toBeInTheDocument();
+    expect(within(taskCard).getByText("字幕烧录失败：ASS 字幕滤镜不可用。")).toBeInTheDocument();
+    expect(within(taskCard).queryByRole("link", { name: "下载视频" })).not.toBeInTheDocument();
+    expect(within(taskCard).getByText("输出未完成")).toBeInTheDocument();
+  });
+
+  it("shows an empty task output state from a direct hash link", async () => {
+    window.history.pushState(null, "", "/#tasks");
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "任务与输出", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByText("暂无历史任务")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "任务与输出" })).toHaveAttribute(
       "aria-current",
       "page",
     );
