@@ -350,6 +350,18 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("keeps enabled mobile navigation entries before disabled placeholders", async () => {
+    renderApp();
+
+    await screen.findByRole("heading", { name: "混剪工作台" });
+
+    const mobileNav = screen.getByRole("navigation", { name: "移动端导航" });
+    const labels = Array.from(mobileNav.querySelectorAll("a, span")).map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(labels.slice(0, 3)).toEqual(["混剪", "字幕", "任务"]);
+  });
+
   it("opens the task output list and links rendered videos for download", async () => {
     const user = userEvent.setup();
     mockedFetchTasks.mockResolvedValue([

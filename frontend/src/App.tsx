@@ -38,6 +38,11 @@ const navItems: NavItem[] = [
   { id: "settings", label: "系统设置", shortLabel: "设置", icon: Settings, enabled: false },
 ];
 
+const mobileNavItems = [
+  ...navItems.filter((item) => item.enabled),
+  ...navItems.filter((item) => !item.enabled),
+];
+
 const sectionHeadings: Record<ActiveSection, { title: string; summary: string }> = {
   remix: {
     title: "混剪工作台",
@@ -210,7 +215,7 @@ export default function App() {
         </header>
 
         <nav className="mobile-tabs" aria-label="移动端导航">
-          {navItems.map((item) =>
+          {mobileNavItems.map((item) =>
             item.enabled ? (
               <a
                 aria-current={item.id === activeSection ? "page" : undefined}
