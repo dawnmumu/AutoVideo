@@ -52,9 +52,10 @@ def test_frontend_source_does_not_include_removed_auth_or_netdisk_copy() -> None
 
 def test_frontend_css_protects_tablet_width_online_remix_layout() -> None:
     css = (FRONTEND_ROOT / "src" / "styles.css").read_text(encoding="utf-8")
+    tablet_breakpoint = "@media (max-width: 1160px)"
 
-    assert "@media (max-width: 1100px)" in css
-    tablet_rules = css.split("@media (max-width: 1100px)", 1)[1].split(
+    assert tablet_breakpoint in css
+    tablet_rules = css.split(tablet_breakpoint, 1)[1].split(
         "@media",
         1,
     )[0]

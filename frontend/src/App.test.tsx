@@ -543,6 +543,197 @@ describe("AutoVideo shell", () => {
     });
   });
 
+  it("updates the live subtitle preview style after selecting another template", async () => {
+    const user = userEvent.setup();
+    const greenTemplate = templateFixture({
+      id: "preset-green-preview",
+      name: "Green Box 绿框口播",
+      templates: {
+        bottom: {
+          font_family: "Noto Sans CJK SC",
+          font_size: 54,
+          font_size_scale: 1.25,
+          max_width: 0.7,
+          outline_color: "#0B3D1A",
+          outline_width: 5,
+          primary_color: "#101820",
+          rotate: -4,
+          shadow_depth: 2,
+          skew: 6,
+        },
+      },
+      blocks: [
+        {
+          id: "green-bottom",
+          role: "bottom",
+          style: {
+            font_family: "Noto Sans CJK SC",
+            font_size: 54,
+            font_size_scale: 1.25,
+            max_width: 0.7,
+            outline_color: "#0B3D1A",
+            outline_width: 5,
+            primary_color: "#101820",
+            rotate: -4,
+            shadow_depth: 2,
+            skew: 6,
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [],
+      presets: [cleanBottomPreset, greenTemplate],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    const previewCaption = await screen.findByTestId("subtitle-preview-caption");
+
+    expect(previewCaption).toHaveStyle({
+      color: "#FFFFFF",
+      backgroundColor: "rgba(17, 24, 39, 0.72)",
+      fontSize: "16px",
+      maxWidth: "86%",
+      transform: "rotate(0deg) skewX(0deg)",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Green Box 绿框口播" }));
+
+    expect(previewCaption).toHaveStyle({
+      color: "#101820",
+      backgroundColor: "rgba(255, 255, 255, 0.88)",
+      fontSize: "20px",
+      maxWidth: "70%",
+      transform: "rotate(-4deg) skewX(6deg)",
+    });
+  });
+
+  it("uses the higher contrast caption background for bright blue text", async () => {
+    const user = userEvent.setup();
+    const blueTemplate = templateFixture({
+      id: "tmpl-blue-preview",
+      name: "亮蓝字幕模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          ...cleanBottomPreset.templates.bottom,
+          primary_color: "#38BDF8",
+        },
+      },
+      blocks: [
+        {
+          id: "blue-bottom",
+          role: "bottom",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#38BDF8",
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [blueTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "亮蓝字幕模板" }));
+
+    expect(await screen.findByTestId("subtitle-preview-caption")).toHaveStyle({
+      color: "#38BDF8",
+      backgroundColor: "rgba(17, 24, 39, 0.72)",
+    });
+  });
+
+  it("uses the higher contrast caption background for mid-gray text", async () => {
+    const user = userEvent.setup();
+    const grayTemplate = templateFixture({
+      id: "tmpl-gray-preview",
+      name: "中灰字幕模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          ...cleanBottomPreset.templates.bottom,
+          primary_color: "#777777",
+        },
+      },
+      blocks: [
+        {
+          id: "gray-bottom",
+          role: "bottom",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#777777",
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [grayTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "中灰字幕模板" }));
+
+    expect(await screen.findByTestId("subtitle-preview-caption")).toHaveStyle({
+      color: "#777777",
+      backgroundColor: "rgba(17, 24, 39, 0.72)",
+    });
+  });
+
+  it("uses edited shadow before legacy shadow depth in the live subtitle preview", async () => {
+    const user = userEvent.setup();
+    const shadowTemplate = templateFixture({
+      id: "tmpl-shadow-preview",
+      name: "阴影预览模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          ...cleanBottomPreset.templates.bottom,
+          shadow: 1,
+          shadow_depth: 1,
+        },
+      },
+      blocks: [
+        {
+          id: "shadow-bottom",
+          role: "bottom",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#FFFFFF",
+            shadow: 1,
+            shadow_depth: 1,
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [shadowTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "阴影预览模板" }));
+    const previewCaption = await screen.findByTestId("subtitle-preview-caption");
+    const shadowInput = screen.getAllByLabelText("阴影强度")[0] as HTMLInputElement;
+
+    expect(previewCaption).toHaveStyle({ textShadow: "0 1px 1px #000000" });
+
+    await user.clear(shadowInput);
+    await user.type(shadowInput, "6");
+
+    expect(previewCaption).toHaveStyle({ textShadow: "0 3px 6px #000000" });
+  });
+
   it("creates a new custom subtitle template from a selected custom template source", async () => {
     const user = userEvent.setup();
     mockedFetchSubtitleTemplateSets.mockResolvedValue({

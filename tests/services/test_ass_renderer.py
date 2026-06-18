@@ -104,6 +104,17 @@ def test_assignment_keyword_enrichment_and_ass_output(tmp_path: Path):
     assert enriched[0].event_animations["in"]["type"] == "fade"
 
 
+def test_ass_renderer_prefers_template_shadow_over_legacy_shadow_depth():
+    template = _template()
+    template["templates"]["bottom"]["shadow"] = 7
+    template["templates"]["bottom"]["shadow_depth"] = 2
+
+    content = ass_renderer.render_ass([], template, (1080, 1920))
+
+    assert ",-2,1,4,7,2,60,60,112,1" in content
+    assert ",-2,1,4,2,2,60,60,112,1" not in content
+
+
 def test_variant_block_is_used_when_assignment_selects_variant(tmp_path: Path):
     events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="AI 提升效率", template="bottom")]
 
@@ -588,6 +599,26 @@ def test_ass_renderer_emits_event_outline_shadow_rotate_and_margin_overrides():
     assert "{\\bord6\\3c&H563412&\\shad4\\4c&HEFCDAB&\\frz-7}" in content
 
 
+def test_ass_renderer_prefers_event_shadow_over_legacy_shadow_depth():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="样式字幕",
+        template="bottom",
+        style={
+            "shadow": 6,
+            "shadow_depth": 2,
+        },
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\shad6}" in content
+    assert "{\\shad2}" not in content
+
+
 def test_keyword_reset_restores_full_event_style_overrides():
     event = SubtitleEvent(
         index=1,
@@ -603,6 +634,7 @@ def test_keyword_reset_restores_full_event_style_overrides():
             "outline_width": 6,
             "outline_color": "#123456",
             "shadow": 4,
+            "shadow_depth": 2,
             "shadow_color": "#ABCDEF",
             "rotate": -7,
         },
