@@ -402,6 +402,46 @@ def test_online_mix_persists_subtitle_snapshot_and_font_override(tmp_path):
     assert manifest["render_plan"]["subtitles_ass"] == "subtitles.ass"
 
 
+def test_online_mix_auto_subtitle_snapshot_includes_random_variant_pool(tmp_path):
+    app = create_app(
+        Settings(data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg-binary")
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials", files={"file": ("clip.mp4", b"fake", "video/mp4")}
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "随机字幕模板",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": True,
+                },
+            },
+        )
+        task = response.json()
+
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    snapshot = manifest["subtitle_template_snapshot"]
+
+    assert response.status_code == 201
+    assert snapshot["id"] == "bold_yellow"
+    assert len(snapshot["template_variants"]["bottom"]) == 20
+    assert {variant["id"] for variant in snapshot["template_variants"]["highlight"]} >= {
+        "bold_yellow",
+        "duo_language_stack",
+    }
+
+
 def test_online_mix_rejects_snapshot_id_mismatch(tmp_path):
     app = create_app(
         Settings(data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg-binary")
