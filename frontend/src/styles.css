@@ -586,7 +586,9 @@ button:disabled,
 
 .subtitle-workbench-grid {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(220px, 280px) minmax(280px, 420px) minmax(280px, 360px);
+  justify-content: start;
+  align-items: start;
   gap: 16px;
 }
 
@@ -607,6 +609,16 @@ button:disabled,
   color: var(--muted);
   font-size: 14px;
   line-height: 1.4;
+}
+
+.subtitle-preview-panel {
+  justify-items: start;
+}
+
+.subtitle-preview-stack {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 12px;
 }
 
 .subtitle-preview-panel input,
@@ -756,7 +768,7 @@ button:disabled,
   padding: 0;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1160px) {
   .content-grid {
     grid-template-columns: 1fr;
   }

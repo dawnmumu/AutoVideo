@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -79,6 +80,7 @@ const removedCopyPattern = new RegExp(
   ].join("|"),
   "i",
 );
+const stylesCss = readFileSync("src/styles.css", "utf-8");
 
 const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
@@ -290,6 +292,27 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleSection = document.querySelector("section#subtitles") as HTMLElement;
     expect(subtitleSection).toHaveClass("content-grid", "single-column");
+  });
+
+  it("keeps subtitle preview controls inside a bounded middle column", async () => {
+    window.history.pushState(null, "", "/#subtitles");
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
+    const previewPanel = screen.getByRole("region", { name: "字幕预览" });
+    const previewStack = previewPanel.querySelector(".subtitle-preview-stack");
+
+    expect(previewStack).toHaveAttribute("data-layout", "bounded-preview-controls");
+    expect(within(previewStack as HTMLElement).getByLabelText("示例文本")).toBeInTheDocument();
+    expect(within(previewStack as HTMLElement).getByTestId("subtitle-preview-frame")).toBeInTheDocument();
+    expect(within(previewStack as HTMLElement).getByRole("button", { name: "精准预览" })).toBeInTheDocument();
+  });
+
+  it("stacks the subtitle workbench before compact desktop columns can overflow", () => {
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 1160px\) \{[\s\S]*?\.subtitle-workbench-grid \{[\s\S]*?grid-template-columns: 1fr;/,
+    );
   });
 
   it("returns to the remix workspace through hash navigation", async () => {

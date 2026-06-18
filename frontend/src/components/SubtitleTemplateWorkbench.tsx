@@ -455,95 +455,100 @@ export function SubtitleTemplateWorkbench() {
         </section>
 
         <section className="subtitle-preview-panel" aria-label="字幕预览">
-          <label>
-            <span>示例文本</span>
-            <input
-              value={sampleText}
-              onChange={(event) => handleSampleTextChange(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>预览画幅</span>
-            <select
-              value={previewAspectRatio}
-              onChange={(event) => handlePreviewAspectRatioChange(event.target.value)}
+          <div className="subtitle-preview-stack" data-layout="bounded-preview-controls">
+            <label>
+              <span>示例文本</span>
+              <input
+                value={sampleText}
+                onChange={(event) => handleSampleTextChange(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>预览画幅</span>
+              <select
+                value={previewAspectRatio}
+                onChange={(event) => handlePreviewAspectRatioChange(event.target.value)}
+              >
+                <option value="9:16">9:16</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </label>
+            <label>
+              <span>局部关键词</span>
+              <input
+                value={keyword}
+                onChange={(event) => handleKeywordChange(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>局部高亮色</span>
+              <input
+                value={keywordColor}
+                onChange={(event) => handleKeywordColorChange(event.target.value)}
+              />
+            </label>
+            <div
+              className="subtitle-preview-frame"
+              data-testid="subtitle-preview-frame"
+              style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
             >
-              <option value="9:16">9:16</option>
-              <option value="16:9">16:9</option>
-            </select>
-          </label>
-          <label>
-            <span>局部关键词</span>
-            <input value={keyword} onChange={(event) => handleKeywordChange(event.target.value)} />
-          </label>
-          <label>
-            <span>局部高亮色</span>
-            <input
-              value={keywordColor}
-              onChange={(event) => handleKeywordColorChange(event.target.value)}
-            />
-          </label>
-          <div
-            className="subtitle-preview-frame"
-            data-testid="subtitle-preview-frame"
-            style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
-          >
-            <span>{sampleText}</span>
+              <span>{sampleText}</span>
+            </div>
+            <div className="button-row">
+              <button
+                disabled={!selected || validateTemplate.isPending}
+                type="button"
+                onClick={() => validateTemplate.mutate()}
+              >
+                <Check aria-hidden="true" size={16} />
+                校验模板
+              </button>
+              <button
+                disabled={!isEditable || saveTemplate.isPending}
+                type="button"
+                onClick={saveKeywordHighlight}
+              >
+                <Save aria-hidden="true" size={16} />
+                保存局部高亮
+              </button>
+              <button
+                disabled={!selected || precisePreview.isPending}
+                type="button"
+                onClick={() => precisePreview.mutate()}
+              >
+                <WandSparkles aria-hidden="true" size={16} />
+                精准预览
+              </button>
+              <button
+                disabled={!selected || timelinePreview.isPending}
+                type="button"
+                onClick={() => timelinePreview.mutate()}
+              >
+                <Play aria-hidden="true" size={16} />
+                时间线预览
+              </button>
+            </div>
+            {saveTemplate.isError && saveErrorPlacement === "preview" ? (
+              <p role="alert">
+                {mutationErrorText(saveTemplate.error, "字幕模板保存失败")}
+              </p>
+            ) : null}
+            {imagePreviewSrc ? <img alt="字幕精准预览" src={imagePreviewSrc} /> : null}
+            {timelinePreviewSrc ? (
+              <video controls data-testid="subtitle-timeline-preview" src={timelinePreviewSrc}>
+                <track kind="captions" />
+              </video>
+            ) : null}
+            {validateTemplate.data?.warnings.length ? (
+              <p role="alert">{validateTemplate.data.warnings.join("；")}</p>
+            ) : null}
+            {precisePreview.isError ? (
+              <p role="alert">{previewErrorText(precisePreview.error)}</p>
+            ) : null}
+            {timelinePreview.isError ? (
+              <p role="alert">{previewErrorText(timelinePreview.error)}</p>
+            ) : null}
           </div>
-          <div className="button-row">
-            <button
-              disabled={!selected || validateTemplate.isPending}
-              type="button"
-              onClick={() => validateTemplate.mutate()}
-            >
-              <Check aria-hidden="true" size={16} />
-              校验模板
-            </button>
-            <button
-              disabled={!isEditable || saveTemplate.isPending}
-              type="button"
-              onClick={saveKeywordHighlight}
-            >
-              <Save aria-hidden="true" size={16} />
-              保存局部高亮
-            </button>
-            <button
-              disabled={!selected || precisePreview.isPending}
-              type="button"
-              onClick={() => precisePreview.mutate()}
-            >
-              <WandSparkles aria-hidden="true" size={16} />
-              精准预览
-            </button>
-            <button
-              disabled={!selected || timelinePreview.isPending}
-              type="button"
-              onClick={() => timelinePreview.mutate()}
-            >
-              <Play aria-hidden="true" size={16} />
-              时间线预览
-            </button>
-          </div>
-          {saveTemplate.isError && saveErrorPlacement === "preview" ? (
-            <p role="alert">
-              {mutationErrorText(saveTemplate.error, "字幕模板保存失败")}
-            </p>
-          ) : null}
-          {imagePreviewSrc ? <img alt="字幕精准预览" src={imagePreviewSrc} /> : null}
-          {timelinePreviewSrc ? (
-            <video controls data-testid="subtitle-timeline-preview" src={timelinePreviewSrc}>
-              <track kind="captions" />
-            </video>
-          ) : null}
-          {validateTemplate.data?.warnings.length ? (
-            <p role="alert">{validateTemplate.data.warnings.join("；")}</p>
-          ) : null}
-          {precisePreview.isError ? (
-            <p role="alert">{previewErrorText(precisePreview.error)}</p>
-          ) : null}
-          {timelinePreview.isError ? (
-            <p role="alert">{previewErrorText(timelinePreview.error)}</p>
-          ) : null}
         </section>
 
         <section className="subtitle-editor-panel" aria-label="字幕块编辑">
