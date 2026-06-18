@@ -94,17 +94,19 @@ def _template_style(template_set: dict[str, Any], role: str) -> dict[str, Any]:
     if not isinstance(style, dict):
         style = {}
     merged = {**DEFAULT_STYLE, **style}
-    if "shadow" in style and "shadow_depth" not in style:
+    if "shadow" in style:
         merged["shadow_depth"] = style["shadow"]
     return merged
+
+
+def _shadow_value(style: dict[str, Any]) -> Any:
+    return style.get("shadow") if "shadow" in style else style.get("shadow_depth")
 
 
 def _style_line(role: str, style: dict[str, Any]) -> str:
     font_size = _scaled_font_size(style)
     outline = _number(_non_negative_numeric(style.get("outline_width"), DEFAULT_STYLE["outline_width"]))
-    shadow = _number(
-        _non_negative_numeric(style.get("shadow_depth", style.get("shadow")), DEFAULT_STYLE["shadow_depth"])
-    )
+    shadow = _number(_non_negative_numeric(_shadow_value(style), DEFAULT_STYLE["shadow_depth"]))
     angle = _number(style.get("rotate", DEFAULT_STYLE["rotate"]))
     spacing = _number(style.get("letter_spacing", DEFAULT_STYLE["letter_spacing"]))
     margin_l = int(_non_negative_numeric(style.get("margin_l"), DEFAULT_STYLE["margin_l"]))
@@ -205,8 +207,7 @@ def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int], even
     if isinstance(outline_color, str) and _is_hex_color(outline_color.strip()):
         tags.append(f"\\3c{_inline_color(outline_color)}")
 
-    shadow_source = style.get("shadow_depth") if "shadow_depth" in style else style.get("shadow")
-    shadow_depth = _non_negative_numeric(shadow_source) if ("shadow_depth" in style or "shadow" in style) else None
+    shadow_depth = _non_negative_numeric(_shadow_value(style)) if ("shadow_depth" in style or "shadow" in style) else None
     if shadow_depth is not None:
         tags.append(f"\\shad{_format_coordinate(shadow_depth)}")
 
@@ -451,7 +452,7 @@ def _span_override_tags(style: dict[str, Any], base_font_size: int) -> str:
     if outline_width is not None:
         tags.append(f"\\bord{_format_coordinate(outline_width)}")
 
-    shadow_depth = _non_negative_numeric(style.get("shadow_depth")) if "shadow_depth" in style else None
+    shadow_depth = _non_negative_numeric(_shadow_value(style)) if ("shadow_depth" in style or "shadow" in style) else None
     if shadow_depth is not None:
         tags.append(f"\\shad{_format_coordinate(shadow_depth)}")
 

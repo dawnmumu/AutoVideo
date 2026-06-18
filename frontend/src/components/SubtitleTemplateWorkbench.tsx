@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CopyPlus, Play, RotateCcw, Save, WandSparkles } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useMemo, useRef, useState } from "react";
 
 import {
@@ -116,6 +117,158 @@ function persistentStyleValue(key: string, value: string): string | number {
   return value;
 }
 
+function numericStyleValue(
+  template: SubtitleTemplateSet | undefined,
+  role: string,
+  key: string,
+  fallback: number,
+): number {
+  const value = Number(styleValue(template, role, key, String(fallback)));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function clampValue(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function parseHexColor(value: string): { r: number; g: number; b: number } | null {
+  const normalized = value.trim();
+  const shortMatch = /^#([0-9a-f]{3})$/i.exec(normalized);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split("").map((part) => parseInt(`${part}${part}`, 16));
+    return { r, g, b };
+  }
+
+  const fullMatch = /^#([0-9a-f]{6})$/i.exec(normalized);
+  if (!fullMatch) {
+    return null;
+  }
+
+  return {
+    r: parseInt(fullMatch[1].slice(0, 2), 16),
+    g: parseInt(fullMatch[1].slice(2, 4), 16),
+    b: parseInt(fullMatch[1].slice(4, 6), 16),
+  };
+}
+
+function relativeLuminance({ r, g, b }: { r: number; g: number; b: number }): number {
+  const [red, green, blue] = [r, g, b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(first: number, second: number): number {
+  const lighter = Math.max(first, second);
+  const darker = Math.min(first, second);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function blendRgbOver(
+  foreground: { r: number; g: number; b: number; alpha: number },
+  background: { r: number; g: number; b: number },
+): { r: number; g: number; b: number } {
+  return {
+    r: foreground.r * foreground.alpha + background.r * (1 - foreground.alpha),
+    g: foreground.g * foreground.alpha + background.g * (1 - foreground.alpha),
+    b: foreground.b * foreground.alpha + background.b * (1 - foreground.alpha),
+  };
+}
+
+function captionBackgroundForColor(color: string): string {
+  const parsed = parseHexColor(color);
+  if (!parsed) {
+    return "rgba(17, 24, 39, 0.72)";
+  }
+  const textLuminance = relativeLuminance(parsed);
+  const previewFrameBackground = { r: 17, g: 24, b: 39 };
+  const lightBackground = {
+    color: "rgba(255, 255, 255, 0.88)",
+    luminance: relativeLuminance(
+      blendRgbOver({ r: 255, g: 255, b: 255, alpha: 0.88 }, previewFrameBackground),
+    ),
+  };
+  const darkBackground = {
+    color: "rgba(17, 24, 39, 0.72)",
+    luminance: relativeLuminance(
+      blendRgbOver({ r: 17, g: 24, b: 39, alpha: 0.72 }, previewFrameBackground),
+    ),
+  };
+  return contrastRatio(textLuminance, lightBackground.luminance) >
+    contrastRatio(textLuminance, darkBackground.luminance)
+    ? lightBackground.color
+    : darkBackground.color;
+}
+
+function subtitlePreviewCaptionStyle(
+  template: SubtitleTemplateSet | undefined,
+): CSSProperties {
+  const role = "bottom";
+  const primaryColor = styleValue(template, role, "primary_color", "#FFFFFF");
+  const fontSize = numericStyleValue(template, role, "font_size", 54);
+  const fontScale = numericStyleValue(
+    template,
+    role,
+    "font_size_scale",
+    numericStyleValue(template, role, "font_scale", 1),
+  );
+  const maxWidth = numericStyleValue(
+    template,
+    role,
+    "max_width",
+    numericStyleValue(template, role, "max_width_ratio", 0.86),
+  );
+  const marginV = numericStyleValue(template, role, "margin_v", 96);
+  const rotate = numericStyleValue(
+    template,
+    role,
+    "rotate",
+    numericStyleValue(template, role, "angle", 0),
+  );
+  const skew = numericStyleValue(
+    template,
+    role,
+    "skew",
+    numericStyleValue(template, role, "skew_x_deg", 0),
+  );
+  const outlineWidth = numericStyleValue(template, role, "outline_width", 2);
+  const shadowDepth = numericStyleValue(
+    template,
+    role,
+    "shadow",
+    numericStyleValue(template, role, "shadow_depth", 0),
+  );
+  const previewFontSize = Math.round(
+    clampValue(fontSize / 54, 0.82, 1.35) * 16 * clampValue(fontScale, 0.6, 1.8),
+  );
+  const previewOutline = clampValue(outlineWidth, 0, 8) / 2;
+  const previewShadow = clampValue(shadowDepth, 0, 8);
+
+  return {
+    backgroundColor: captionBackgroundForColor(primaryColor),
+    color: parseHexColor(primaryColor) ? primaryColor : "#FFFFFF",
+    fontFamily: styleValue(template, role, "font_family", "PingFang SC"),
+    fontSize: `${previewFontSize}px`,
+    marginBottom: `${Math.round(clampValue(marginV, 0, 180) / 4)}px`,
+    maxWidth: `${Math.round(clampValue(maxWidth, 0.4, 1) * 100)}%`,
+    textShadow:
+      previewShadow > 0
+        ? `0 ${Math.ceil(previewShadow / 2)}px ${previewShadow}px ${styleValue(
+            template,
+            role,
+            "shadow_color",
+            "#000000",
+          )}`
+        : "none",
+    transform: `rotate(${rotate}deg) skewX(${skew}deg)`,
+    WebkitTextStroke:
+      previewOutline > 0
+        ? `${previewOutline}px ${styleValue(template, role, "outline_color", "#111111")}`
+        : undefined,
+  };
+}
+
 function createTemplateCopyInput(
   template: SubtitleTemplateSet | undefined,
   isTemplatePreset: boolean,
@@ -173,6 +326,10 @@ export function SubtitleTemplateWorkbench() {
   const isSelectedPreset = isPresetTemplate(selected, presetTemplateIds);
   const isEditable = Boolean(selected && !isSelectedPreset);
   const availableTemplateCount = allTemplates.length;
+  const previewCaptionStyle = useMemo(
+    () => subtitlePreviewCaptionStyle(selectedDraft),
+    [selectedDraft],
+  );
 
   const invalidateTemplates = () => {
     void queryClient.invalidateQueries({ queryKey: ["subtitle-template-sets"] });
@@ -492,7 +649,9 @@ export function SubtitleTemplateWorkbench() {
               data-testid="subtitle-preview-frame"
               style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
             >
-              <span>{sampleText}</span>
+              <span data-testid="subtitle-preview-caption" style={previewCaptionStyle}>
+                {sampleText}
+              </span>
             </div>
             <div className="button-row">
               <button
