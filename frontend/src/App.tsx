@@ -15,8 +15,9 @@ import { useEffect, useState } from "react";
 import { fetchHealth } from "./api/health";
 import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
 import { SubtitleTemplateWorkbench } from "./components/SubtitleTemplateWorkbench";
+import { TaskOutputList } from "./components/TaskOutputList";
 
-type ActiveSection = "remix" | "subtitles";
+type ActiveSection = "remix" | "subtitles" | "tasks";
 type BaseNavItem = {
   label: string;
   shortLabel: string;
@@ -33,7 +34,7 @@ const navItems: NavItem[] = [
   { id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: false },
   { id: "voices", label: "音色中心", shortLabel: "音色", icon: Volume2, enabled: false },
   { id: "extract", label: "功能提取处理", shortLabel: "提取", icon: Sparkles, enabled: false },
-  { id: "tasks", label: "任务与输出", shortLabel: "任务", icon: SquarePlay, enabled: false },
+  { id: "tasks", label: "任务与输出", shortLabel: "任务", icon: SquarePlay, enabled: true },
   { id: "settings", label: "系统设置", shortLabel: "设置", icon: Settings, enabled: false },
 ];
 
@@ -46,11 +47,18 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
     title: "字幕模板",
     summary: "管理默认字幕样式与预览",
   },
+  tasks: {
+    title: "任务与输出",
+    summary: "查看历史任务并下载视频",
+  },
 };
 
 function activeSectionFromHash(hash: string): ActiveSection {
   const hashId = hash.replace(/^#/, "");
-  return hashId === "subtitles" ? "subtitles" : "remix";
+  if (hashId === "subtitles" || hashId === "tasks") {
+    return hashId;
+  }
+  return "remix";
 }
 
 function currentHash(): string {
@@ -120,6 +128,7 @@ export default function App() {
     return {
       remix: initialSection === "remix",
       subtitles: initialSection === "subtitles",
+      tasks: initialSection === "tasks",
     };
   });
   const markSectionOpened = (section: ActiveSection) => {
@@ -235,6 +244,15 @@ export default function App() {
             id="subtitles"
           >
             <SubtitleTemplateWorkbench />
+          </section>
+        ) : null}
+        {openedSections.tasks ? (
+          <section
+            className="content-grid single-column"
+            hidden={activeSection !== "tasks"}
+            id="tasks"
+          >
+            <TaskOutputList />
           </section>
         ) : null}
       </main>

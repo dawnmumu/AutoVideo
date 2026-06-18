@@ -197,7 +197,7 @@ def create_online_mix_video_task(
             options=request_body.options,
             provider_status_snapshot=provider_status(settings, providers),
         )
-        return public_task(task)
+        return public_task(task, store)
     except OnlineMixShotSelectionInvalidError as exc:
         raise structured_error(
             status.HTTP_400_BAD_REQUEST,
