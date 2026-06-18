@@ -26,7 +26,7 @@ from autovideo.services.rendering import (
 )
 from autovideo.services.subtitles import dsl_v2
 from autovideo.services.subtitles.source_masks import build_source_subtitle_masks
-from autovideo.services.subtitles.template_store import SubtitleTemplateStore
+from autovideo.services.subtitles.template_store import SubtitleTemplateStore, SubtitleTemplateStoreError
 from autovideo.services.tasks import (
     MaterialNotFoundError,
     create_task,
@@ -296,6 +296,11 @@ def normalize_subtitle_options(
             template_set = template_store.select_auto_template_set()
         except KeyError as exc:
             raise SubtitleTemplateInvalidError("没有可用的字幕模板") from exc
+
+    try:
+        template_set = template_store.with_template_variants(template_set)
+    except SubtitleTemplateStoreError as exc:
+        raise SubtitleTemplateInvalidError("字幕模板无效") from exc
 
     result = dsl_v2.validate_template_set_v2(template_set)
     normalized = result.get("normalized")

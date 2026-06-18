@@ -104,6 +104,23 @@ def test_preset_override_preserves_favorite_metadata(tmp_path):
     assert selected["id"] == TARGET_PRESET_ID
 
 
+def test_with_template_variants_collects_custom_sets_and_all_default_presets(tmp_path):
+    store = _store(tmp_path)
+    custom = store.create_template_set("我的随机字幕", preset_id=TARGET_PRESET_ID)
+
+    enriched = store.with_template_variants(store.select_auto_template_set())
+
+    for role in ("bottom", "highlight", "punch"):
+        role_variants = enriched["template_variants"][role]
+        variant_ids = {variant["id"] for variant in role_variants}
+        assert custom["id"] in variant_ids
+        assert TARGET_PRESET_ID in variant_ids
+        assert "duo_language_stack" in variant_ids
+        assert len(role_variants) >= 21
+        assert all(isinstance(variant.get("blocks"), list) for variant in role_variants)
+        assert all(isinstance(variant.get("template"), dict) for variant in role_variants)
+
+
 def test_corrupt_store_json_raises_domain_error_without_overwriting(tmp_path):
     store = _store(tmp_path)
     store.store_path.parent.mkdir(parents=True)

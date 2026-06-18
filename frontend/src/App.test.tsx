@@ -523,7 +523,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("当前模板：API 首个预设")).toBeInTheDocument();
+    expect(await screen.findByText("自动随机使用模板，优先包含：API 首个预设")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
@@ -568,7 +568,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("当前模板：新版品牌字幕")).toBeInTheDocument();
+    expect(await screen.findByText("自动随机使用模板，优先包含：新版品牌字幕")).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
@@ -933,7 +933,7 @@ describe("AutoVideo shell", () => {
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await user.selectOptions(await screen.findByLabelText("字幕模板"), "preset-clean-bottom");
     await user.selectOptions(screen.getByLabelText("字幕字体"), "Noto Sans CJK SC");
-    expect(screen.getByText("当前模板：清晰底部字幕")).toBeInTheDocument();
+    expect(screen.getByText("基础模板：清晰底部字幕，渲染时随机使用变体")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "混剪工作台" }));
@@ -985,7 +985,7 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("候选签名密钥未配置")).toBeInTheDocument();
   });
 
-  it("shows the custom subtitle template summary for automatic subtitle selection", async () => {
+  it("shows the custom subtitle template summary for automatic randomized subtitle selection", async () => {
     const user = userEvent.setup();
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [customCaptionTemplate],
@@ -999,7 +999,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("当前模板：品牌底部字幕")).toBeInTheDocument();
+    expect(await screen.findByText("自动随机使用模板，优先包含：品牌底部字幕")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();

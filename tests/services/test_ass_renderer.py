@@ -117,6 +117,26 @@ def test_variant_block_is_used_when_assignment_selects_variant(tmp_path: Path):
     assert "{\\c&HFFE500&}效率{\\r}" in output_path.read_text(encoding="utf-8")
 
 
+def test_assignment_randomizes_template_variant_with_seed():
+    template = {
+        "template_variants": {
+            "highlight": [
+                {"id": variant_id, "blocks": []}
+                for variant_id in ("a", "b", "c", "d", "e", "f", "g", "h", "i", "j")
+            ]
+        }
+    }
+    events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="AI 提升效率")]
+
+    first = template_assignment.assign_template_roles(events, template, random_seed=1)
+    repeated = template_assignment.assign_template_roles(events, template, random_seed=1)
+    different = template_assignment.assign_template_roles(events, template, random_seed=2)
+
+    assert first[0].template == "highlight"
+    assert first[0].template_variant == repeated[0].template_variant
+    assert first[0].template_variant != different[0].template_variant
+
+
 def test_variant_block_merges_base_defaults_before_event_overrides():
     template = _template()
     template["blocks"].append(

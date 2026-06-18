@@ -447,12 +447,10 @@ def _write_subtitle_ass_artifact(
     assigned = template_assignment.assign_template_roles(
         events,
         template_set,
-        random_seed=1,
     )
     keyworded = keyword_spans.apply_keyword_spans(
         assigned,
         template_set,
-        random_seed=1,
     )
     enriched = event_enrichment.enrich_subtitle_events(
         keyworded,

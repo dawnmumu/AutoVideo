@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import random
 from typing import Any
 
 from autovideo.services.subtitles.timeline import SubtitleEvent
@@ -15,13 +16,12 @@ def assign_template_roles(
     *,
     random_seed: int | None = None,
 ) -> list[SubtitleEvent]:
-    del random_seed
-
+    rng = random.Random(random_seed) if random_seed is not None else random.Random()
     assigned = copy.deepcopy(events)
     for event in assigned:
         role = _role_for_text(event.text)
         event.template = role
-        event.template_variant = _first_variant_id(template_set, role)
+        event.template_variant = _random_variant_id(template_set, role, rng)
     return assigned
 
 
@@ -33,23 +33,31 @@ def _role_for_text(text: str) -> str:
     return "bottom"
 
 
-def _first_variant_id(template_set: dict[str, Any], role: str) -> str | None:
+def _random_variant_id(template_set: dict[str, Any], role: str, rng: random.Random) -> str | None:
     variants = template_set.get("template_variants") if isinstance(template_set, dict) else {}
     if not isinstance(variants, dict):
         return None
 
     role_variants = variants.get(role)
     if isinstance(role_variants, list):
-        for variant in role_variants:
-            if isinstance(variant, dict):
-                return _variant_identifier(variant)
-        return None
+        candidates = [
+            identifier
+            for variant in role_variants
+            if isinstance(variant, dict)
+            for identifier in [_variant_identifier(variant)]
+            if identifier
+        ]
+        return rng.choice(candidates) if candidates else None
 
     if isinstance(role_variants, dict):
-        for key, variant in role_variants.items():
-            if isinstance(variant, dict):
-                return _variant_identifier(variant) or str(key)
-            return str(key)
+        candidates = [
+            (_variant_identifier(variant) or str(key))
+            if isinstance(variant, dict)
+            else str(key)
+            for key, variant in role_variants.items()
+        ]
+        candidates = [candidate.strip() for candidate in candidates if candidate.strip()]
+        return rng.choice(candidates) if candidates else None
 
     return None
 

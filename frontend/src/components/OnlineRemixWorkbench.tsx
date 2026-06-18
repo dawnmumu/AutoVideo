@@ -205,6 +205,11 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
   const selectedSubtitleTemplate =
     subtitleTemplateItems.find((template) => template.id === subtitleTemplateSetId) ??
     automaticSubtitleTemplate;
+  const subtitleTemplateSummary = subtitleTemplateSetId
+    ? `基础模板：${selectedSubtitleTemplate?.name ?? "未找到模板"}，渲染时随机使用变体`
+    : selectedSubtitleTemplate
+      ? `自动随机使用模板，优先包含：${selectedSubtitleTemplate.name}`
+      : "自动随机使用模板";
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);
@@ -324,7 +329,7 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
               value={subtitleTemplateSetId}
               onChange={(event) => setSubtitleTemplateSetId(event.target.value)}
             >
-              <option value="">自动选择默认模板</option>
+              <option value="">自动随机使用模板</option>
               {subtitleTemplateItems.map((template) => (
                 <option key={template.id} value={template.id}>
                   {template.name}
@@ -346,7 +351,7 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
           </label>
           {subtitleEnabled && selectedSubtitleTemplate ? (
             <p className="subtitle-template-summary">
-              当前模板：{selectedSubtitleTemplate.name}
+              {subtitleTemplateSummary}
             </p>
           ) : null}
           <button type="button" onClick={onOpenSubtitleTemplates}>
