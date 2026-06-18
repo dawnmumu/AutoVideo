@@ -639,6 +639,7 @@ button:disabled,
 
 .subtitle-template-list button,
 .subtitle-preview-panel button,
+.subtitle-editor-panel button,
 .subtitle-preview-panel input,
 .subtitle-preview-panel select,
 .subtitle-editor-panel input,
@@ -650,6 +651,7 @@ button:disabled,
 
 .subtitle-template-list button,
 .subtitle-preview-panel button,
+.subtitle-editor-panel button,
 .subtitle-settings button {
   display: inline-flex;
   align-items: center;
@@ -670,6 +672,7 @@ button:disabled,
 
 .subtitle-template-list button:focus-visible,
 .subtitle-preview-panel button:focus-visible,
+.subtitle-editor-panel button:focus-visible,
 .subtitle-preview-panel input:focus-visible,
 .subtitle-preview-panel select:focus-visible,
 .subtitle-editor-panel input:focus-visible,
@@ -685,6 +688,7 @@ button:disabled,
 
 .subtitle-template-list button:disabled,
 .subtitle-preview-panel button:disabled,
+.subtitle-editor-panel button:disabled,
 .subtitle-editor-panel input:disabled,
 .subtitle-editor-panel select:disabled,
 .subtitle-settings input:disabled,
@@ -696,8 +700,8 @@ button:disabled,
 .subtitle-preview-frame {
   aspect-ratio: 9 / 16;
   width: min(100%, 280px);
-  display: grid;
-  place-items: end center;
+  position: relative;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #111827;
@@ -706,14 +710,54 @@ button:disabled,
   text-align: center;
 }
 
-.subtitle-preview-frame span {
-  width: 100%;
+.subtitle-preview-caption {
+  position: absolute;
+  width: max-content;
   max-width: 90%;
   border-radius: 8px;
   background: rgba(17, 24, 39, 0.64);
   padding: 8px 10px;
   font-weight: 700;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.subtitle-preview-local-span {
+  display: inline;
+  width: auto;
+  max-width: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  line-height: inherit;
+}
+
+.subtitle-local-style-editor {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.subtitle-local-style-editor h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.subtitle-local-style-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.subtitle-local-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .button-row {

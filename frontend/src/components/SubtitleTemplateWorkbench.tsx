@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, CopyPlus, Play, RotateCcw, Save, WandSparkles } from "lucide-react";
+import { Check, CopyPlus, Play, RotateCcw, WandSparkles } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useMemo, useRef, useState } from "react";
 
@@ -14,6 +14,13 @@ import {
   updateSubtitleTemplateSet,
   validateSubtitleTemplateSet,
 } from "../api/subtitles";
+import {
+  SubtitleLocalStyleEditor,
+  roleSpans,
+  spansPatch,
+  updateSpanAt,
+} from "./SubtitleLocalStyleEditor";
+import type { SubtitleSpan } from "./SubtitleLocalStyleEditor";
 import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 const editableRoles = [
@@ -22,6 +29,20 @@ const editableRoles = [
   { role: "punch", label: "冲击字幕" },
 ] as const;
 
+type SubtitleRole = (typeof editableRoles)[number]["role"];
+
+const previewRoleDefaults: Record<SubtitleRole, { x: number; y: number; fontSize: number }> = {
+  bottom: { x: 50, y: 78, fontSize: 54 },
+  highlight: { x: 50, y: 52, fontSize: 60 },
+  punch: { x: 50, y: 30, fontSize: 68 },
+};
+
+const previewRoleLaneCandidates: Record<SubtitleRole, number[]> = {
+  bottom: [78, 64, 86],
+  highlight: [52, 64, 40],
+  punch: [30, 18, 42],
+};
+
 function isPresetTemplate(
   template: SubtitleTemplateSet | undefined,
   presetTemplateIds: ReadonlySet<string>,
@@ -29,9 +50,22 @@ function isPresetTemplate(
   return Boolean(template && presetTemplateIds.has(template.id));
 }
 
+function roleBlock(
+  template: SubtitleTemplateSet | undefined,
+  role: string,
+): Record<string, unknown> | undefined {
+  return template?.blocks.find((block) => block.role === role);
+}
+
 function blockStyle(block: Record<string, unknown> | undefined): Record<string, unknown> {
   return typeof block?.style === "object" && block.style !== null
     ? (block.style as Record<string, unknown>)
+    : {};
+}
+
+function blockPosition(block: Record<string, unknown> | undefined): Record<string, unknown> {
+  return typeof block?.position === "object" && block.position !== null
+    ? (block.position as Record<string, unknown>)
     : {};
 }
 
@@ -45,7 +79,7 @@ function styleValue(
   if (fromTemplate !== undefined && fromTemplate !== null) {
     return String(fromTemplate);
   }
-  const fromBlock = blockStyle(template?.blocks.find((block) => block.role === role))[key];
+  const fromBlock = blockStyle(roleBlock(template, role))[key];
   return fromBlock !== undefined && fromBlock !== null ? String(fromBlock) : fallback;
 }
 
@@ -127,6 +161,11 @@ function numericStyleValue(
   return Number.isFinite(value) ? value : fallback;
 }
 
+function numericUnknownValue(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function clampValue(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -201,12 +240,95 @@ function captionBackgroundForColor(color: string): string {
     : darkBackground.color;
 }
 
+function previewPercentValue(
+  template: SubtitleTemplateSet | undefined,
+  role: SubtitleRole,
+  axis: "x" | "y",
+  previewAspectRatio: string,
+): number {
+  const value = rawPreviewPercentValue(template, role, axis);
+  if (axis === "y") {
+    return previewRoleLaneValue(template, role, value, previewAspectRatio);
+  }
+  return value;
+}
+
+function previewRoleLaneValue(
+  template: SubtitleTemplateSet | undefined,
+  role: SubtitleRole,
+  value: number,
+  previewAspectRatio: string,
+): number {
+  const minGap = previewLaneMinGapPercent(previewAspectRatio);
+  const occupied = editableRoles
+    .slice(0, editableRoles.findIndex((item) => item.role === role))
+    .map(({ role: previousRole }) =>
+      previewPercentValue(template, previousRole, "y", previewAspectRatio),
+    );
+  if (!occupied.some((lane) => isPreviewLaneConflict(value, lane, minGap))) {
+    return value;
+  }
+
+  const candidates = [
+    ...previewRoleLaneCandidates[role],
+    previewRoleDefaults[role].y,
+    value + minGap,
+    value - minGap,
+    value + minGap * 2,
+    value - minGap * 2,
+  ];
+  const safeLane = candidates.find(
+    (candidate) =>
+      candidate >= 8 &&
+      candidate <= 92 &&
+      !occupied.some((lane) => isPreviewLaneConflict(candidate, lane, minGap)),
+  );
+  return safeLane ?? value;
+}
+
+function previewLaneMinGapPercent(previewAspectRatio: string): number {
+  return previewAspectRatio === "16:9" ? 18 : 10;
+}
+
+function isPreviewLaneConflict(first: number, second: number, minGap: number): boolean {
+  return Math.abs(first - second) < minGap;
+}
+
+function rawPreviewPercentValue(
+  template: SubtitleTemplateSet | undefined,
+  role: SubtitleRole,
+  axis: "x" | "y",
+): number {
+  const key = `${axis}_percent`;
+  const block = roleBlock(template, role);
+  const position = blockPosition(block);
+  const positionValue = position[axis];
+  const fallback =
+    typeof positionValue === "number"
+      ? positionValue <= 1
+        ? positionValue * 100
+        : positionValue
+      : previewRoleDefaults[role][axis];
+  return clampValue(numericStyleValue(template, role, key, fallback), 0, 100);
+}
+
+function previewTranslateForAlignment(alignment: string): string {
+  if (alignment === "left") {
+    return "translate(0, -50%)";
+  }
+  if (alignment === "right") {
+    return "translate(-100%, -50%)";
+  }
+  return "translate(-50%, -50%)";
+}
+
 function subtitlePreviewCaptionStyle(
   template: SubtitleTemplateSet | undefined,
+  role: SubtitleRole,
+  previewAspectRatio: string,
 ): CSSProperties {
-  const role = "bottom";
   const primaryColor = styleValue(template, role, "primary_color", "#FFFFFF");
-  const fontSize = numericStyleValue(template, role, "font_size", 54);
+  const fontSize = numericStyleValue(template, role, "font_size", previewRoleDefaults[role].fontSize);
   const fontScale = numericStyleValue(
     template,
     role,
@@ -239,6 +361,8 @@ function subtitlePreviewCaptionStyle(
     "shadow",
     numericStyleValue(template, role, "shadow_depth", 0),
   );
+  const skewY = numericStyleValue(template, role, "skew_y_deg", 0);
+  const alignment = styleValue(template, role, "alignment", "center");
   const previewFontSize = Math.round(
     clampValue(fontSize / 54, 0.82, 1.35) * 16 * clampValue(fontScale, 0.6, 1.8),
   );
@@ -250,7 +374,15 @@ function subtitlePreviewCaptionStyle(
     color: parseHexColor(primaryColor) ? primaryColor : "#FFFFFF",
     fontFamily: styleValue(template, role, "font_family", "PingFang SC"),
     fontSize: `${previewFontSize}px`,
-    marginBottom: `${Math.round(clampValue(marginV, 0, 180) / 4)}px`,
+    left: `${previewPercentValue(template, role, "x", previewAspectRatio)}%`,
+    top:
+      template?.templates?.[role]?.y_percent !== undefined ||
+      blockStyle(roleBlock(template, role)).y_percent !== undefined ||
+      blockPosition(roleBlock(template, role)).y !== undefined
+        ? `${previewPercentValue(template, role, "y", previewAspectRatio)}%`
+        : `calc(${previewPercentValue(template, role, "y", previewAspectRatio)}% - ${Math.round(
+            clampValue(marginV, 0, 180) / 12,
+          )}px)`,
     maxWidth: `${Math.round(clampValue(maxWidth, 0.4, 1) * 100)}%`,
     textShadow:
       previewShadow > 0
@@ -261,12 +393,115 @@ function subtitlePreviewCaptionStyle(
             "#000000",
           )}`
         : "none",
-    transform: `rotate(${rotate}deg) skewX(${skew}deg)`,
+    textAlign: alignment === "left" || alignment === "right" ? alignment : "center",
+    transform: `${previewTranslateForAlignment(alignment)} rotate(${rotate}deg) skewX(${skew}deg) skewY(${skewY}deg)`,
     WebkitTextStroke:
       previewOutline > 0
         ? `${previewOutline}px ${styleValue(template, role, "outline_color", "#111111")}`
         : undefined,
   };
+}
+
+function previewSpanStyle(span: SubtitleSpan, baseFontSizePx: number): CSSProperties {
+  const style = typeof span.style === "object" && span.style !== null ? span.style : {};
+  const primaryColor = typeof style.primary_color === "string" ? style.primary_color : "";
+  const fontScale = numericUnknownValue(style.font_scale, 1);
+  const fontSize =
+    style.font_size !== undefined
+      ? numericUnknownValue(style.font_size, baseFontSizePx)
+      : baseFontSizePx * clampValue(fontScale, 0.5, 1.8);
+  const outlineWidth =
+    style.outline_width !== undefined ? clampValue(numericUnknownValue(style.outline_width, 0), 0, 8) : 0;
+  const shadowDepth =
+    style.shadow !== undefined || style.shadow_depth !== undefined
+      ? clampValue(numericUnknownValue(style.shadow ?? style.shadow_depth, 0), 0, 8)
+      : 0;
+
+  return {
+    color: parseHexColor(primaryColor) ? primaryColor : undefined,
+    fontFamily: typeof style.font_family === "string" ? style.font_family : undefined,
+    fontSize: `${Math.round(fontSize)}px`,
+    textShadow:
+      shadowDepth > 0
+        ? `0 ${Math.ceil(shadowDepth / 2)}px ${shadowDepth}px ${
+            typeof style.shadow_color === "string" ? style.shadow_color : "#000000"
+          }`
+        : undefined,
+    WebkitTextStroke:
+      outlineWidth > 0
+        ? `${outlineWidth / 2}px ${
+            typeof style.outline_color === "string" ? style.outline_color : "#111111"
+          }`
+        : undefined,
+  };
+}
+
+function spanPreviewRanges(text: string, spans: SubtitleSpan[]): Array<{ start: number; end: number; span: SubtitleSpan; spanIndex: number }> {
+  const ranges: Array<{ start: number; end: number; span: SubtitleSpan; spanIndex: number }> = [];
+
+  spans.forEach((span, spanIndex) => {
+    const selector = typeof span.selector === "object" && span.selector !== null ? span.selector : {};
+    const type = selector.type;
+    let start = -1;
+    let end = -1;
+
+    if (type === "keyword" && typeof selector.value === "string" && selector.value) {
+      start = text.indexOf(selector.value);
+      if (start === -1) {
+        return;
+      }
+      end = start + selector.value.length;
+    } else if (type === "range") {
+      start = Math.trunc(numericUnknownValue(selector.start, -1));
+      end = Math.trunc(numericUnknownValue(selector.end, -1));
+    }
+
+    start = clampValue(start, 0, text.length);
+    end = clampValue(end, 0, text.length);
+    if (end <= start || ranges.some((range) => start < range.end && end > range.start)) {
+      return;
+    }
+
+    ranges.push({ start, end, span, spanIndex });
+  });
+
+  return ranges.sort((first, second) => first.start - second.start);
+}
+
+function renderPreviewCaptionText(
+  text: string,
+  spans: SubtitleSpan[],
+  role: SubtitleRole,
+  baseFontSizePx: number,
+) {
+  const ranges = spanPreviewRanges(text, spans);
+  if (!ranges.length) {
+    return text;
+  }
+
+  const parts: Array<string | JSX.Element> = [];
+  let cursor = 0;
+  ranges.forEach((range) => {
+    if (range.start > cursor) {
+      parts.push(text.slice(cursor, range.start));
+    }
+    parts.push(
+      <span
+        className="subtitle-preview-local-span"
+        data-testid={`subtitle-preview-local-span-${role}-${range.spanIndex}`}
+        key={`${role}-${range.spanIndex}-${range.start}`}
+        style={previewSpanStyle(range.span, baseFontSizePx)}
+      >
+        {text.slice(range.start, range.end)}
+      </span>,
+    );
+    cursor = range.end;
+  });
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts;
 }
 
 function createTemplateCopyInput(
@@ -292,7 +527,7 @@ type SaveTemplateVariables = {
   draftRevision: number;
 };
 
-type SaveErrorPlacement = "editor" | "preview";
+type SaveErrorPlacement = "editor";
 
 export function SubtitleTemplateWorkbench() {
   const queryClient = useQueryClient();
@@ -301,8 +536,6 @@ export function SubtitleTemplateWorkbench() {
   const [saveErrorPlacement, setSaveErrorPlacement] = useState<SaveErrorPlacement>("editor");
   const [sampleText, setSampleText] = useState("AI 自动完成重复工作");
   const [previewAspectRatio, setPreviewAspectRatio] = useState("9:16");
-  const [keyword, setKeyword] = useState("AI");
-  const [keywordColor, setKeywordColor] = useState("#FFD54F");
   const draftRevisionByTemplate = useRef<Record<string, number>>({});
 
   const templates = useQuery({
@@ -326,11 +559,6 @@ export function SubtitleTemplateWorkbench() {
   const isSelectedPreset = isPresetTemplate(selected, presetTemplateIds);
   const isEditable = Boolean(selected && !isSelectedPreset);
   const availableTemplateCount = allTemplates.length;
-  const previewCaptionStyle = useMemo(
-    () => subtitlePreviewCaptionStyle(selectedDraft),
-    [selectedDraft],
-  );
-
   const invalidateTemplates = () => {
     void queryClient.invalidateQueries({ queryKey: ["subtitle-template-sets"] });
   };
@@ -445,16 +673,6 @@ export function SubtitleTemplateWorkbench() {
     setPreviewAspectRatio(value);
   };
 
-  const handleKeywordChange = (value: string) => {
-    resetTemplateResultState();
-    setKeyword(value);
-  };
-
-  const handleKeywordColorChange = (value: string) => {
-    resetTemplateResultState();
-    setKeywordColor(value);
-  };
-
   const updateStyleDraft = (role: string, key: string, value: string) => {
     if (!selected || !isEditable) {
       return;
@@ -487,33 +705,34 @@ export function SubtitleTemplateWorkbench() {
     saveTemplate.mutate({ id: selected.id, patch, draftRevision });
   };
 
-  const saveKeywordHighlight = () => {
-    if (!selected || !selectedDraft) {
+  const setRoleSpansDraft = (role: string, spans: SubtitleSpan[]) => {
+    if (!selected || !isEditable) {
       return;
     }
     resetTemplateResultState();
-    setSaveErrorPlacement("preview");
-    const draftRevision = nextDraftRevision(selected.id);
-    const patch = {
-      blocks: selectedDraft.blocks.map((block) =>
-        block.role === "bottom"
-          ? {
-              ...block,
-              spans: [
-                ...(Array.isArray(block.spans) ? block.spans : []),
-                {
-                  selector: { type: "keyword", value: keyword },
-                  style: { primary_color: keywordColor },
-                },
-              ],
-            }
-          : block,
-      ),
-    };
+    nextDraftRevision(selected.id);
     setTemplateDrafts((current) => ({
       ...current,
       [selected.id]: {
-        ...selectedDraft,
+        ...(current[selected.id] ?? selected),
+        ...spansPatch(current[selected.id] ?? selected, role, spans),
+      },
+    }));
+  };
+
+  const saveRoleSpans = (role: string, spans: SubtitleSpan[]) => {
+    if (!selected || !isEditable) {
+      return;
+    }
+    resetTemplateResultState();
+    setSaveErrorPlacement("editor");
+    const draftRevision = nextDraftRevision(selected.id);
+    const base = templateDrafts[selected.id] ?? selected;
+    const patch = spansPatch(base, role, spans);
+    setTemplateDrafts((current) => ({
+      ...current,
+      [selected.id]: {
+        ...base,
         ...patch,
       },
     }));
@@ -522,6 +741,43 @@ export function SubtitleTemplateWorkbench() {
       patch,
       draftRevision,
     });
+  };
+
+  const updateSpanDraft = (
+    role: string,
+    index: number,
+    updater: (span: SubtitleSpan) => SubtitleSpan,
+  ) => {
+    const spans = updateSpanAt(roleSpans(selectedDraft, role), index, updater);
+    setRoleSpansDraft(role, spans);
+  };
+
+  const saveSpanValue = (
+    role: string,
+    index: number,
+    updater: (span: SubtitleSpan) => SubtitleSpan,
+  ) => {
+    const base = templateDrafts[selected?.id ?? ""] ?? selectedDraft;
+    const spans = updateSpanAt(roleSpans(base, role), index, updater);
+    saveRoleSpans(role, spans);
+  };
+
+  const addLocalSpan = (role: string) => {
+    const defaultKeyword = sampleText.trim().slice(0, 2) || "AI";
+    saveRoleSpans(role, [
+      ...roleSpans(selectedDraft, role),
+      {
+        selector: { type: "keyword", value: defaultKeyword },
+        style: { primary_color: "#FFD54F", font_scale: 1.08 },
+      },
+    ]);
+  };
+
+  const deleteLocalSpan = (role: string, index: number) => {
+    saveRoleSpans(
+      role,
+      roleSpans(selectedDraft, role).filter((_span, spanIndex) => spanIndex !== index),
+    );
   };
 
   return (
@@ -630,28 +886,30 @@ export function SubtitleTemplateWorkbench() {
                 <option value="16:9">16:9</option>
               </select>
             </label>
-            <label>
-              <span>局部关键词</span>
-              <input
-                value={keyword}
-                onChange={(event) => handleKeywordChange(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>局部高亮色</span>
-              <input
-                value={keywordColor}
-                onChange={(event) => handleKeywordColorChange(event.target.value)}
-              />
-            </label>
             <div
               className="subtitle-preview-frame"
               data-testid="subtitle-preview-frame"
               style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
             >
-              <span data-testid="subtitle-preview-caption" style={previewCaptionStyle}>
-                {sampleText}
-              </span>
+              {editableRoles.map(({ role, label }) => {
+                const captionStyle = subtitlePreviewCaptionStyle(
+                  selectedDraft,
+                  role,
+                  previewAspectRatio,
+                );
+                const baseFontSize = Number.parseFloat(String(captionStyle.fontSize ?? "16")) || 16;
+                return (
+                  <span
+                    aria-label={`${label}预览`}
+                    className={`subtitle-preview-caption subtitle-preview-caption-${role}`}
+                    data-testid={`subtitle-preview-caption-${role}`}
+                    key={role}
+                    style={captionStyle}
+                  >
+                    {renderPreviewCaptionText(sampleText, roleSpans(selectedDraft, role), role, baseFontSize)}
+                  </span>
+                );
+              })}
             </div>
             <div className="button-row">
               <button
@@ -661,14 +919,6 @@ export function SubtitleTemplateWorkbench() {
               >
                 <Check aria-hidden="true" size={16} />
                 校验模板
-              </button>
-              <button
-                disabled={!isEditable || saveTemplate.isPending}
-                type="button"
-                onClick={saveKeywordHighlight}
-              >
-                <Save aria-hidden="true" size={16} />
-                保存局部高亮
               </button>
               <button
                 disabled={!selected || precisePreview.isPending}
@@ -687,11 +937,6 @@ export function SubtitleTemplateWorkbench() {
                 时间线预览
               </button>
             </div>
-            {saveTemplate.isError && saveErrorPlacement === "preview" ? (
-              <p role="alert">
-                {mutationErrorText(saveTemplate.error, "字幕模板保存失败")}
-              </p>
-            ) : null}
             {imagePreviewSrc ? <img alt="字幕精准预览" src={imagePreviewSrc} /> : null}
             {timelinePreviewSrc ? (
               <video controls data-testid="subtitle-timeline-preview" src={timelinePreviewSrc}>
@@ -818,6 +1063,17 @@ export function SubtitleTemplateWorkbench() {
                   onChange={(event) => updateStyleDraft(role, "skew", event.target.value)}
                 />
               </label>
+              <SubtitleLocalStyleEditor
+                isEditable={isEditable}
+                label={label}
+                role={role}
+                sampleText={sampleText}
+                spans={roleSpans(selectedDraft, role)}
+                onAdd={addLocalSpan}
+                onDelete={deleteLocalSpan}
+                onSaveSpanValue={saveSpanValue}
+                onUpdateSpanDraft={updateSpanDraft}
+              />
             </fieldset>
           ))}
         </section>

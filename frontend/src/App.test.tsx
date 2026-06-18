@@ -115,6 +115,26 @@ const cleanBottomPreset: SubtitleTemplateSet = {
       },
       spans: [],
     },
+    {
+      id: "highlight-main",
+      role: "highlight",
+      style: {
+        font_family: "PingFang SC",
+        primary_color: "#FFD54F",
+        font_size_scale: 1.08,
+      },
+      spans: [],
+    },
+    {
+      id: "punch-main",
+      role: "punch",
+      style: {
+        font_family: "PingFang SC",
+        primary_color: "#FFFFFF",
+        font_size_scale: 1.12,
+      },
+      spans: [],
+    },
   ],
 };
 
@@ -165,6 +185,11 @@ function renderApp() {
       <App />
     </QueryClientProvider>,
   );
+}
+
+function previewTopPercent(testId: string): number {
+  const value = screen.getByTestId(testId).style.top;
+  return Number.parseFloat(value);
 }
 
 describe("AutoVideo shell", () => {
@@ -524,8 +549,11 @@ describe("AutoVideo shell", () => {
     expect(screen.getAllByLabelText("最大宽度")).toHaveLength(3);
     expect(screen.getAllByLabelText("旋转")).toHaveLength(3);
     expect(screen.getAllByLabelText("倾斜")).toHaveLength(3);
-    expect(screen.getByLabelText("局部关键词")).toBeInTheDocument();
-    expect(screen.getByLabelText("局部高亮色")).toBeInTheDocument();
+    expect(screen.queryByLabelText("局部关键词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("局部高亮色")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存局部高亮" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("局部样式")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "新增底部字幕局部样式" })).toBeDisabled();
     expect(screen.getByTestId("subtitle-preview-frame")).toHaveStyle({ aspectRatio: "9 / 16" });
 
     await user.selectOptions(screen.getByLabelText("预览画幅"), "16:9");
@@ -541,6 +569,506 @@ describe("AutoVideo shell", () => {
       id: "preset-clean-bottom",
       patch: { is_favorite: true },
     });
+  });
+
+  it("renders bottom highlight and punch captions with local span preview", async () => {
+    const user = userEvent.setup();
+    const threeRoleTemplate = templateFixture({
+      id: "tmpl-three-role-local",
+      name: "三段字幕模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          font_family: "PingFang SC",
+          primary_color: "#FFFFFF",
+          x_percent: 50,
+          y_percent: 78,
+        },
+        highlight: {
+          font_family: "PingFang SC",
+          primary_color: "#FFD54F",
+          font_size_scale: 1.12,
+          x_percent: 50,
+          y_percent: 50,
+        },
+        punch: {
+          font_family: "PingFang SC",
+          primary_color: "#FFFFFF",
+          font_size_scale: 1.2,
+          rotate: -5,
+          x_percent: 50,
+          y_percent: 28,
+        },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", x_percent: 50, y_percent: 78 },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F", x_percent: 50, y_percent: 50 },
+          spans: [
+            {
+              selector: { type: "keyword", value: "AI" },
+              style: {
+                primary_color: "#00E5FF",
+                font_family: "Noto Sans CJK SC",
+                font_scale: 1.18,
+                outline_width: 4,
+              },
+            },
+          ],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", x_percent: 50, y_percent: 28 },
+          spans: [
+            {
+              selector: { type: "range", start: 0, end: 2 },
+              style: { primary_color: "#FF4D4F", font_scale: 1.22 },
+            },
+          ],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [threeRoleTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "三段字幕模板" }));
+    const previewFrame = screen.getByTestId("subtitle-preview-frame");
+
+    expect(within(previewFrame).getByTestId("subtitle-preview-caption-bottom")).toHaveTextContent(
+      "AI 自动完成重复工作",
+    );
+    expect(within(previewFrame).getByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
+      color: "#FFD54F",
+    });
+    expect(within(previewFrame).getByTestId("subtitle-preview-caption-punch")).toHaveStyle({
+      transform: "translate(-50%, -50%) rotate(-5deg) skewX(0deg) skewY(0deg)",
+    });
+    expect(within(previewFrame).getByTestId("subtitle-preview-local-span-highlight-0")).toHaveStyle({
+      color: "#00E5FF",
+      fontFamily: "Noto Sans CJK SC",
+    });
+    expect(within(previewFrame).getByTestId("subtitle-preview-local-span-punch-0")).toHaveTextContent(
+      "AI",
+    );
+  });
+
+  it("separates role lanes in the combined subtitle preview when template positions overlap", async () => {
+    const user = userEvent.setup();
+    const overlappingTemplate = templateFixture({
+      id: "tmpl-overlap-lanes",
+      name: "重叠位置模板",
+      is_modified: true,
+      templates: {
+        bottom: { ...cleanBottomPreset.templates.bottom, y_percent: 78 },
+        highlight: { ...cleanBottomPreset.templates.highlight, y_percent: 78 },
+        punch: { ...cleanBottomPreset.templates.punch, y_percent: 50 },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 78 },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F", y_percent: 78 },
+          spans: [],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 50 },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [overlappingTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "重叠位置模板" }));
+
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
+      top: "78%",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
+      top: "52%",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-punch")).toHaveStyle({
+      top: "30%",
+    });
+  });
+
+  it("does not preview local keyword spans when the keyword is absent", async () => {
+    const user = userEvent.setup();
+    const missingKeywordTemplate = templateFixture({
+      id: "tmpl-missing-keyword-span",
+      name: "缺失关键词模板",
+      is_modified: true,
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [
+            {
+              selector: { type: "keyword", value: "不存在" },
+              style: { primary_color: "#FF4D4F" },
+            },
+          ],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F" },
+          spans: [],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [missingKeywordTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "缺失关键词模板" }));
+
+    expect(screen.queryByTestId("subtitle-preview-local-span-bottom-0")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveTextContent(
+      "AI 自动完成重复工作",
+    );
+  });
+
+  it("keeps role lanes separated when the fallback lane is already occupied", async () => {
+    const user = userEvent.setup();
+    const fallbackConflictTemplate = templateFixture({
+      id: "tmpl-fallback-lane-conflict",
+      name: "默认车道冲突模板",
+      is_modified: true,
+      templates: {
+        bottom: { ...cleanBottomPreset.templates.bottom, y_percent: 52 },
+        highlight: { ...cleanBottomPreset.templates.highlight, y_percent: 52 },
+        punch: { ...cleanBottomPreset.templates.punch, y_percent: 30 },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 52 },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F", y_percent: 52 },
+          spans: [],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 30 },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [fallbackConflictTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "默认车道冲突模板" }));
+
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
+      top: "52%",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
+      top: "64%",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-punch")).toHaveStyle({
+      top: "30%",
+    });
+  });
+
+  it("uses wider lane gaps for combined subtitle previews in 16:9", async () => {
+    const user = userEvent.setup();
+    const landscapeConflictTemplate = templateFixture({
+      id: "tmpl-landscape-lane-conflict",
+      name: "横屏车道冲突模板",
+      is_modified: true,
+      templates: {
+        bottom: { ...cleanBottomPreset.templates.bottom, y_percent: 52 },
+        highlight: { ...cleanBottomPreset.templates.highlight, y_percent: 52 },
+        punch: { ...cleanBottomPreset.templates.punch, y_percent: 52 },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 52 },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F", y_percent: 52 },
+          spans: [],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF", y_percent: 52 },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [landscapeConflictTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "横屏车道冲突模板" }));
+    await user.selectOptions(screen.getByLabelText("预览画幅"), "16:9");
+
+    const bottomTop = previewTopPercent("subtitle-preview-caption-bottom");
+    const highlightTop = previewTopPercent("subtitle-preview-caption-highlight");
+    const punchTop = previewTopPercent("subtitle-preview-caption-punch");
+
+    expect(Math.abs(highlightTop - bottomTop)).toBeGreaterThanOrEqual(18);
+    expect(Math.abs(punchTop - bottomTop)).toBeGreaterThanOrEqual(18);
+    expect(Math.abs(punchTop - highlightTop)).toBeGreaterThanOrEqual(18);
+  });
+
+  it("edits local subtitle styles per role", async () => {
+    const user = userEvent.setup();
+    const localStyleTemplate = templateFixture({
+      id: "tmpl-local-style-editor",
+      name: "局部样式模板",
+      is_modified: true,
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F" },
+          spans: [
+            {
+              selector: { type: "keyword", value: "AI" },
+              style: { primary_color: "#00E5FF", font_family: "PingFang SC", font_scale: 1.1 },
+            },
+          ],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [localStyleTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockImplementation(async ({ id, patch }) => ({
+      ...localStyleTemplate,
+      ...patch,
+      id,
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "局部样式模板" }));
+    const keywordInput = await screen.findByLabelText("强调字幕局部样式 1 关键词");
+
+    await user.clear(keywordInput);
+    await user.type(keywordInput, "重复");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-local-style-editor",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "highlight",
+                spans: [
+                  expect.objectContaining({
+                    selector: { type: "keyword", value: "重复" },
+                    style: expect.objectContaining({ primary_color: "#00E5FF" }),
+                  }),
+                ],
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "新增冲击字幕局部样式" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "punch",
+                spans: [
+                  expect.objectContaining({
+                    selector: expect.objectContaining({ type: "keyword" }),
+                    style: expect.objectContaining({ primary_color: "#FFD54F" }),
+                  }),
+                ],
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps local numeric style input drafts editable until blur", async () => {
+    const user = userEvent.setup();
+    const localStyleTemplate = templateFixture({
+      id: "tmpl-local-style-numeric-drafts",
+      name: "局部数字输入模板",
+      is_modified: true,
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F" },
+          spans: [
+            {
+              selector: { type: "keyword", value: "AI" },
+              style: { primary_color: "#00E5FF", font_family: "PingFang SC", font_scale: 1.1 },
+            },
+          ],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [
+            {
+              selector: { type: "range", start: 0, end: 2 },
+              style: { primary_color: "#FF4D4F", font_scale: 1.05 },
+            },
+          ],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [localStyleTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockImplementation(async ({ id, patch }) => ({
+      ...localStyleTemplate,
+      ...patch,
+      id,
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "局部数字输入模板" }));
+    const fontScaleInput = await screen.findByLabelText(
+      "强调字幕局部样式 1 字号比例",
+    ) as HTMLInputElement;
+    const rangeStartInput = await screen.findByLabelText(
+      "冲击字幕局部样式 1 开始",
+    ) as HTMLInputElement;
+
+    await user.clear(fontScaleInput);
+    expect(fontScaleInput).toHaveValue("");
+    await user.type(fontScaleInput, "1.2");
+    expect(fontScaleInput).toHaveValue("1.2");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-local-style-numeric-drafts",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "highlight",
+                spans: [
+                  expect.objectContaining({
+                    style: expect.objectContaining({ font_scale: 1.2 }),
+                  }),
+                ],
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+
+    await user.clear(rangeStartInput);
+    expect(rangeStartInput).toHaveValue("");
+    await user.type(rangeStartInput, "1");
+    expect(rangeStartInput).toHaveValue("1");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-local-style-numeric-drafts",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "punch",
+                spans: [
+                  expect.objectContaining({
+                    selector: expect.objectContaining({ start: 1 }),
+                  }),
+                ],
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
   });
 
   it("updates the live subtitle preview style after selecting another template", async () => {
@@ -589,14 +1117,14 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    const previewCaption = await screen.findByTestId("subtitle-preview-caption");
+    const previewCaption = await screen.findByTestId("subtitle-preview-caption-bottom");
 
     expect(previewCaption).toHaveStyle({
       color: "#FFFFFF",
       backgroundColor: "rgba(17, 24, 39, 0.72)",
       fontSize: "16px",
       maxWidth: "86%",
-      transform: "rotate(0deg) skewX(0deg)",
+      transform: "translate(-50%, -50%) rotate(0deg) skewX(0deg) skewY(0deg)",
     });
 
     await user.click(screen.getByRole("button", { name: "Green Box 绿框口播" }));
@@ -606,7 +1134,7 @@ describe("AutoVideo shell", () => {
       backgroundColor: "rgba(255, 255, 255, 0.88)",
       fontSize: "20px",
       maxWidth: "70%",
-      transform: "rotate(-4deg) skewX(6deg)",
+      transform: "translate(-50%, -50%) rotate(-4deg) skewX(6deg) skewY(0deg)",
     });
   });
 
@@ -643,7 +1171,7 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "亮蓝字幕模板" }));
 
-    expect(await screen.findByTestId("subtitle-preview-caption")).toHaveStyle({
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
       color: "#38BDF8",
       backgroundColor: "rgba(17, 24, 39, 0.72)",
     });
@@ -682,7 +1210,7 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "中灰字幕模板" }));
 
-    expect(await screen.findByTestId("subtitle-preview-caption")).toHaveStyle({
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
       color: "#777777",
       backgroundColor: "rgba(17, 24, 39, 0.72)",
     });
@@ -723,7 +1251,7 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "阴影预览模板" }));
-    const previewCaption = await screen.findByTestId("subtitle-preview-caption");
+    const previewCaption = await screen.findByTestId("subtitle-preview-caption-bottom");
     const shadowInput = screen.getAllByLabelText("阴影强度")[0] as HTMLInputElement;
 
     expect(previewCaption).toHaveStyle({ textShadow: "0 1px 1px #000000" });
@@ -1135,7 +1663,12 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(screen.getByRole("button", { name: "保存局部高亮" }));
+    await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
+    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+
+    await user.clear(primaryColor);
+    await user.type(primaryColor, "#334455");
+    await user.tab();
     expect(await screen.findByRole("alert")).toHaveTextContent("字幕模板保存失败");
 
     await user.clear(screen.getByLabelText("示例文本"));
