@@ -207,9 +207,7 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
     automaticSubtitleTemplate;
   const subtitleTemplateSummary = subtitleTemplateSetId
     ? `基础模板：${selectedSubtitleTemplate?.name ?? "未找到模板"}，渲染时随机使用变体`
-    : selectedSubtitleTemplate
-      ? `自动随机使用模板，优先包含：${selectedSubtitleTemplate.name}`
-      : "自动随机使用模板";
+    : "自动随机使用模板";
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);

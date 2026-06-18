@@ -523,7 +523,9 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("自动随机使用模板，优先包含：API 首个预设")).toBeInTheDocument();
+    expect(
+      await screen.findByText("自动随机使用模板", { selector: ".subtitle-template-summary" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
@@ -568,7 +570,9 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("自动随机使用模板，优先包含：新版品牌字幕")).toBeInTheDocument();
+    expect(
+      await screen.findByText("自动随机使用模板", { selector: ".subtitle-template-summary" }),
+    ).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
@@ -999,7 +1003,9 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    expect(await screen.findByText("自动随机使用模板，优先包含：品牌底部字幕")).toBeInTheDocument();
+    expect(
+      await screen.findByText("自动随机使用模板", { selector: ".subtitle-template-summary" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "去字幕模板页编辑" }));
 
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
