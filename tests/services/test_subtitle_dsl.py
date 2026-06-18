@@ -21,10 +21,23 @@ def test_validate_template_set_v2_preserves_supported_fields_and_warns_for_advan
                     "outline_width": 4,
                     "shadow": 3,
                     "font_size_scale": 1.08,
+                    "font_weight": 900,
+                    "italic": True,
+                    "letter_spacing": 1,
+                    "line_spacing": 1.2,
+                    "margin_l": 72,
+                    "margin_r": 84,
                     "margin_v": 112,
                     "max_width": 0.82,
+                    "max_width_ratio": 0.82,
+                    "max_chars_per_line": 18,
+                    "max_lines": 2,
                     "rotate": -2,
                     "skew": 6,
+                    "skew_x_deg": 6,
+                    "skew_y_deg": -3,
+                    "fade_in_ms": 120,
+                    "fade_out_ms": 80,
                 },
                 "spans": [
                     {
@@ -59,7 +72,20 @@ def test_validate_template_set_v2_preserves_supported_fields_and_warns_for_advan
     assert result["normalized"]["blocks"][0]["role"] == "bottom"
     assert result["normalized"]["templates"]["bottom"]["font_family"] == "Inter"
     assert result["normalized"]["templates"]["bottom"]["font_size_scale"] == 1.08
+    assert result["normalized"]["templates"]["bottom"]["font_weight"] == 900
+    assert result["normalized"]["templates"]["bottom"]["italic"] is True
+    assert result["normalized"]["templates"]["bottom"]["letter_spacing"] == 1
+    assert result["normalized"]["templates"]["bottom"]["line_spacing"] == 1.2
+    assert result["normalized"]["templates"]["bottom"]["margin_l"] == 72
+    assert result["normalized"]["templates"]["bottom"]["margin_r"] == 84
     assert result["normalized"]["templates"]["bottom"]["margin_v"] == 112
+    assert result["normalized"]["templates"]["bottom"]["max_width_ratio"] == 0.82
+    assert result["normalized"]["templates"]["bottom"]["max_chars_per_line"] == 18
+    assert result["normalized"]["templates"]["bottom"]["max_lines"] == 2
+    assert result["normalized"]["templates"]["bottom"]["skew_x_deg"] == 6
+    assert result["normalized"]["templates"]["bottom"]["skew_y_deg"] == -3
+    assert result["normalized"]["templates"]["bottom"]["fade_in_ms"] == 120
+    assert result["normalized"]["templates"]["bottom"]["fade_out_ms"] == 80
     assert result["normalized"]["template_variants"]["highlight"][0]["id"] == "emphasis"
     assert any("mask" in warning for warning in result["warnings"])
 
@@ -89,6 +115,60 @@ def test_normalize_blocks_strips_roles_and_skips_unsupported_roles():
     assert result["normalized"]["templates"]["bottom"]["font_family"] == "Inter"
     assert all(block["role"] != "caption" for block in result["normalized"]["blocks"])
     assert any("unsupported role" in warning and "caption" in warning for warning in result["warnings"])
+
+
+def test_block_position_compiles_to_legacy_template_when_style_layout_is_absent():
+    result = dsl_v2.validate_template_set_v2(
+        {
+            "id": "template-position",
+            "name": "Position",
+            "blocks": [
+                {
+                    "id": "bottom-main",
+                    "role": "bottom",
+                    "position": {"x": 0.25, "y": 0.6, "anchor": "left"},
+                    "style": {"font_family": "Inter"},
+                }
+            ],
+        }
+    )
+
+    template = result["normalized"]["templates"]["bottom"]
+
+    assert template["x_percent"] == 25
+    assert template["y_percent"] == 60
+    assert template["alignment"] == "left"
+    assert template["position"] == "center"
+
+
+def test_style_layout_fields_take_precedence_over_block_position():
+    result = dsl_v2.validate_template_set_v2(
+        {
+            "id": "template-layout-priority",
+            "name": "Layout Priority",
+            "blocks": [
+                {
+                    "id": "bottom-main",
+                    "role": "bottom",
+                    "position": {"x": 0.25, "y": 0.6, "anchor": "left"},
+                    "style": {
+                        "font_family": "Inter",
+                        "position": "bottom",
+                        "alignment": "right",
+                        "x_percent": 80,
+                        "y_percent": 78,
+                    },
+                }
+            ],
+        }
+    )
+
+    template = result["normalized"]["templates"]["bottom"]
+
+    assert template["x_percent"] == 80
+    assert template["y_percent"] == 78
+    assert template["alignment"] == "right"
+    assert template["position"] == "bottom"
 
 
 def test_numeric_style_fields_are_coerced_or_dropped_with_warning():

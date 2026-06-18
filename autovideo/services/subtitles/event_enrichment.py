@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from typing import Any
 
 from autovideo.services.subtitles.timeline import SubtitleEvent
@@ -139,7 +140,7 @@ def _merge_spans(default_spans: Any, current_spans: list[dict[str, Any]]) -> lis
     merged: list[dict[str, Any]] = []
     selector_indexes: dict[tuple[str, str], int] = {}
 
-    for source_index, source in enumerate((default_spans, current_spans)):
+    for source_index, source in enumerate((current_spans, default_spans)):
         if not isinstance(source, list):
             continue
         for span in source:
@@ -153,7 +154,7 @@ def _merge_spans(default_spans: Any, current_spans: list[dict[str, Any]]) -> lis
                 continue
 
             if selector_key in selector_indexes:
-                if source_index == 1:
+                if source_index == 0:
                     merged[selector_indexes[selector_key]] = candidate
                 continue
 
@@ -168,7 +169,34 @@ def _span_selector_key(span: dict[str, Any]) -> tuple[str, str] | None:
         return None
 
     selector_type = selector.get("type")
+    if not isinstance(selector_type, str):
+        return None
+    if selector_type == "range":
+        start = _span_range_int(selector.get("start"))
+        end = _span_range_int(selector.get("end"))
+        if start is not None and end is not None:
+            return (selector_type, f"{start}:{end}")
+        return None
+
     selector_value = selector.get("value")
-    if not isinstance(selector_type, str) or not isinstance(selector_value, str):
+    if not isinstance(selector_value, str):
         return None
     return (selector_type, selector_value)
+
+
+def _span_range_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value):
+            return None
+        return int(value)
+    if isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            return None
+        if not math.isfinite(number):
+            return None
+        return int(number)
+    return None

@@ -64,6 +64,14 @@ def test_frontend_css_protects_tablet_width_online_remix_layout() -> None:
     assert ".online-remix-form" in tablet_rules
 
 
+def test_frontend_css_hides_inactive_content_grid_sections() -> None:
+    css = (FRONTEND_ROOT / "src" / "styles.css").read_text(encoding="utf-8")
+
+    assert ".content-grid[hidden]" in css
+    hidden_section = css.split(".content-grid[hidden]", 1)[1].split("}", 1)[0]
+    assert "display: none" in hidden_section
+
+
 def test_frontend_build_outputs_static_assets() -> None:
     index_file, assets_dir = require_frontend_build()
 

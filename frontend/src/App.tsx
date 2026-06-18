@@ -37,6 +37,17 @@ const navItems: NavItem[] = [
   { id: "settings", label: "系统设置", shortLabel: "设置", icon: Settings, enabled: false },
 ];
 
+const sectionHeadings: Record<ActiveSection, { title: string; summary: string }> = {
+  remix: {
+    title: "混剪工作台",
+    summary: "线上素材脚本生成与视频混剪",
+  },
+  subtitles: {
+    title: "字幕模板",
+    summary: "管理默认字幕样式与预览",
+  },
+};
+
 function activeSectionFromHash(hash: string): ActiveSection {
   const hashId = hash.replace(/^#/, "");
   return hashId === "subtitles" ? "subtitles" : "remix";
@@ -138,6 +149,7 @@ export default function App() {
       window.removeEventListener("hashchange", syncActiveSection);
     };
   }, []);
+  const activeHeading = sectionHeadings[activeSection];
 
   return (
     <div className="app-shell">
@@ -180,11 +192,11 @@ export default function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">本地自托管</p>
-            <h1>混剪工作台</h1>
+            <h1>{activeHeading.title}</h1>
           </div>
           <div className="topbar-summary">
             <Sparkles aria-hidden="true" size={18} />
-            <span>React + Vite 产品骨架</span>
+            <span>{activeHeading.summary}</span>
           </div>
         </header>
 

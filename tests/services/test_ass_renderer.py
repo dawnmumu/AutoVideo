@@ -1,7 +1,8 @@
 from pathlib import Path
+import math
 
 from autovideo.services import subtitles
-from autovideo.services.subtitles import ass_renderer, event_enrichment, keyword_spans, template_assignment
+from autovideo.services.subtitles import ass_renderer, event_enrichment, keyword_spans, template_assignment, template_presets
 from autovideo.services.subtitles.timeline import SubtitleEvent
 
 
@@ -248,7 +249,206 @@ def test_ass_renderer_emits_event_style_and_position_override_tags():
     enriched = event_enrichment.enrich_subtitle_events(events, template, (1080, 1920))
     content = ass_renderer.render_ass(enriched, template, (1080, 1920))
 
-    assert "{\\fs72\\c&HFFE500&\\pos(270,1440)}业务字幕" in content
+    assert "{\\fs72\\c&HFFE500&\\pos(270,1440)\\fad(120,0)}业务字幕" in content
+
+
+def test_ass_renderer_emits_weight_italic_and_position_anchor_tags():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="醒目字幕",
+        template="bottom",
+        style={"font_weight": 900, "italic": True},
+        position={"x": 0.25, "y": 0.25, "anchor": "left"},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\b1\\i1\\an7\\pos(270,480)}醒目字幕" in content
+
+
+def test_ass_renderer_wraps_text_with_max_width_ratio():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="字幕真的很好用",
+        template="bottom",
+        style={"font_size": 54, "max_chars_per_line": 20, "max_width_ratio": 0.3},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "字幕真的很好\\N{\\fs3} \\N{\\fs54}用" in content
+
+
+def test_ass_renderer_emits_skew_tags():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="倾斜字幕",
+        template="bottom",
+        style={"skew_x_deg": 10, "skew_y_deg": -3},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "\\fax0.176327" in content
+    assert "\\fay-0.0524078" in content
+
+
+def test_ass_renderer_applies_range_span_to_non_ai_text():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="字幕真的很好用",
+        template="punch",
+        spans=[{"selector": {"type": "range", "start": 0, "end": 2}, "style": {"primary_color": "#FFD54F"}}],
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\c&H4FD5FF&}字幕{\\r}" in content
+    assert "AI" not in content
+
+
+def test_event_keyword_span_takes_priority_over_default_range_span():
+    preset = template_presets.list_presets()[0]
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="字幕真的很好用",
+        template="punch",
+        spans=[{"selector": {"type": "keyword", "value": "字幕"}, "style": {"primary_color": "#00E5FF"}}],
+    )
+
+    enriched = event_enrichment.enrich_subtitle_events([event], preset, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, preset, (1080, 1920))
+
+    assert "{\\c&HFFE500&}字幕{\\r}" in content
+    assert "{\\c&H5252FF&}字幕{\\r}" not in content
+
+
+def test_event_range_span_takes_priority_over_default_range_span():
+    preset = template_presets.list_presets()[0]
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="字幕真的很好用",
+        template="punch",
+        spans=[{"selector": {"type": "range", "start": 0, "end": 2}, "style": {"primary_color": "#00E5FF"}}],
+    )
+
+    enriched = event_enrichment.enrich_subtitle_events([event], preset, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, preset, (1080, 1920))
+
+    assert "{\\c&HFFE500&}字幕{\\r}" in content
+    assert "{\\c&H5252FF&}字幕{\\r}" not in content
+
+
+def test_invalid_event_range_span_does_not_crash_or_override_default_range():
+    preset = template_presets.list_presets()[0]
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="字幕真的很好用",
+        template="punch",
+        spans=[
+            {"selector": {"type": "range", "start": math.nan, "end": 2}, "style": {"primary_color": "#00E5FF"}},
+            {"selector": {"type": "range", "start": 0, "end": math.inf}, "style": {"primary_color": "#00E5FF"}},
+        ],
+    )
+
+    enriched = event_enrichment.enrich_subtitle_events([event], preset, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, preset, (1080, 1920))
+
+    assert "{\\c&H5252FF&" in content
+    assert "{\\c&HFFE500&}字幕{\\r}" not in content
+
+
+def test_default_preset_ass_output_uses_animation_and_line_spacing_effects():
+    preset = template_presets.list_presets()[0]
+    events = [
+        SubtitleEvent(
+            index=1,
+            shot_index=1,
+            start_ms=0,
+            end_ms=1000,
+            text="字幕模板默认效果需要换行并展示行距",
+            template="bottom",
+        ),
+        SubtitleEvent(
+            index=2,
+            shot_index=1,
+            start_ms=1000,
+            end_ms=2000,
+            text="强调字幕",
+            template="highlight",
+        ),
+        SubtitleEvent(
+            index=3,
+            shot_index=1,
+            start_ms=2000,
+            end_ms=3000,
+            text="冲击字幕",
+            template="punch",
+        ),
+    ]
+
+    enriched = event_enrichment.enrich_subtitle_events(events, preset, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, preset, (1080, 1920))
+
+    assert "\\fad(120,80)" in content
+    assert "\\move(" in content
+    assert "\\fad(180,80)" in content
+    assert "\\fscx80\\fscy80\\t(0,140,\\fscx100\\fscy100)" in content
+    assert "\\N{\\fs3} \\N{\\fs54}" in content
+
+
+def test_ass_renderer_uses_fade_out_animation_duration():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="淡出字幕",
+        template="bottom",
+        event_animations={"out": {"type": "fade_out", "duration_ms": 260}},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "\\fad(0,260)" in content
+
+
+def test_ass_renderer_prefers_fade_out_animation_over_style_duration():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="淡出字幕",
+        template="bottom",
+        style={"fade_in_ms": 50, "fade_out_ms": 80},
+        event_animations={"out": {"type": "fade_out", "duration_ms": 260}},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "\\fad(50,260)" in content
 
 
 def test_ass_renderer_keeps_one_millisecond_event_visible():

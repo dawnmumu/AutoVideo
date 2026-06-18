@@ -166,6 +166,10 @@ h2 {
   gap: 18px;
 }
 
+.content-grid[hidden] {
+  display: none;
+}
+
 .content-grid.single-column {
   grid-template-columns: 1fr;
 }
