@@ -124,6 +124,14 @@ class AutoVideoStore:
             ).fetchone()
         return self._task_from_row(row) if row else None
 
+    def delete_task(self, task_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM tasks WHERE id = ?",
+                (task_id,),
+            )
+        return cursor.rowcount > 0
+
     def list_tasks(
         self,
         *,

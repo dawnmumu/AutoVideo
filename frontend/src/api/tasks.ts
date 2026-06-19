@@ -38,3 +38,12 @@ export async function fetchTasks({
   });
   return readJson(await fetch(`/api/tasks?${params.toString()}`));
 }
+
+export async function deleteTask(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+}

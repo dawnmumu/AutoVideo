@@ -1,5 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
   CircleAlert,
   CircleCheck,
   Clock3,
@@ -7,9 +9,11 @@ import {
   FileJson,
   FileVideo,
   RefreshCw,
+  Trash2,
+  X,
 } from "lucide-react";
 
-import { VideoTask, fetchTasks } from "../api/tasks";
+import { VideoTask, deleteTask, fetchTasks } from "../api/tasks";
 
 const TASK_LIST_LIMIT = 50;
 
@@ -98,7 +102,23 @@ function outputSummary(task: VideoTask): string | null {
   return null;
 }
 
-function TaskOutputCard({ task }: { task: VideoTask }) {
+type TaskOutputCardProps = {
+  task: VideoTask;
+  confirming: boolean;
+  deleting: boolean;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  onRequestDelete: () => void;
+};
+
+function TaskOutputCard({
+  task,
+  confirming,
+  deleting,
+  onCancelDelete,
+  onConfirmDelete,
+  onRequestDelete,
+}: TaskOutputCardProps) {
   const status = taskStatusView(task);
   const StatusIcon = status.Icon;
   const aspectRatio = optionText(task, "aspect_ratio");
@@ -106,6 +126,7 @@ function TaskOutputCard({ task }: { task: VideoTask }) {
   const subtitleEnabled = optionText(task, "subtitle_enabled");
   const materialCount = task.material_ids.length;
   const summary = outputSummary(task);
+  const deleteConfirmationDescriptionId = `delete-confirmation-${task.id}`;
 
   return (
     <article aria-label={task.title} className="task-output-card">
@@ -145,16 +166,75 @@ function TaskOutputCard({ task }: { task: VideoTask }) {
             {task.status === "failed" || task.output.kind === "partial_video" ? "输出未完成" : "等待输出"}
           </span>
         )}
+        <button
+          aria-label={`删除任务 ${task.title}`}
+          className="danger-action"
+          disabled={deleting}
+          type="button"
+          onClick={onRequestDelete}
+        >
+          <Trash2 aria-hidden="true" size={18} />
+          {deleting ? "删除中" : "删除"}
+        </button>
       </div>
+      {confirming ? (
+        <div
+          aria-describedby={deleteConfirmationDescriptionId}
+          aria-label={`确认删除 ${task.title}`}
+          className="task-delete-confirmation"
+          role="group"
+        >
+          <p id={deleteConfirmationDescriptionId}>删除后会移除任务记录和输出文件，不能撤销。</p>
+          <div className="task-delete-confirmation-actions">
+            <button className="danger-action" disabled={deleting} type="button" onClick={onConfirmDelete}>
+              <Check aria-hidden="true" size={18} />
+              {deleting ? "删除中" : "确认删除"}
+            </button>
+            <button disabled={deleting} type="button" onClick={onCancelDelete}>
+              <X aria-hidden="true" size={18} />
+              取消
+            </button>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
 
 export function TaskOutputList() {
+  const queryClient = useQueryClient();
+  const [confirmingTaskId, setConfirmingTaskId] = useState<string | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const tasks = useQuery({
     queryKey: ["video-tasks", TASK_LIST_LIMIT, 0],
     queryFn: () => fetchTasks({ limit: TASK_LIST_LIMIT, offset: 0 }),
   });
+  const taskItems = tasks.data ?? [];
+  const deleteTaskMutation = useMutation({
+    mutationFn: (taskId: string) => deleteTask(taskId),
+    onSuccess: (_result, taskId) => {
+      const deletedTask = taskItems.find((task) => task.id === taskId);
+      queryClient.setQueryData<VideoTask[]>(
+        ["video-tasks", TASK_LIST_LIMIT, 0],
+        (currentTasks = []) => currentTasks.filter((task) => task.id !== taskId),
+      );
+      setConfirmingTaskId(null);
+      setDeleteMessage({
+        kind: "success",
+        text: `已删除任务：${deletedTask?.title ?? taskId}`,
+      });
+    },
+    onError: () => {
+      setDeleteMessage({
+        kind: "error",
+        text: "任务删除失败，请稍后重试。",
+      });
+    },
+  });
+  const deletingTaskId = deleteTaskMutation.isPending ? deleteTaskMutation.variables : null;
 
   return (
     <article className="panel task-output-panel" aria-label="任务与输出">
@@ -175,6 +255,16 @@ export function TaskOutputList() {
           {tasks.isFetching ? "刷新中" : "刷新"}
         </button>
       </div>
+
+      {deleteMessage ? (
+        <div
+          aria-live={deleteMessage.kind === "success" ? "polite" : undefined}
+          className={deleteMessage.kind === "success" ? "inline-success" : "inline-error"}
+          role={deleteMessage.kind === "success" ? "status" : "alert"}
+        >
+          <span>{deleteMessage.text}</span>
+        </div>
+      ) : null}
 
       {tasks.isLoading ? (
         <div aria-live="polite" className="runtime-status" role="status">
@@ -197,17 +287,30 @@ export function TaskOutputList() {
         </div>
       ) : null}
 
-      {!tasks.isLoading && !tasks.isError && (tasks.data ?? []).length === 0 ? (
+      {!tasks.isLoading && !tasks.isError && taskItems.length === 0 ? (
         <div className="empty-state">
           <strong>暂无历史任务</strong>
           <span>创建混剪任务后会出现在这里。</span>
         </div>
       ) : null}
 
-      {(tasks.data ?? []).length > 0 ? (
+      {taskItems.length > 0 ? (
         <div className="task-output-list">
-          {(tasks.data ?? []).map((task) => (
-            <TaskOutputCard key={task.id} task={task} />
+          {taskItems.map((task) => (
+            <TaskOutputCard
+              confirming={confirmingTaskId === task.id}
+              deleting={deletingTaskId === task.id}
+              key={task.id}
+              task={task}
+              onCancelDelete={() => setConfirmingTaskId(null)}
+              onConfirmDelete={() => {
+                deleteTaskMutation.mutate(task.id);
+              }}
+              onRequestDelete={() => {
+                setDeleteMessage(null);
+                setConfirmingTaskId(task.id);
+              }}
+            />
           ))}
         </div>
       ) : null}

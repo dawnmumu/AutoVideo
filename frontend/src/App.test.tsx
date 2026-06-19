@@ -25,7 +25,7 @@ import {
   validateSubtitleTemplateSet,
 } from "./api/subtitles";
 import type { SubtitleTemplateSet } from "./api/subtitles";
-import { fetchTasks } from "./api/tasks";
+import { deleteTask, fetchTasks } from "./api/tasks";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -53,12 +53,14 @@ vi.mock("./api/subtitles", () => ({
 
 vi.mock("./api/tasks", () => ({
   fetchTasks: vi.fn(),
+  deleteTask: vi.fn(),
 }));
 
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
 const mockedFetchTasks = vi.mocked(fetchTasks);
+const mockedDeleteTask = vi.mocked(deleteTask);
 const mockedGenerateScript = vi.mocked(generateScript);
 const mockedSearchOnlineMaterials = vi.mocked(searchOnlineMaterials);
 const mockedCreateOnlineMixTask = vi.mocked(createOnlineMixTask);
@@ -224,6 +226,7 @@ describe("AutoVideo shell", () => {
     });
     mockedFetchMaterials.mockResolvedValue([]);
     mockedFetchTasks.mockResolvedValue([]);
+    mockedDeleteTask.mockResolvedValue(undefined);
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [],
       presets: [cleanBottomPreset],
@@ -530,6 +533,89 @@ describe("AutoVideo shell", () => {
     expect(within(taskCard).getByText("字幕烧录失败：ASS 字幕滤镜不可用。")).toBeInTheDocument();
     expect(within(taskCard).queryByRole("link", { name: "下载视频" })).not.toBeInTheDocument();
     expect(within(taskCard).getByText("输出未完成")).toBeInTheDocument();
+  });
+
+  it("deletes a task from the task output list after confirmation", async () => {
+    const user = userEvent.setup();
+    mockedDeleteTask.mockResolvedValue();
+    mockedFetchTasks.mockResolvedValue([
+      {
+        id: "task-delete-1",
+        title: "可删除任务",
+        status: "succeeded",
+        material_ids: ["material-1"],
+        options: { aspect_ratio: "16:9" },
+        output: {
+          download_url: "/api/tasks/task-delete-1/output",
+          filename: "manifest.json",
+          media_type: "application/json",
+          kind: "manifest",
+        },
+        created_at: "2026-06-18T09:30:00+08:00",
+        updated_at: "2026-06-18T09:31:30+08:00",
+      },
+    ]);
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "任务与输出" }));
+    const taskCard = await screen.findByRole("article", { name: "可删除任务" });
+
+    await user.click(within(taskCard).getByRole("button", { name: "删除任务 可删除任务" }));
+
+    expect(
+      within(taskCard).getByRole("group", { name: "确认删除 可删除任务" }),
+    ).toBeInTheDocument();
+
+    await user.click(within(taskCard).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => {
+      expect(mockedDeleteTask).toHaveBeenCalledWith("task-delete-1");
+    });
+    expect(screen.queryByRole("article", { name: "可删除任务" })).not.toBeInTheDocument();
+    expect(screen.getByText("已删除任务：可删除任务")).toBeInTheDocument();
+    expect(screen.getByText("暂无历史任务")).toBeInTheDocument();
+  });
+
+  it("keeps the task card operable when task deletion fails", async () => {
+    const user = userEvent.setup();
+    mockedDeleteTask.mockRejectedValue(new Error("HTTP_500"));
+    mockedFetchTasks.mockResolvedValue([
+      {
+        id: "task-delete-fails-1",
+        title: "删除失败任务",
+        status: "succeeded",
+        material_ids: ["material-1"],
+        options: { aspect_ratio: "16:9" },
+        output: {
+          download_url: "/api/tasks/task-delete-fails-1/output",
+          filename: "manifest.json",
+          media_type: "application/json",
+          kind: "manifest",
+        },
+        created_at: "2026-06-18T09:30:00+08:00",
+        updated_at: "2026-06-18T09:31:30+08:00",
+      },
+    ]);
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "任务与输出" }));
+    const taskCard = await screen.findByRole("article", { name: "删除失败任务" });
+
+    await user.click(within(taskCard).getByRole("button", { name: "删除任务 删除失败任务" }));
+    await user.click(within(taskCard).getByRole("button", { name: "确认删除" }));
+
+    expect(await screen.findByText("任务删除失败，请稍后重试。")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "删除失败任务" })).toBeInTheDocument();
+    const confirmation = within(taskCard).getByRole("group", { name: "确认删除 删除失败任务" });
+    expect(within(confirmation).getByRole("button", { name: "确认删除" })).toBeEnabled();
+    const cancelButton = within(confirmation).getByRole("button", { name: "取消" });
+    expect(cancelButton).toBeEnabled();
+
+    await user.click(cancelButton);
+
+    expect(
+      within(taskCard).queryByRole("group", { name: "确认删除 删除失败任务" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows an empty task output state from a direct hash link", async () => {
@@ -2719,6 +2805,23 @@ describe("subtitle api client contracts", () => {
       "/api/subtitle-template-sets/presets/preset%2Fclean",
       { method: "DELETE" },
     );
+  });
+
+  it("deletes video tasks with a no-content response", async () => {
+    const actual = await vi.importActual<typeof import("./api/tasks")>("./api/tasks");
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    globalThis.fetch = fetchMock;
+
+    try {
+      await expect(actual.deleteTask("task/one")).resolves.toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/tasks/task%2Fone", { method: "DELETE" });
   });
 
   it("throws structured subtitle api errors with code and status", async () => {

@@ -8,7 +8,12 @@
   --line: #d7dde5;
   --accent: #176b87;
   --accent-strong: #0f4c5c;
+  --danger: #b42318;
+  --danger-surface: #fff4f1;
+  --danger-line: #f0b8ae;
   --success: #257a4f;
+  --success-surface: #f0fbf5;
+  --success-line: #a8d5bd;
   --warning: #9a5b00;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
@@ -265,9 +270,11 @@ h2 {
 .task-output-title-row,
 .task-meta,
 .task-output-actions,
+.task-delete-confirmation-actions,
 .status-pill,
 .secondary-action,
-.disabled-action {
+.disabled-action,
+.danger-action {
   display: flex;
   align-items: center;
 }
@@ -351,6 +358,7 @@ h2 {
 }
 
 .task-output-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -365,6 +373,42 @@ h2 {
   color: var(--muted);
   font-weight: 700;
   padding: 10px 14px;
+}
+
+.danger-action {
+  min-height: 44px;
+  justify-content: center;
+  gap: 8px;
+  border-color: var(--danger-line);
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.danger-action:hover,
+.danger-action:focus-visible {
+  border-color: var(--danger);
+}
+
+.task-delete-confirmation {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--danger-line);
+  border-radius: 8px;
+  background: var(--danger-surface);
+  color: var(--danger);
+  padding: 12px;
+}
+
+.task-delete-confirmation p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.task-delete-confirmation-actions {
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .online-remix-panel,
@@ -557,6 +601,17 @@ button:disabled,
   gap: 12px;
   color: #8a1f11;
   background: #fff4f1;
+}
+
+.inline-success {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--success-line);
+  border-radius: 8px;
+  background: var(--success-surface);
+  color: var(--success);
+  padding: 12px;
 }
 
 .error-list {
@@ -904,6 +959,7 @@ button:disabled,
 
   .candidate-row,
   .task-output-actions,
+  .task-delete-confirmation-actions,
   .inline-error,
   .shot-actions,
   .create-task-row {
@@ -1007,6 +1063,7 @@ button:disabled,
 
   .candidate-row,
   .task-output-actions,
+  .task-delete-confirmation-actions,
   .inline-error,
   .shot-actions,
   .create-task-row {
@@ -1017,7 +1074,9 @@ button:disabled,
   .candidate-row button,
   .candidate-row img,
   .task-output-actions a,
+  .task-output-actions button,
   .task-output-actions .disabled-action,
+  .task-delete-confirmation-actions button,
   .inline-error button,
   .shot-actions button,
   .create-task-row button,

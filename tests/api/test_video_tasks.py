@@ -231,6 +231,150 @@ def test_material_upload_task_creation_and_output_download(client) -> None:
     assert output["note"] == "这是任务骨架生成的占位输出，尚未执行真实混剪渲染。"
 
 
+def test_delete_task_removes_task_and_output_directory(client) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+    task_response = client.post(
+        "/api/tasks",
+        json={
+            "title": "待删除任务",
+            "material_ids": [material["id"]],
+            "options": {"aspect_ratio": "16:9"},
+        },
+    )
+    task = task_response.json()
+    store = AutoVideoStore(client.app.state.settings)
+    output_dir = store.paths.outputs / task["id"]
+    assert output_dir.is_dir()
+
+    delete_response = client.delete(f"/api/tasks/{task['id']}")
+
+    assert delete_response.status_code == 204
+    assert store.get_task(task["id"]) is None
+    assert not output_dir.exists()
+    assert client.get(f"/api/tasks/{task['id']}").status_code == 404
+    assert client.get("/api/tasks").json() == []
+
+
+def test_delete_task_removes_entire_task_output_directory_for_nested_output(
+    client,
+) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+
+    from autovideo.services.tasks import create_task
+
+    def nested_output_builder(output_payload, output_dir):
+        nested_dir = output_dir / "rendered"
+        nested_dir.mkdir()
+        output_path = nested_dir / "output.mp4"
+        output_path.write_bytes(b"rendered video")
+        return output_path
+
+    store = AutoVideoStore(client.app.state.settings)
+    task = create_task(
+        store,
+        title="嵌套输出任务",
+        material_ids=[material["id"]],
+        options={"aspect_ratio": "16:9"},
+        output_builder=nested_output_builder,
+    )
+    task_output_dir = store.paths.outputs / task["id"]
+    nested_output_path = task_output_dir / "rendered" / "output.mp4"
+    assert nested_output_path.is_file()
+
+    delete_response = client.delete(f"/api/tasks/{task['id']}")
+
+    assert delete_response.status_code == 204
+    assert store.get_task(task["id"]) is None
+    assert not task_output_dir.exists()
+
+
+def test_delete_task_keeps_record_when_output_cleanup_fails(
+    client,
+    monkeypatch,
+) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = upload_response.json()
+    task_response = client.post(
+        "/api/tasks",
+        json={
+            "title": "清理失败任务",
+            "material_ids": [material["id"]],
+            "options": {"aspect_ratio": "16:9"},
+        },
+    )
+    task = task_response.json()
+    store = AutoVideoStore(client.app.state.settings)
+    output_dir = store.paths.outputs / task["id"]
+    assert output_dir.is_dir()
+
+    def fail_rmtree(*args, **kwargs):
+        raise OSError("cannot delete output directory")
+
+    monkeypatch.setattr("autovideo.services.tasks.shutil.rmtree", fail_rmtree)
+
+    with TestClient(client.app, raise_server_exceptions=False) as error_client:
+        delete_response = error_client.delete(f"/api/tasks/{task['id']}")
+
+    assert delete_response.status_code == 500
+    assert delete_response.json()["detail"] == {
+        "code": "TASK_OUTPUT_CLEANUP_FAILED",
+        "task_id": task["id"],
+    }
+    assert store.get_task(task["id"]) is not None
+    assert output_dir.is_dir()
+
+
+def test_delete_task_keeps_record_when_output_path_is_invalid(client) -> None:
+    store = AutoVideoStore(client.app.state.settings)
+    now = "2026-06-18T09:30:00+08:00"
+    task = store.insert_task(
+        {
+            "id": "task-invalid-output-path",
+            "title": "非法输出路径任务",
+            "status": "succeeded",
+            "material_ids": [],
+            "options": {},
+            "output": {
+                "path": str(store.paths.outputs.parent / "outside-output.mp4"),
+                "download_url": "/api/tasks/task-invalid-output-path/output",
+            },
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+    with TestClient(client.app, raise_server_exceptions=False) as error_client:
+        delete_response = error_client.delete(f"/api/tasks/{task['id']}")
+
+    assert delete_response.status_code == 500
+    assert delete_response.json()["detail"] == {
+        "code": "TASK_OUTPUT_PATH_INVALID",
+        "task_id": task["id"],
+    }
+    assert store.get_task(task["id"]) is not None
+
+
+def test_delete_unknown_task_returns_not_found(client) -> None:
+    response = client.delete("/api/tasks/missing-task")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "TASK_NOT_FOUND",
+        "task_id": "missing-task",
+    }
+
+
 def test_task_response_describes_rendered_video_output(client) -> None:
     upload_response = client.post(
         "/api/materials",
