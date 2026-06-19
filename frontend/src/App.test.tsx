@@ -81,6 +81,7 @@ const removedCopyPattern = new RegExp(
   "i",
 );
 const stylesCss = readFileSync("src/styles.css", "utf-8");
+const defaultSubtitlePreviewText = "这是字幕预览，支持多个位置和不同倾斜角度";
 
 const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
@@ -338,6 +339,13 @@ describe("AutoVideo shell", () => {
     expect(stylesCss).toMatch(
       /@media \(max-width: 1160px\) \{[\s\S]*?\.subtitle-workbench-grid \{[\s\S]*?grid-template-columns: 1fr;/,
     );
+  });
+
+  it("uses a readable neutral preview canvas instead of a black frame", () => {
+    expect(stylesCss).toMatch(
+      /\.subtitle-preview-frame \{[\s\S]*?background:\s*linear-gradient\([\s\S]*?#f8fafc/,
+    );
+    expect(stylesCss).not.toMatch(/\.subtitle-preview-frame \{[\s\S]*?background:\s*#111827;/);
   });
 
   it("returns to the remix workspace through hash navigation", async () => {
@@ -613,7 +621,7 @@ describe("AutoVideo shell", () => {
           style: { font_family: "PingFang SC", primary_color: "#FFD54F", x_percent: 50, y_percent: 50 },
           spans: [
             {
-              selector: { type: "keyword", value: "AI" },
+              selector: { type: "keyword", value: "字幕" },
               style: {
                 primary_color: "#00E5FF",
                 font_family: "Noto Sans CJK SC",
@@ -647,8 +655,9 @@ describe("AutoVideo shell", () => {
     const previewFrame = screen.getByTestId("subtitle-preview-frame");
 
     expect(within(previewFrame).getByTestId("subtitle-preview-caption-bottom")).toHaveTextContent(
-      "AI 自动完成重复工作",
+      defaultSubtitlePreviewText,
     );
+    expect(screen.getByLabelText("示例文本")).toHaveValue(defaultSubtitlePreviewText);
     expect(within(previewFrame).getByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
       color: "#FFD54F",
     });
@@ -660,7 +669,7 @@ describe("AutoVideo shell", () => {
       fontFamily: "Noto Sans CJK SC",
     });
     expect(within(previewFrame).getByTestId("subtitle-preview-local-span-punch-0")).toHaveTextContent(
-      "AI",
+      "这是",
     );
   });
 
@@ -759,7 +768,7 @@ describe("AutoVideo shell", () => {
 
     expect(screen.queryByTestId("subtitle-preview-local-span-bottom-0")).not.toBeInTheDocument();
     expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveTextContent(
-      "AI 自动完成重复工作",
+      defaultSubtitlePreviewText,
     );
   });
 
@@ -1121,7 +1130,7 @@ describe("AutoVideo shell", () => {
 
     expect(previewCaption).toHaveStyle({
       color: "#FFFFFF",
-      backgroundColor: "rgba(17, 24, 39, 0.72)",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
       fontSize: "16px",
       maxWidth: "86%",
       transform: "translate(-50%, -50%) rotate(0deg) skewX(0deg) skewY(0deg)",
@@ -1173,46 +1182,80 @@ describe("AutoVideo shell", () => {
 
     expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
       color: "#38BDF8",
-      backgroundColor: "rgba(17, 24, 39, 0.72)",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
     });
   });
 
-  it("uses the higher contrast caption background for mid-gray text", async () => {
+  it("uses the higher contrast caption background for representative subtitle colors", async () => {
     const user = userEvent.setup();
-    const grayTemplate = templateFixture({
-      id: "tmpl-gray-preview",
-      name: "中灰字幕模板",
+    const colorTemplate = templateFixture({
+      id: "tmpl-representative-color-preview",
+      name: "代表色字幕模板",
       is_modified: true,
       templates: {
         bottom: {
           ...cleanBottomPreset.templates.bottom,
-          primary_color: "#777777",
+          primary_color: "#FF4D8D",
+        },
+        highlight: {
+          ...cleanBottomPreset.templates.highlight,
+          primary_color: "#FFFFFF",
+        },
+        punch: {
+          ...cleanBottomPreset.templates.punch,
+          primary_color: "#FFD54F",
         },
       },
       blocks: [
         {
-          id: "gray-bottom",
+          id: "pink-bottom",
           role: "bottom",
           style: {
             font_family: "PingFang SC",
-            primary_color: "#777777",
+            primary_color: "#FF4D8D",
+          },
+          spans: [],
+        },
+        {
+          id: "white-highlight",
+          role: "highlight",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#FFFFFF",
+          },
+          spans: [],
+        },
+        {
+          id: "yellow-punch",
+          role: "punch",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#FFD54F",
           },
           spans: [],
         },
       ],
     });
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
-      items: [grayTemplate],
+      items: [colorTemplate],
       presets: [cleanBottomPreset],
     });
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(await screen.findByRole("button", { name: "中灰字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "代表色字幕模板" }));
 
     expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
-      color: "#777777",
-      backgroundColor: "rgba(17, 24, 39, 0.72)",
+      color: "#FF4D8D",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
+      color: "#FFFFFF",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+    });
+    expect(await screen.findByTestId("subtitle-preview-caption-punch")).toHaveStyle({
+      color: "#FFD54F",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
     });
   });
 

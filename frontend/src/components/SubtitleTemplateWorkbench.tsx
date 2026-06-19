@@ -36,6 +36,7 @@ const previewRoleDefaults: Record<SubtitleRole, { x: number; y: number; fontSize
   highlight: { x: 50, y: 52, fontSize: 60 },
   punch: { x: 50, y: 30, fontSize: 68 },
 };
+const defaultSubtitlePreviewText = "这是字幕预览，支持多个位置和不同倾斜角度";
 
 const previewRoleLaneCandidates: Record<SubtitleRole, number[]> = {
   bottom: [78, 64, 86],
@@ -218,10 +219,10 @@ function blendRgbOver(
 function captionBackgroundForColor(color: string): string {
   const parsed = parseHexColor(color);
   if (!parsed) {
-    return "rgba(17, 24, 39, 0.72)";
+    return "rgba(15, 23, 42, 0.92)";
   }
   const textLuminance = relativeLuminance(parsed);
-  const previewFrameBackground = { r: 17, g: 24, b: 39 };
+  const previewFrameBackground = { r: 226, g: 232, b: 240 };
   const lightBackground = {
     color: "rgba(255, 255, 255, 0.88)",
     luminance: relativeLuminance(
@@ -229,9 +230,9 @@ function captionBackgroundForColor(color: string): string {
     ),
   };
   const darkBackground = {
-    color: "rgba(17, 24, 39, 0.72)",
+    color: "rgba(15, 23, 42, 0.92)",
     luminance: relativeLuminance(
-      blendRgbOver({ r: 17, g: 24, b: 39, alpha: 0.72 }, previewFrameBackground),
+      blendRgbOver({ r: 15, g: 23, b: 42, alpha: 0.92 }, previewFrameBackground),
     ),
   };
   return contrastRatio(textLuminance, lightBackground.luminance) >
@@ -534,7 +535,7 @@ export function SubtitleTemplateWorkbench() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [templateDrafts, setTemplateDrafts] = useState<Record<string, SubtitleTemplateSet>>({});
   const [saveErrorPlacement, setSaveErrorPlacement] = useState<SaveErrorPlacement>("editor");
-  const [sampleText, setSampleText] = useState("AI 自动完成重复工作");
+  const [sampleText, setSampleText] = useState(defaultSubtitlePreviewText);
   const [previewAspectRatio, setPreviewAspectRatio] = useState("9:16");
   const draftRevisionByTemplate = useRef<Record<string, number>>({});
 

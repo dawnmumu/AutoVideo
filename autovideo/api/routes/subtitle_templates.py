@@ -10,6 +10,7 @@ from autovideo.api.errors import structured_error
 from autovideo.core.settings import Settings
 from autovideo.services.subtitles import dsl_v2
 from autovideo.services.subtitles.preview_renderer import (
+    DEFAULT_PREVIEW_SAMPLE_TEXT,
     SubtitlePreviewRendererUnavailableError,
     render_preview_png,
     render_preview_timeline,
@@ -29,7 +30,7 @@ class PreviewRequest(BaseModel):
     template_set: dict[str, Any]
     template_type: str = "bottom"
     aspect_ratio: str = "9:16"
-    sample_text: str = "AI 提升效率"
+    sample_text: str = DEFAULT_PREVIEW_SAMPLE_TEXT
     duration_ms: Any = 1200
 
 
