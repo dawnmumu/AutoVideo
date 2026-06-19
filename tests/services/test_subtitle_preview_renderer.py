@@ -68,8 +68,8 @@ def test_preview_ass_scales_font_size_to_match_live_preview_display(tmp_path: Pa
         match_live_preview_font_size=True,
     ).read_text(encoding="utf-8")
 
-    assert "\\fs62" in preview_ass
-    assert "\\fs65" in preview_ass
+    assert "\\fs64" in preview_ass
+    assert "\\fs67" in preview_ass
 
 
 def test_precise_preview_ass_renders_all_live_preview_roles(tmp_path: Path):
@@ -91,11 +91,11 @@ def test_precise_preview_ass_renders_all_live_preview_roles(tmp_path: Path):
     assert len(dialogue_lines) == 3
     assert all("Dialogue: 0,0:00:00.00,0:00:01.20," in line for line in dialogue_lines)
     assert ",bottom,," in dialogue_lines[0]
-    assert "\\fs62" in dialogue_lines[0]
+    assert "\\fs64" in dialogue_lines[0]
     assert ",highlight,," in dialogue_lines[1]
-    assert "\\fs73" in dialogue_lines[1]
+    assert "\\fs76" in dialogue_lines[1]
     assert ",punch,," in dialogue_lines[2]
-    assert "\\fs89" in dialogue_lines[2]
+    assert "\\fs92" in dialogue_lines[2]
     assert "\\pos(540,576)" in dialogue_lines[2]
 
 
@@ -123,7 +123,7 @@ def test_preview_ass_uses_frontend_rounding_for_half_pixel_font_size(tmp_path: P
         match_live_preview_font_size=True,
     ).read_text(encoding="utf-8")
 
-    assert "\\fs66" in preview_ass
+    assert "\\fs68" in preview_ass
 
 
 def test_preview_ass_scales_explicit_span_font_size_to_match_live_preview_display(tmp_path: Path):
@@ -152,7 +152,7 @@ def test_preview_ass_scales_explicit_span_font_size_to_match_live_preview_displa
         match_live_preview_font_size=True,
     ).read_text(encoding="utf-8")
 
-    assert "\\fs93" in preview_ass
+    assert "\\fs96" in preview_ass
 
 
 def test_preview_timeline_keeps_original_block_font_size(tmp_path: Path, monkeypatch):
@@ -178,7 +178,7 @@ def test_preview_timeline_keeps_original_block_font_size(tmp_path: Path, monkeyp
     )
 
     assert "\\fs54" in captured_ass[0]
-    assert "\\fs62" not in captured_ass[0]
+    assert "\\fs64" not in captured_ass[0]
 
 
 def test_preview_ass_uses_style_layout_fields_without_caption_board(tmp_path: Path):

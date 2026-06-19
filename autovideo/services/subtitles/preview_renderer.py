@@ -28,6 +28,7 @@ LIVE_PREVIEW_FONT_SIZE_MIN_SCALE = 0.82
 LIVE_PREVIEW_FONT_SIZE_MAX_SCALE = 1.35
 LIVE_PREVIEW_FONT_SCALE_MIN = 0.6
 LIVE_PREVIEW_FONT_SCALE_MAX = 1.8
+LIVE_PREVIEW_LIBASS_FONT_SIZE_TUNING = 1.04
 PREVIEW_ROLE_DEFAULT_Y = {"bottom": 78, "highlight": 52, "punch": 30}
 PREVIEW_ROLE_LANE_CANDIDATES = {
     "bottom": [78, 64, 86],
@@ -331,7 +332,9 @@ def _live_preview_equivalent_font_size(style: dict[str, Any], resolution: tuple[
     preview_width = max(1, int(resolution[0]))
     return max(
         1,
-        _round_preview_number(live_font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH),
+        _round_preview_number(
+            live_font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH * LIVE_PREVIEW_LIBASS_FONT_SIZE_TUNING
+        ),
     )
 
 
@@ -342,7 +345,9 @@ def _live_preview_equivalent_css_font_size(value: Any, resolution: tuple[int, in
     preview_width = max(1, int(resolution[0]))
     return max(
         1,
-        _round_preview_number(font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH),
+        _round_preview_number(
+            font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH * LIVE_PREVIEW_LIBASS_FONT_SIZE_TUNING
+        ),
     )
 
 
