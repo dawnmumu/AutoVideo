@@ -714,9 +714,9 @@ button:disabled,
   position: absolute;
   width: max-content;
   max-width: 90%;
-  border-radius: 8px;
-  background: rgba(17, 24, 39, 0.64);
-  padding: 8px 10px;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   font-weight: 700;
   line-height: 1.5;
   overflow-wrap: anywhere;
