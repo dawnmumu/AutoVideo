@@ -125,6 +125,31 @@ def test_preview_png_uses_neutral_ffmpeg_background(tmp_path: Path, monkeypatch)
     assert "color=c=0xE2E8F0" in input_filter
 
 
+def test_preview_png_captures_frame_after_subtitle_fade_in(tmp_path: Path, monkeypatch):
+    commands = []
+
+    def fake_run_preview_command(command, output_path):
+        commands.append(command)
+        output_path.write_bytes(b"png")
+
+    monkeypatch.setattr(preview_renderer, "_resolve_ffmpeg", lambda ffmpeg_path: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(preview_renderer, "_run_preview_command", fake_run_preview_command)
+
+    preview_renderer.render_preview_png(
+        "ffmpeg",
+        {"blocks": [{"role": "bottom", "style": {"fade_in_ms": 120}, "spans": []}]},
+        "bottom",
+        "9:16",
+        "淡入字幕",
+        tmp_path,
+    )
+
+    command = commands[0]
+    assert command[command.index("-ss") + 1] == "0.600"
+    assert command.index("-ss") > command.index("-vf")
+    assert command.index("-frames:v") > command.index("-ss")
+
+
 def test_preview_timeline_uses_neutral_ffmpeg_background(tmp_path: Path, monkeypatch):
     commands = []
 
