@@ -350,6 +350,12 @@ describe("AutoVideo shell", () => {
     expect(stylesCss).not.toMatch(/\.subtitle-preview-frame \{[\s\S]*?background:\s*linear-gradient/);
   });
 
+  it("scales rendered subtitle previews to the live preview screen width", () => {
+    expect(stylesCss).toMatch(
+      /\.subtitle-preview-panel img,\s*\.subtitle-preview-panel video \{[\s\S]*?width:\s*min\(100%,\s*360px\);/,
+    );
+  });
+
   it("returns to the remix workspace through hash navigation", async () => {
     const user = userEvent.setup();
     window.history.pushState(null, "", "/#subtitles");

@@ -850,10 +850,11 @@ button:disabled,
 
 .subtitle-preview-panel img,
 .subtitle-preview-panel video {
-  width: min(100%, 280px);
+  width: min(100%, 360px);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-strong);
+  object-fit: contain;
 }
 
 .switch-row {
