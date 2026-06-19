@@ -83,7 +83,9 @@ def test_preview_routes_default_to_current_sample_text(tmp_path, monkeypatch):
         _aspect_ratio,
         sample_text,
         *_args,
+        template_types=None,
     ):
+        del template_types
         captured_sample_texts.append(sample_text)
         return {
             "mime_type": "image/png",
@@ -100,7 +102,9 @@ def test_preview_routes_default_to_current_sample_text(tmp_path, monkeypatch):
         sample_text,
         _duration_ms,
         *_args,
+        template_types=None,
     ):
+        del template_types
         captured_sample_texts.append(sample_text)
         return {
             "mime_type": "video/mp4",
@@ -135,6 +139,77 @@ def test_preview_routes_default_to_current_sample_text(tmp_path, monkeypatch):
     assert image_preview.status_code == 200
     assert timeline_preview.status_code == 200
     assert captured_sample_texts == [DEFAULT_SUBTITLE_PREVIEW_TEXT, DEFAULT_SUBTITLE_PREVIEW_TEXT]
+
+
+def test_preview_routes_forward_template_types_to_renderer(tmp_path, monkeypatch):
+    captured_template_types = []
+
+    def fake_preview(
+        _ffmpeg_path,
+        _template_set,
+        _template_type,
+        _aspect_ratio,
+        _sample_text,
+        *_args,
+        template_types=None,
+    ):
+        captured_template_types.append(template_types)
+        return {
+            "mime_type": "image/png",
+            "data": "preview",
+            "resolution": {"width": 1080, "height": 1920},
+            "warnings": [],
+        }
+
+    def fake_timeline(
+        _ffmpeg_path,
+        _template_set,
+        _template_type,
+        _aspect_ratio,
+        _sample_text,
+        _duration_ms,
+        *_args,
+        template_types=None,
+    ):
+        captured_template_types.append(template_types)
+        return {
+            "mime_type": "video/mp4",
+            "data": "preview",
+            "duration_ms": 1200,
+            "resolution": {"width": 1080, "height": 1920},
+            "warnings": [],
+        }
+
+    monkeypatch.setattr("autovideo.api.routes.subtitle_templates.render_preview_png", fake_preview)
+    monkeypatch.setattr("autovideo.api.routes.subtitle_templates.render_preview_timeline", fake_timeline)
+
+    with _client(tmp_path) as client:
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        image_preview = client.post(
+            "/api/subtitle-template-sets/preview",
+            json={
+                "template_set": template,
+                "template_type": "bottom",
+                "template_types": ["bottom", "highlight", "punch"],
+                "aspect_ratio": "9:16",
+            },
+        )
+        timeline_preview = client.post(
+            "/api/subtitle-template-sets/preview-timeline",
+            json={
+                "template_set": template,
+                "template_type": "bottom",
+                "template_types": ["bottom", "highlight", "punch"],
+                "aspect_ratio": "9:16",
+            },
+        )
+
+    assert image_preview.status_code == 200
+    assert timeline_preview.status_code == 200
+    assert captured_template_types == [
+        ["bottom", "highlight", "punch"],
+        ["bottom", "highlight", "punch"],
+    ]
 
 
 def test_preset_override_reset_and_timeline_preview_routes(tmp_path):

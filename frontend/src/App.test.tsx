@@ -2082,6 +2082,7 @@ describe("AutoVideo shell", () => {
     expect(mockedPreviewSubtitleTemplateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         template_type: "bottom",
+        template_types: ["bottom", "highlight", "punch"],
         aspect_ratio: "9:16",
         sample_text: "AI 自动完成重复工作",
       }),
@@ -2089,6 +2090,7 @@ describe("AutoVideo shell", () => {
     expect(mockedPreviewSubtitleTimeline).toHaveBeenCalledWith(
       expect.objectContaining({
         template_type: "bottom",
+        template_types: ["bottom", "highlight", "punch"],
         duration_ms: 1200,
       }),
     );
@@ -2158,6 +2160,7 @@ describe("AutoVideo shell", () => {
     expect(mockedPreviewSubtitleTimeline).toHaveBeenCalledWith(
       expect.objectContaining({
         template_type: "bottom",
+        template_types: ["bottom", "highlight", "punch"],
         duration_ms: 1200,
       }),
     );

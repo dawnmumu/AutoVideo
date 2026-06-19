@@ -29,6 +29,7 @@ class CreateTemplateSetRequest(BaseModel):
 class PreviewRequest(BaseModel):
     template_set: dict[str, Any]
     template_type: str = "bottom"
+    template_types: list[str] | None = None
     aspect_ratio: str = "9:16"
     sample_text: str = DEFAULT_PREVIEW_SAMPLE_TEXT
     duration_ms: Any = 1200
@@ -119,6 +120,7 @@ def preview_template_set(
             body.aspect_ratio,
             body.sample_text,
             settings.resolved_data_dir / "subtitle_previews",
+            template_types=body.template_types,
         )
     except SubtitlePreviewRendererUnavailableError as exc:
         raise structured_error(
@@ -142,6 +144,7 @@ def preview_template_set_timeline(
             body.sample_text,
             body.duration_ms,
             settings.resolved_data_dir / "subtitle_previews",
+            template_types=body.template_types,
         )
     except SubtitlePreviewRendererUnavailableError as exc:
         raise structured_error(

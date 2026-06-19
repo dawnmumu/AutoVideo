@@ -72,6 +72,33 @@ def test_preview_ass_scales_font_size_to_match_live_preview_display(tmp_path: Pa
     assert "\\fs65" in preview_ass
 
 
+def test_precise_preview_ass_renders_all_live_preview_roles(tmp_path: Path):
+    preset = template_presets.list_presets()[0]
+
+    preview_ass = preview_renderer._write_preview_ass(
+        tmp_path / "multi-role-scaled-font.ass",
+        preset,
+        "bottom",
+        DEFAULT_SUBTITLE_PREVIEW_TEXT,
+        1200,
+        (1080, 1920),
+        match_live_preview_font_size=True,
+        template_types=["bottom", "highlight", "punch"],
+    ).read_text(encoding="utf-8")
+
+    dialogue_lines = [line for line in preview_ass.splitlines() if line.startswith("Dialogue:")]
+
+    assert len(dialogue_lines) == 3
+    assert all("Dialogue: 0,0:00:00.00,0:00:01.20," in line for line in dialogue_lines)
+    assert ",bottom,," in dialogue_lines[0]
+    assert "\\fs62" in dialogue_lines[0]
+    assert ",highlight,," in dialogue_lines[1]
+    assert "\\fs73" in dialogue_lines[1]
+    assert ",punch,," in dialogue_lines[2]
+    assert "\\fs89" in dialogue_lines[2]
+    assert "\\pos(540,576)" in dialogue_lines[2]
+
+
 def test_preview_ass_uses_frontend_rounding_for_half_pixel_font_size(tmp_path: Path):
     template_set = {
         "blocks": [
