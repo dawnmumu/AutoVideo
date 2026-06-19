@@ -1,6 +1,7 @@
 import type { SubtitleTemplateSet } from "../api/subtitles";
 
 export type SubtitleSpan = {
+  animation?: Record<string, unknown>;
   selector?: Record<string, unknown>;
   style?: Record<string, unknown>;
 };
@@ -198,9 +199,9 @@ export function SubtitleLocalStyleEditor({
               </select>
             </label>
             <label>
-              <span>字号比例</span>
+              <span>字号</span>
               <input
-                aria-label={`${label}局部样式 ${index + 1} 字号比例`}
+                aria-label={`${label}局部样式 ${index + 1} 字号`}
                 disabled={!isEditable}
                 inputMode="decimal"
                 value={spanStyleValue(span, "font_scale", "1")}
@@ -235,6 +236,25 @@ export function SubtitleLocalStyleEditor({
                 }
               />
             </label>
+            <label>
+              <span>动画</span>
+              <select
+                aria-label={`${label}局部样式 ${index + 1} 动画`}
+                disabled={!isEditable}
+                value={spanAnimationType(span)}
+                onChange={(event) => {
+                  const updater = (current: SubtitleSpan) =>
+                    setSpanAnimationType(current, event.target.value);
+                  onUpdateSpanDraft(role, index, updater);
+                  onSaveSpanValue(role, index, updater);
+                }}
+              >
+                <option value="none">无动画</option>
+                <option value="fade">淡入</option>
+                <option value="slide_up_fade">上滑淡入</option>
+                <option value="pop_in">弹出</option>
+              </select>
+            </label>
             <button
               aria-label={`删除${label}局部样式 ${index + 1}`}
               disabled={!isEditable}
@@ -260,6 +280,10 @@ export function SubtitleLocalStyleEditor({
 
 function normalizeSpan(span: SubtitleSpan | undefined): SubtitleSpan {
   return {
+    animation:
+      typeof span?.animation === "object" && span.animation !== null
+        ? { ...span.animation }
+        : undefined,
     selector:
       typeof span?.selector === "object" && span.selector !== null ? { ...span.selector } : {},
     style: typeof span?.style === "object" && span.style !== null ? { ...span.style } : {},
@@ -282,6 +306,34 @@ function spanSelectorValue(
 function spanStyleValue(span: SubtitleSpan, key: string, fallback: string): string {
   const value = span.style?.[key];
   return value === undefined || value === null ? fallback : String(value);
+}
+
+function spanAnimationType(span: SubtitleSpan): string {
+  const value = span.animation?.type;
+  if (value === "fade_in") {
+    return "fade";
+  }
+  if (value === "slide_up") {
+    return "slide_up_fade";
+  }
+  return typeof value === "string" && value ? value : "none";
+}
+
+function setSpanAnimationType(span: SubtitleSpan, type: string): SubtitleSpan {
+  if (type === "none") {
+    const { animation: _animation, ...rest } = span;
+    return rest;
+  }
+  if (type !== "fade" && type !== "slide_up_fade" && type !== "pop_in") {
+    return span;
+  }
+  return {
+    ...span,
+    animation: {
+      ...(span.animation ?? {}),
+      type,
+    },
+  };
 }
 
 function setSpanSelectorTypeValue(

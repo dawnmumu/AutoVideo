@@ -54,6 +54,7 @@ SUPPORTED_STYLE_FIELDS = {
     "font_family",
     "font_size",
     "primary_color",
+    "background_color",
     "accent_color",
     "outline_color",
     "outline_width",
