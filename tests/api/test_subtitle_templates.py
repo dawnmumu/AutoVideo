@@ -6,6 +6,8 @@ from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
 from autovideo.services.subtitles import preview_renderer
 
+DEFAULT_SUBTITLE_PREVIEW_TEXT = "这是字幕预览，支持多个位置和不同倾斜角度"
+
 
 def _client(tmp_path):
     return TestClient(create_app(Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path="missing-ffmpeg")))
@@ -69,6 +71,70 @@ def test_preview_reports_invalid_executable_ffmpeg_as_renderer_unavailable(tmp_p
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE"
+
+
+def test_preview_routes_default_to_current_sample_text(tmp_path, monkeypatch):
+    captured_sample_texts = []
+
+    def fake_preview(
+        _ffmpeg_path,
+        _template_set,
+        _template_type,
+        _aspect_ratio,
+        sample_text,
+        *_args,
+    ):
+        captured_sample_texts.append(sample_text)
+        return {
+            "mime_type": "image/png",
+            "data": "preview",
+            "resolution": {"width": 1080, "height": 1920},
+            "warnings": [],
+        }
+
+    def fake_timeline(
+        _ffmpeg_path,
+        _template_set,
+        _template_type,
+        _aspect_ratio,
+        sample_text,
+        _duration_ms,
+        *_args,
+    ):
+        captured_sample_texts.append(sample_text)
+        return {
+            "mime_type": "video/mp4",
+            "data": "preview",
+            "duration_ms": 1200,
+            "resolution": {"width": 1080, "height": 1920},
+            "warnings": [],
+        }
+
+    monkeypatch.setattr("autovideo.api.routes.subtitle_templates.render_preview_png", fake_preview)
+    monkeypatch.setattr("autovideo.api.routes.subtitle_templates.render_preview_timeline", fake_timeline)
+
+    with _client(tmp_path) as client:
+        template = client.get("/api/subtitle-template-sets").json()["presets"][0]
+        image_preview = client.post(
+            "/api/subtitle-template-sets/preview",
+            json={
+                "template_set": template,
+                "template_type": "bottom",
+                "aspect_ratio": "9:16",
+            },
+        )
+        timeline_preview = client.post(
+            "/api/subtitle-template-sets/preview-timeline",
+            json={
+                "template_set": template,
+                "template_type": "bottom",
+                "aspect_ratio": "9:16",
+            },
+        )
+
+    assert image_preview.status_code == 200
+    assert timeline_preview.status_code == 200
+    assert captured_sample_texts == [DEFAULT_SUBTITLE_PREVIEW_TEXT, DEFAULT_SUBTITLE_PREVIEW_TEXT]
 
 
 def test_preset_override_reset_and_timeline_preview_routes(tmp_path):

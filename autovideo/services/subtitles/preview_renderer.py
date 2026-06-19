@@ -13,9 +13,11 @@ from autovideo.services.subtitles.ffmpeg_paths import ass_filter
 from autovideo.services.subtitles.timeline import SubtitleEvent
 
 DEFAULT_PREVIEW_DURATION_MS = 1200
+DEFAULT_PREVIEW_SAMPLE_TEXT = "这是字幕预览，支持多个位置和不同倾斜角度"
 MIN_TIMELINE_DURATION_MS = 500
 MAX_TIMELINE_DURATION_MS = 5000
 FFMPEG_TIMEOUT_SECONDS = 15
+PREVIEW_BACKGROUND_COLOR = "0xE2E8F0"
 
 
 class SubtitlePreviewRendererUnavailableError(RuntimeError):
@@ -51,7 +53,7 @@ def render_preview_png(
             "-f",
             "lavfi",
             "-i",
-            f"color=c=black:s={resolution[0]}x{resolution[1]}:d={duration_seconds}",
+            f"color=c={PREVIEW_BACKGROUND_COLOR}:s={resolution[0]}x{resolution[1]}:d={duration_seconds}",
             "-vf",
             ass_filter(ass_path),
             "-frames:v",
@@ -98,7 +100,7 @@ def render_preview_timeline(
             "-f",
             "lavfi",
             "-i",
-            f"color=c=black:s={resolution[0]}x{resolution[1]}:r=30:d={duration_seconds}",
+            f"color=c={PREVIEW_BACKGROUND_COLOR}:s={resolution[0]}x{resolution[1]}:r=30:d={duration_seconds}",
             "-vf",
             ass_filter(ass_path),
             "-t",
@@ -148,7 +150,7 @@ def _write_preview_ass(
         shot_index=1,
         start_ms=0,
         end_ms=duration_ms,
-        text=sample_text or "AI 提升效率",
+        text=sample_text or DEFAULT_PREVIEW_SAMPLE_TEXT,
         template=template_type or "bottom",
         track_id=str(block.get("track_id") or "main"),
         spans=_list_of_dicts(block.get("spans")),

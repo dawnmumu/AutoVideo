@@ -704,8 +704,8 @@ button:disabled,
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #111827;
-  color: #ffffff;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 55%, #cbd5e1 100%);
+  color: #111827;
   padding: 20px;
   text-align: center;
 }
