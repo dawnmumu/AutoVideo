@@ -15,6 +15,7 @@ from autovideo.services.subtitles.timeline import SubtitleEvent
 
 DEFAULT_PREVIEW_DURATION_MS = 1200
 DEFAULT_PREVIEW_SAMPLE_TEXT = "这是字幕预览，支持多个位置和不同倾斜角度"
+DEFAULT_PREVIEW_STILL_CAPTURE_MS = DEFAULT_PREVIEW_DURATION_MS // 2
 MIN_TIMELINE_DURATION_MS = 500
 MAX_TIMELINE_DURATION_MS = 5000
 FFMPEG_TIMEOUT_SECONDS = 15
@@ -57,6 +58,8 @@ def render_preview_png(
             f"color=c={PREVIEW_BACKGROUND_COLOR}:s={resolution[0]}x{resolution[1]}:d={duration_seconds}",
             "-vf",
             ass_filter(ass_path),
+            "-ss",
+            _duration_seconds(DEFAULT_PREVIEW_STILL_CAPTURE_MS),
             "-frames:v",
             "1",
             str(output_path),
