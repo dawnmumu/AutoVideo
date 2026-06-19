@@ -719,6 +719,31 @@ def test_keyword_span_font_scale_and_font_size_restore_event_overrides_after_res
     assert "{\\c&HFFE500&\\fs80}效率{\\r}{\\fs60\\c&HFFFFFF&}" in content
 
 
+def test_keyword_span_font_family_restores_event_font_after_reset():
+    event = SubtitleEvent(
+        index=1,
+        shot_index=1,
+        start_ms=0,
+        end_ms=1000,
+        text="AI 字体",
+        template="bottom",
+        spans=[
+            {
+                "selector": {"type": "keyword", "value": "AI"},
+                "style": {
+                    "font_family": "Noto Sans CJK SC",
+                    "primary_color": "#FFD54F",
+                },
+            }
+        ],
+        style={"font_family": "PingFang SC", "font_size": 60, "primary_color": "#FFFFFF"},
+    )
+
+    content = ass_renderer.render_ass([event], _template(), (1080, 1920))
+
+    assert "{\\fnNoto Sans CJK SC\\c&H4FD5FF&}AI{\\r}{\\fnPingFang SC\\fs60\\c&HFFFFFF&} 字体" in content
+
+
 def test_keyword_spans_do_not_match_inside_generated_ass_tags():
     event = SubtitleEvent(
         index=1,

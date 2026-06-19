@@ -192,6 +192,10 @@ def _event_override_tags(event: SubtitleEvent, resolution: tuple[int, int], even
     style = event.style if isinstance(event.style, dict) else {}
     position = event.position if isinstance(event.position, dict) else {}
 
+    font_family = _inline_font_family(style.get("font_family"))
+    if font_family:
+        tags.append(f"\\fn{font_family}")
+
     if any(key in style for key in ("font_size", "font_size_scale", "font_scale")):
         tags.append(f"\\fs{event_font_size}")
 
@@ -426,6 +430,10 @@ def _split_visual_line_segment(
 
 def _span_override_tags(style: dict[str, Any], base_font_size: int) -> str:
     tags: list[str] = []
+
+    font_family = _inline_font_family(style.get("font_family"))
+    if font_family:
+        tags.append(f"\\fn{font_family}")
 
     primary_color = style.get("primary_color")
     if isinstance(primary_color, str) and _is_hex_color(primary_color.strip()):
@@ -699,6 +707,12 @@ def _ass_color(value: Any, default: str) -> str:
 def _inline_color(value: str) -> str:
     rgb = _rgb(value, "#FFFFFF")
     return f"&H{rgb[2]}{rgb[1]}{rgb[0]}&"
+
+
+def _inline_font_family(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().replace("\\", "").replace("{", "").replace("}", "")
 
 
 def _rgb(value: str, default: str) -> tuple[str, str, str]:
