@@ -14,7 +14,10 @@ from autovideo.services.tasks import (
     TaskNotFoundError,
     TaskMaterialLimitExceededError,
     TaskOptionsTooLargeError,
+    TaskOutputCleanupError,
+    TaskOutputPathInvalidError,
     create_task,
+    delete_task,
     require_output_path,
     require_task,
     sanitize_manifest_payload,
@@ -209,6 +212,30 @@ def get_video_task(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "TASK_NOT_FOUND", "task_id": exc.task_id},
+        ) from exc
+
+
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_video_task(
+    task_id: str,
+    store: AutoVideoStore = Depends(get_store),
+) -> None:
+    try:
+        delete_task(store, task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "TASK_NOT_FOUND", "task_id": exc.task_id},
+        ) from exc
+    except TaskOutputCleanupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "TASK_OUTPUT_CLEANUP_FAILED", "task_id": exc.task_id},
+        ) from exc
+    except TaskOutputPathInvalidError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "TASK_OUTPUT_PATH_INVALID", "task_id": exc.task_id},
         ) from exc
 
 

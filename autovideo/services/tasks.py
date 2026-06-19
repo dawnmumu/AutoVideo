@@ -6,6 +6,7 @@ import shutil
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -110,6 +111,18 @@ class TaskNotFoundError(Exception):
 
 
 class OutputNotFoundError(Exception):
+    def __init__(self, task_id: str) -> None:
+        self.task_id = task_id
+        super().__init__(task_id)
+
+
+class TaskOutputCleanupError(Exception):
+    def __init__(self, task_id: str) -> None:
+        self.task_id = task_id
+        super().__init__(task_id)
+
+
+class TaskOutputPathInvalidError(Exception):
     def __init__(self, task_id: str) -> None:
         self.task_id = task_id
         super().__init__(task_id)
@@ -269,6 +282,42 @@ def require_task(store: AutoVideoStore, task_id: str) -> dict[str, Any]:
     if task is None:
         raise TaskNotFoundError(task_id)
     return task
+
+
+def _safe_task_output_dir(store: AutoVideoStore, task_id: str) -> Path:
+    outputs_root = store.paths.outputs.resolve()
+    task_output_dir = (store.paths.outputs / task_id).resolve()
+    try:
+        task_output_dir.relative_to(outputs_root)
+    except ValueError as exc:
+        raise TaskOutputPathInvalidError(task_id) from exc
+    if task_output_dir == outputs_root:
+        raise TaskOutputPathInvalidError(task_id)
+    return task_output_dir
+
+
+def _require_record_output_in_task_dir(
+    task: dict[str, Any],
+    task_output_dir: Path,
+) -> None:
+    recorded_output_path = Path(task["output"]["path"]).resolve()
+    try:
+        recorded_output_path.relative_to(task_output_dir)
+    except ValueError as exc:
+        raise TaskOutputPathInvalidError(task["id"]) from exc
+
+
+def delete_task(store: AutoVideoStore, task_id: str) -> None:
+    task = require_task(store, task_id)
+    output_dir = _safe_task_output_dir(store, task_id)
+    _require_record_output_in_task_dir(task, output_dir)
+
+    if output_dir.exists():
+        try:
+            shutil.rmtree(output_dir)
+        except OSError as exc:
+            raise TaskOutputCleanupError(task_id) from exc
+    store.delete_task(task_id)
 
 
 def require_output_path(store: AutoVideoStore, task_id: str):
