@@ -802,6 +802,28 @@ button:disabled,
   gap: 8px;
 }
 
+.subtitle-validation-feedback {
+  width: min(100%, 420px);
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.subtitle-validation-feedback.success {
+  border-color: rgba(37, 122, 79, 0.35);
+  background: #f0fbf5;
+  color: var(--success);
+}
+
+.subtitle-validation-feedback.warning {
+  border-color: rgba(154, 91, 0, 0.35);
+  background: #fff7e8;
+  color: var(--warning);
+}
+
 .subtitle-editor-panel fieldset,
 .subtitle-settings {
   border: 1px solid var(--line);

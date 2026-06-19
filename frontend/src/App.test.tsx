@@ -1942,12 +1942,34 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(screen.getByRole("button", { name: "校验模板" }));
+    await user.click(screen.getByRole("button", { name: "检查模板" }));
 
     expect(mockedValidateSubtitleTemplateSet).toHaveBeenCalledWith(
       expect.objectContaining({ id: "preset-clean-bottom" }),
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent("主色格式无效");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模板检查发现问题：主色格式无效",
+    );
+  });
+
+  it("shows subtitle validation success after a clean check", async () => {
+    const user = userEvent.setup();
+    mockedValidateSubtitleTemplateSet.mockResolvedValueOnce({
+      ok: true,
+      normalized: cleanBottomPreset,
+      warnings: [],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(screen.getByRole("button", { name: "检查模板" }));
+
+    const validationStatus = await screen.findByText(
+      "模板格式正常，可用于预览和渲染。",
+      { selector: ".subtitle-validation-feedback" },
+    );
+    expect(validationStatus).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("clears subtitle validation warnings after switching templates", async () => {
@@ -1964,8 +1986,10 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(screen.getByRole("button", { name: "校验模板" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("主色格式无效");
+    await user.click(screen.getByRole("button", { name: "检查模板" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模板检查发现问题：主色格式无效",
+    );
 
     await user.click(screen.getByRole("button", { name: "品牌底部字幕" }));
 
