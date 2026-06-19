@@ -222,6 +222,7 @@ function captionBackgroundForColor(color: string): string {
     return "rgba(15, 23, 42, 0.92)";
   }
   const textLuminance = relativeLuminance(parsed);
+  const minimumReadableContrast = 4.5;
   const previewFrameBackground = { r: 226, g: 232, b: 240 };
   const lightBackground = {
     color: "rgba(255, 255, 255, 0.88)",
@@ -235,10 +236,17 @@ function captionBackgroundForColor(color: string): string {
       blendRgbOver({ r: 15, g: 23, b: 42, alpha: 0.92 }, previewFrameBackground),
     ),
   };
-  return contrastRatio(textLuminance, lightBackground.luminance) >
-    contrastRatio(textLuminance, darkBackground.luminance)
-    ? lightBackground.color
-    : darkBackground.color;
+  const standardBackgrounds = [lightBackground, darkBackground].map((background) => ({
+    ...background,
+    contrast: contrastRatio(textLuminance, background.luminance),
+  }));
+  const bestStandardBackground = standardBackgrounds.reduce((best, background) =>
+    background.contrast > best.contrast ? background : best,
+  );
+  if (bestStandardBackground.contrast >= minimumReadableContrast) {
+    return bestStandardBackground.color;
+  }
+  return "#020617";
 }
 
 function previewPercentValue(

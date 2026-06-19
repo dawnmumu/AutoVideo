@@ -1186,6 +1186,45 @@ describe("AutoVideo shell", () => {
     });
   });
 
+  it("uses the higher contrast caption background for middle gray text", async () => {
+    const user = userEvent.setup();
+    const grayTemplate = templateFixture({
+      id: "tmpl-gray-preview",
+      name: "中灰字幕模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          ...cleanBottomPreset.templates.bottom,
+          primary_color: "#777777",
+        },
+      },
+      blocks: [
+        {
+          id: "gray-bottom",
+          role: "bottom",
+          style: {
+            font_family: "PingFang SC",
+            primary_color: "#777777",
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [grayTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "中灰字幕模板" }));
+
+    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
+      color: "#777777",
+      backgroundColor: "#020617",
+    });
+  });
+
   it("uses the higher contrast caption background for representative subtitle colors", async () => {
     const user = userEvent.setup();
     const colorTemplate = templateFixture({
