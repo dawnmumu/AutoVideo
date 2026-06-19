@@ -191,64 +191,6 @@ function parseHexColor(value: string): { r: number; g: number; b: number } | nul
   };
 }
 
-function relativeLuminance({ r, g, b }: { r: number; g: number; b: number }): number {
-  const [red, green, blue] = [r, g, b].map((channel) => {
-    const value = channel / 255;
-    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-}
-
-function contrastRatio(first: number, second: number): number {
-  const lighter = Math.max(first, second);
-  const darker = Math.min(first, second);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function blendRgbOver(
-  foreground: { r: number; g: number; b: number; alpha: number },
-  background: { r: number; g: number; b: number },
-): { r: number; g: number; b: number } {
-  return {
-    r: foreground.r * foreground.alpha + background.r * (1 - foreground.alpha),
-    g: foreground.g * foreground.alpha + background.g * (1 - foreground.alpha),
-    b: foreground.b * foreground.alpha + background.b * (1 - foreground.alpha),
-  };
-}
-
-function captionBackgroundForColor(color: string): string {
-  const parsed = parseHexColor(color);
-  if (!parsed) {
-    return "rgba(15, 23, 42, 0.92)";
-  }
-  const textLuminance = relativeLuminance(parsed);
-  const minimumReadableContrast = 4.5;
-  const previewFrameBackground = { r: 226, g: 232, b: 240 };
-  const lightBackground = {
-    color: "rgba(255, 255, 255, 0.88)",
-    luminance: relativeLuminance(
-      blendRgbOver({ r: 255, g: 255, b: 255, alpha: 0.88 }, previewFrameBackground),
-    ),
-  };
-  const darkBackground = {
-    color: "rgba(15, 23, 42, 0.92)",
-    luminance: relativeLuminance(
-      blendRgbOver({ r: 15, g: 23, b: 42, alpha: 0.92 }, previewFrameBackground),
-    ),
-  };
-  const standardBackgrounds = [lightBackground, darkBackground].map((background) => ({
-    ...background,
-    contrast: contrastRatio(textLuminance, background.luminance),
-  }));
-  const bestStandardBackground = standardBackgrounds.reduce((best, background) =>
-    background.contrast > best.contrast ? background : best,
-  );
-  if (bestStandardBackground.contrast >= minimumReadableContrast) {
-    return bestStandardBackground.color;
-  }
-  return "#020617";
-}
-
 function previewPercentValue(
   template: SubtitleTemplateSet | undefined,
   role: SubtitleRole,
@@ -379,7 +321,6 @@ function subtitlePreviewCaptionStyle(
   const previewShadow = clampValue(shadowDepth, 0, 8);
 
   return {
-    backgroundColor: captionBackgroundForColor(primaryColor),
     color: parseHexColor(primaryColor) ? primaryColor : "#FFFFFF",
     fontFamily: styleValue(template, role, "font_family", "PingFang SC"),
     fontSize: `${previewFontSize}px`,

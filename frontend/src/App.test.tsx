@@ -1080,7 +1080,7 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("updates the live subtitle preview style after selecting another template", async () => {
+  it("updates the live subtitle preview style without adding caption boards", async () => {
     const user = userEvent.setup();
     const greenTemplate = templateFixture({
       id: "preset-green-preview",
@@ -1130,72 +1130,41 @@ describe("AutoVideo shell", () => {
 
     expect(previewCaption).toHaveStyle({
       color: "#FFFFFF",
-      backgroundColor: "rgba(15, 23, 42, 0.92)",
       fontSize: "16px",
       maxWidth: "86%",
       transform: "translate(-50%, -50%) rotate(0deg) skewX(0deg) skewY(0deg)",
     });
+    expect(previewCaption.style.backgroundColor).toBe("");
 
     await user.click(screen.getByRole("button", { name: "Green Box 绿框口播" }));
 
     expect(previewCaption).toHaveStyle({
       color: "#101820",
-      backgroundColor: "rgba(255, 255, 255, 0.88)",
       fontSize: "20px",
       maxWidth: "70%",
       transform: "translate(-50%, -50%) rotate(-4deg) skewX(6deg) skewY(0deg)",
     });
+    expect(previewCaption.style.backgroundColor).toBe("");
   });
 
-  it("uses the higher contrast caption background for bright blue text", async () => {
+  it("does not add caption boards for custom subtitle colors", async () => {
     const user = userEvent.setup();
-    const blueTemplate = templateFixture({
-      id: "tmpl-blue-preview",
-      name: "亮蓝字幕模板",
-      is_modified: true,
-      templates: {
-        bottom: {
-          ...cleanBottomPreset.templates.bottom,
-          primary_color: "#38BDF8",
-        },
-      },
-      blocks: [
-        {
-          id: "blue-bottom",
-          role: "bottom",
-          style: {
-            font_family: "PingFang SC",
-            primary_color: "#38BDF8",
-          },
-          spans: [],
-        },
-      ],
-    });
-    mockedFetchSubtitleTemplateSets.mockResolvedValue({
-      items: [blueTemplate],
-      presets: [cleanBottomPreset],
-    });
-    renderApp();
-
-    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(await screen.findByRole("button", { name: "亮蓝字幕模板" }));
-
-    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
-      color: "#38BDF8",
-      backgroundColor: "rgba(15, 23, 42, 0.92)",
-    });
-  });
-
-  it("uses the higher contrast caption background for middle gray text", async () => {
-    const user = userEvent.setup();
-    const grayTemplate = templateFixture({
-      id: "tmpl-gray-preview",
-      name: "中灰字幕模板",
+    const colorTemplate = templateFixture({
+      id: "tmpl-color-preview",
+      name: "彩色字幕模板",
       is_modified: true,
       templates: {
         bottom: {
           ...cleanBottomPreset.templates.bottom,
           primary_color: "#777777",
+        },
+        highlight: {
+          ...cleanBottomPreset.templates.highlight,
+          primary_color: "#38BDF8",
+        },
+        punch: {
+          ...cleanBottomPreset.templates.punch,
+          primary_color: "#FFD54F",
         },
       },
       blocks: [
@@ -1208,59 +1177,12 @@ describe("AutoVideo shell", () => {
           },
           spans: [],
         },
-      ],
-    });
-    mockedFetchSubtitleTemplateSets.mockResolvedValue({
-      items: [grayTemplate],
-      presets: [cleanBottomPreset],
-    });
-    renderApp();
-
-    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(await screen.findByRole("button", { name: "中灰字幕模板" }));
-
-    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
-      color: "#777777",
-      backgroundColor: "#020617",
-    });
-  });
-
-  it("uses the higher contrast caption background for representative subtitle colors", async () => {
-    const user = userEvent.setup();
-    const colorTemplate = templateFixture({
-      id: "tmpl-representative-color-preview",
-      name: "代表色字幕模板",
-      is_modified: true,
-      templates: {
-        bottom: {
-          ...cleanBottomPreset.templates.bottom,
-          primary_color: "#FF4D8D",
-        },
-        highlight: {
-          ...cleanBottomPreset.templates.highlight,
-          primary_color: "#FFFFFF",
-        },
-        punch: {
-          ...cleanBottomPreset.templates.punch,
-          primary_color: "#FFD54F",
-        },
-      },
-      blocks: [
         {
-          id: "pink-bottom",
-          role: "bottom",
-          style: {
-            font_family: "PingFang SC",
-            primary_color: "#FF4D8D",
-          },
-          spans: [],
-        },
-        {
-          id: "white-highlight",
+          id: "blue-highlight",
           role: "highlight",
           style: {
             font_family: "PingFang SC",
-            primary_color: "#FFFFFF",
+            primary_color: "#38BDF8",
           },
           spans: [],
         },
@@ -1282,20 +1204,26 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    await user.click(await screen.findByRole("button", { name: "代表色字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "彩色字幕模板" }));
 
-    expect(await screen.findByTestId("subtitle-preview-caption-bottom")).toHaveStyle({
-      color: "#FF4D8D",
-      backgroundColor: "rgba(15, 23, 42, 0.92)",
+    const captions = [
+      await screen.findByTestId("subtitle-preview-caption-bottom"),
+      await screen.findByTestId("subtitle-preview-caption-highlight"),
+      await screen.findByTestId("subtitle-preview-caption-punch"),
+    ];
+    expect(captions[0]).toHaveStyle({ color: "#777777" });
+    expect(captions[1]).toHaveStyle({ color: "#38BDF8" });
+    expect(captions[2]).toHaveStyle({ color: "#FFD54F" });
+    captions.forEach((caption) => {
+      expect(caption.style.backgroundColor).toBe("");
     });
-    expect(await screen.findByTestId("subtitle-preview-caption-highlight")).toHaveStyle({
-      color: "#FFFFFF",
-      backgroundColor: "rgba(15, 23, 42, 0.92)",
-    });
-    expect(await screen.findByTestId("subtitle-preview-caption-punch")).toHaveStyle({
-      color: "#FFD54F",
-      backgroundColor: "rgba(15, 23, 42, 0.92)",
-    });
+  });
+
+  it("does not define a visible caption board in preview CSS", () => {
+    expect(stylesCss).toMatch(
+      /\.subtitle-preview-caption \{[\s\S]*?background:\s*transparent;[\s\S]*?padding:\s*0;/,
+    );
+    expect(stylesCss).not.toMatch(/\.subtitle-preview-caption \{[\s\S]*?background:\s*rgba/);
   });
 
   it("uses edited shadow before legacy shadow depth in the live subtitle preview", async () => {
