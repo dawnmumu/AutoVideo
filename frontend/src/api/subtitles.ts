@@ -28,6 +28,7 @@ export interface SubtitleTemplateValidationResult {
 export interface SubtitleTemplatePreviewRequest {
   template_set: SubtitleTemplateSet;
   template_type?: string;
+  template_types?: string[];
   aspect_ratio?: string;
   sample_text?: string;
   duration_ms?: number;

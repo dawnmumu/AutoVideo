@@ -52,6 +52,7 @@ const previewRoleLaneCandidates: Record<SubtitleRole, number[]> = {
   highlight: [52, 64, 40],
   punch: [30, 18, 42],
 };
+const previewTemplateTypes = editableRoles.map(({ role }) => role);
 
 function isPresetTemplate(
   template: SubtitleTemplateSet | undefined,
@@ -709,6 +710,7 @@ export function SubtitleTemplateWorkbench() {
       previewSubtitleTemplateSet({
         template_set: selectedDraft as SubtitleTemplateSet,
         template_type: "bottom",
+        template_types: previewTemplateTypes,
         aspect_ratio: previewAspectRatio,
         sample_text: sampleText,
       }),
@@ -719,6 +721,7 @@ export function SubtitleTemplateWorkbench() {
       previewSubtitleTimeline({
         template_set: selectedDraft as SubtitleTemplateSet,
         template_type: "bottom",
+        template_types: previewTemplateTypes,
         aspect_ratio: previewAspectRatio,
         sample_text: sampleText,
         duration_ms: 1200,
