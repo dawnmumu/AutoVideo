@@ -106,6 +106,39 @@ def test_render_mix_video_writes_ass_base_video_and_burned_output(tmp_path):
     assert "ass=" in " ".join(json.loads(log_path.read_text(encoding="utf-8")))
 
 
+def test_render_mix_video_ass_uses_style_layout_fields(tmp_path):
+    template = _template()
+    template["blocks"] = [
+        {
+            "id": "bottom-main",
+            "role": "bottom",
+            "style": {"x_percent": 40, "y_percent": 62, "alignment": "left"},
+            "spans": [],
+        },
+        {
+            "id": "highlight-main",
+            "role": "highlight",
+            "style": {"x_percent": 40, "y_percent": 62, "alignment": "left"},
+            "spans": [],
+        },
+    ]
+
+    result = rendering.render_mix_video(
+        settings=Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg"),
+        output_dir=tmp_path / "outputs",
+        timeline=_timeline(),
+        materials_by_id=_materials(tmp_path),
+        aspect_ratio="9:16",
+        subtitle_enabled=True,
+        subtitle_template_set=template,
+        source_subtitle_masks=[False],
+    )
+
+    ass_content = (tmp_path / "outputs" / "subtitles.ass").read_text(encoding="utf-8")
+    assert result.status == "manifest_only"
+    assert "\\an4\\pos(432,1190.4)" in ass_content
+
+
 def test_render_mix_video_without_ffmpeg_still_writes_timeline_srt_and_ass(tmp_path):
     result = rendering.render_mix_video(
         settings=Settings(_env_file=None, data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg"),

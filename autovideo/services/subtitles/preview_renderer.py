@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from autovideo.services.subtitles.event_enrichment import position_from_style_layout
 from autovideo.services.subtitles.ass_renderer import write_ass_file
 from autovideo.services.subtitles.ffmpeg_paths import ass_filter
 from autovideo.services.subtitles.timeline import SubtitleEvent
@@ -145,6 +146,7 @@ def _write_preview_ass(
     resolution: tuple[int, int],
 ) -> Path:
     block = _template_block(template_set, template_type)
+    position = _preview_block_position(template_set, template_type, block)
     event = SubtitleEvent(
         index=1,
         shot_index=1,
@@ -155,7 +157,7 @@ def _write_preview_ass(
         track_id=str(block.get("track_id") or "main"),
         spans=_list_of_dicts(block.get("spans")),
         style=dict(block.get("style")) if isinstance(block.get("style"), dict) else {},
-        position=dict(block.get("position")) if isinstance(block.get("position"), dict) else {},
+        position=position,
         event_animations=dict(block.get("animations")) if isinstance(block.get("animations"), dict) else {},
     )
     return write_ass_file(ass_path, [event], template_set, resolution)
@@ -169,6 +171,23 @@ def _template_block(template_set: dict[str, Any], template_type: str) -> dict[st
         if isinstance(block, dict) and block.get("role") == template_type:
             return block
     return {}
+
+
+def _preview_block_position(
+    template_set: dict[str, Any],
+    template_type: str,
+    block: dict[str, Any],
+) -> dict[str, Any]:
+    fallback_position = block.get("position") if isinstance(block.get("position"), dict) else {}
+    layout_style: dict[str, Any] = {}
+    templates = template_set.get("templates") if isinstance(template_set, dict) else {}
+    template = templates.get(template_type) if isinstance(templates, dict) else None
+    if isinstance(template, dict):
+        layout_style.update(dict(template))
+    if isinstance(block.get("style"), dict):
+        layout_style.update(dict(block["style"]))
+    position = position_from_style_layout(layout_style, fallback_position)
+    return dict(position if position is not None else fallback_position)
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:

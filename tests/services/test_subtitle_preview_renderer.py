@@ -55,6 +55,52 @@ def test_preview_ass_uses_current_default_text_for_empty_sample_text(tmp_path: P
     assert "AI 提升效率" not in preview_ass
 
 
+def test_preview_ass_uses_style_layout_fields_without_caption_board(tmp_path: Path):
+    template_set = {
+        "templates": {
+            "bottom": {
+                "font_family": "PingFang SC",
+                "font_size": 54,
+                "primary_color": "#FFFFFF",
+                "outline_color": "#654321",
+                "shadow_color": "#123456",
+                "background_color": "#000000",
+            }
+        },
+        "blocks": [
+            {
+                "role": "bottom",
+                "style": {
+                    "font_size": 72,
+                    "primary_color": "#00E5FF",
+                    "outline_color": "#654321",
+                    "shadow_color": "#123456",
+                    "background_color": "#000000",
+                    "x_percent": 40,
+                    "y_percent": 62,
+                    "alignment": "left",
+                },
+                "spans": [],
+            }
+        ],
+    }
+
+    preview_ass = preview_renderer._write_preview_ass(
+        tmp_path / "style-position.ass",
+        template_set,
+        "bottom",
+        "样式定位",
+        1200,
+        (1080, 1920),
+    ).read_text(encoding="utf-8")
+
+    assert "\\an4\\pos(432,1190.4)" in preview_ass
+    assert "BackColour, Bold" in preview_ass
+    bottom_style = next(line for line in preview_ass.splitlines() if line.startswith("Style: bottom,"))
+    assert "&H00563412" in bottom_style
+    assert "&H00000000" not in bottom_style
+
+
 def test_preview_png_uses_neutral_ffmpeg_background(tmp_path: Path, monkeypatch):
     commands = []
 

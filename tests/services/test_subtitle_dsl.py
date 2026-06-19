@@ -38,11 +38,14 @@ def test_validate_template_set_v2_preserves_supported_fields_and_warns_for_advan
                     "skew_y_deg": -3,
                     "fade_in_ms": 120,
                     "fade_out_ms": 80,
+                    "background_color": "#101820",
+                    "decoration_shape": "brackets",
                 },
                 "spans": [
                     {
                         "selector": {"type": "keyword", "value": "效率"},
                         "style": {"primary_color": "#FFD54F", "font_scale": 1.15},
+                        "animation": {"type": "fade"},
                     }
                 ],
                 "animations": {"in": {"type": "fade", "duration_ms": 120}},
@@ -86,6 +89,10 @@ def test_validate_template_set_v2_preserves_supported_fields_and_warns_for_advan
     assert result["normalized"]["templates"]["bottom"]["skew_y_deg"] == -3
     assert result["normalized"]["templates"]["bottom"]["fade_in_ms"] == 120
     assert result["normalized"]["templates"]["bottom"]["fade_out_ms"] == 80
+    assert result["normalized"]["blocks"][0]["style"]["background_color"] == "#101820"
+    assert result["normalized"]["blocks"][0]["spans"][0]["animation"] == {"type": "fade"}
+    assert result["normalized"]["templates"]["bottom"]["background_color"] == "#101820"
+    assert result["normalized"]["templates"]["bottom"]["decoration_shape"] == "brackets"
     assert result["normalized"]["template_variants"]["highlight"][0]["id"] == "emphasis"
     assert any("mask" in warning for warning in result["warnings"])
 

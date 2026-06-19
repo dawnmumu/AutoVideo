@@ -20,6 +20,7 @@ import {
   spansPatch,
   updateSpanAt,
 } from "./SubtitleLocalStyleEditor";
+import { SubtitleRoleStyleFields } from "./SubtitleRoleStyleFields";
 import type { SubtitleSpan } from "./SubtitleLocalStyleEditor";
 import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
@@ -30,6 +31,14 @@ const editableRoles = [
 ] as const;
 
 type SubtitleRole = (typeof editableRoles)[number]["role"];
+
+type SubtitlePreviewTextEffects = {
+  outlineColor: string;
+  outlineWidthPx: number;
+  shadowBlurPx: number;
+  shadowColor: string;
+  shadowOffsetPx: number;
+};
 
 const previewRoleDefaults: Record<SubtitleRole, { x: number; y: number; fontSize: number }> = {
   bottom: { x: 50, y: 78, fontSize: 54 },
@@ -99,17 +108,75 @@ function stylePatch(
       },
     },
     blocks: blocks.map((block) =>
-      block.role === role
-        ? {
-            ...block,
-            style: {
-              ...blockStyle(block),
-              ...patch,
-            },
-          }
-        : block,
+      block.role === role ? blockWithStylePatch(block, role, patch) : block,
     ),
   };
+}
+
+function blockWithStylePatch(
+  block: Record<string, unknown>,
+  role: string,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const style = {
+    ...blockStyle(block),
+    ...patch,
+  };
+  const nextBlock = {
+    ...block,
+    style,
+  };
+  if (!hasLayoutStylePatch(patch)) {
+    return nextBlock;
+  }
+  return {
+    ...nextBlock,
+    position: positionFromLayoutStyle(role, style, blockPosition(block)),
+  };
+}
+
+function hasLayoutStylePatch(patch: Record<string, unknown>): boolean {
+  return "x_percent" in patch || "y_percent" in patch || "alignment" in patch;
+}
+
+function positionFromLayoutStyle(
+  role: string,
+  style: Record<string, unknown>,
+  position: Record<string, unknown>,
+): Record<string, unknown> {
+  const defaults =
+    role in previewRoleDefaults
+      ? previewRoleDefaults[role as SubtitleRole]
+      : previewRoleDefaults.bottom;
+  const xFallback = ratioOrPercentToPercent(position.x, defaults.x);
+  const yFallback = ratioOrPercentToPercent(position.y, defaults.y);
+  return {
+    ...position,
+    x: percentToRatio(style.x_percent, xFallback),
+    y: percentToRatio(style.y_percent, yFallback),
+    anchor: alignmentValue(style.alignment, alignmentValue(position.anchor, "center")),
+  };
+}
+
+function ratioOrPercentToPercent(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  if (parsed >= 0 && parsed <= 1) {
+    return parsed * 100;
+  }
+  return clampValue(parsed, 0, 100);
+}
+
+function percentToRatio(value: unknown, fallbackPercent: number): number {
+  const parsed = Number(value);
+  const percent = Number.isFinite(parsed) ? parsed : fallbackPercent;
+  return Math.round(clampValue(percent, 0, 100) * 1000) / 100000;
+}
+
+function alignmentValue(value: unknown, fallback: string): string {
+  return value === "left" || value === "center" || value === "right" ? value : fallback;
 }
 
 function previewErrorText(error: unknown): string {
@@ -141,15 +208,60 @@ function persistentStyleValue(key: string, value: string): string | number {
     return numericPatchValue(value, 0.86);
   }
   if (
+    key === "font_weight" ||
+    key === "x_percent" ||
+    key === "y_percent" ||
     key === "outline_width" ||
     key === "shadow" ||
     key === "margin_v" ||
     key === "rotate" ||
-    key === "skew"
+    key === "skew" ||
+    key === "skew_y_deg"
   ) {
     return numericPatchValue(value, 0);
   }
   return value;
+}
+
+function styleFieldFallback(role: string, key: string): string {
+  const defaults =
+    role in previewRoleDefaults
+      ? previewRoleDefaults[role as SubtitleRole]
+      : previewRoleDefaults.bottom;
+  switch (key) {
+    case "accent_color":
+      return "#FFD54F";
+    case "alignment":
+      return "center";
+    case "background_color":
+    case "shadow_color":
+      return "#000000";
+    case "decoration_shape":
+      return "none";
+    case "font_family":
+      return "PingFang SC";
+    case "font_size_scale":
+      return "1";
+    case "max_width":
+      return "0.86";
+    case "outline_color":
+      return "#111111";
+    case "outline_width":
+      return "2";
+    case "primary_color":
+      return "#FFFFFF";
+    case "rotate":
+    case "shadow":
+    case "skew":
+    case "skew_y_deg":
+      return "0";
+    case "x_percent":
+      return String(defaults.x);
+    case "y_percent":
+      return String(defaults.y);
+    default:
+      return "";
+  }
 }
 
 function numericStyleValue(
@@ -273,12 +385,45 @@ function previewTranslateForAlignment(alignment: string): string {
   return "translate(-50%, -50%)";
 }
 
+function previewEffectPixels(value: number, scale: number): number {
+  const rounded = Math.round(clampValue(value, 0, 12) * scale * 100) / 100;
+  return rounded > 0 && rounded < 0.5 ? 0.5 : rounded;
+}
+
+function cssPixels(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}px`;
+}
+
+function subtitlePreviewTextEffects(
+  template: SubtitleTemplateSet | undefined,
+  role: SubtitleRole,
+): SubtitlePreviewTextEffects {
+  const outlineWidth = numericStyleValue(template, role, "outline_width", 2);
+  const shadowDepth = numericStyleValue(
+    template,
+    role,
+    "shadow",
+    numericStyleValue(template, role, "shadow_depth", 0),
+  );
+  const shadowOffsetPx = previewEffectPixels(shadowDepth, 0.55);
+  return {
+    outlineColor: styleValue(template, role, "outline_color", "#111111"),
+    outlineWidthPx: previewEffectPixels(outlineWidth, 0.25),
+    shadowBlurPx: previewEffectPixels(shadowDepth, 1.1),
+    shadowColor: styleValue(template, role, "shadow_color", "#000000"),
+    shadowOffsetPx,
+  };
+}
+
 function subtitlePreviewCaptionStyle(
   template: SubtitleTemplateSet | undefined,
   role: SubtitleRole,
   previewAspectRatio: string,
+  effects: SubtitlePreviewTextEffects,
 ): CSSProperties {
   const primaryColor = styleValue(template, role, "primary_color", "#FFFFFF");
+  const safePrimaryColor = parseHexColor(primaryColor) ? primaryColor : "#FFFFFF";
   const fontSize = numericStyleValue(template, role, "font_size", previewRoleDefaults[role].fontSize);
   const fontScale = numericStyleValue(
     template,
@@ -305,25 +450,17 @@ function subtitlePreviewCaptionStyle(
     "skew",
     numericStyleValue(template, role, "skew_x_deg", 0),
   );
-  const outlineWidth = numericStyleValue(template, role, "outline_width", 2);
-  const shadowDepth = numericStyleValue(
-    template,
-    role,
-    "shadow",
-    numericStyleValue(template, role, "shadow_depth", 0),
-  );
   const skewY = numericStyleValue(template, role, "skew_y_deg", 0);
   const alignment = styleValue(template, role, "alignment", "center");
   const previewFontSize = Math.round(
     clampValue(fontSize / 54, 0.82, 1.35) * 16 * clampValue(fontScale, 0.6, 1.8),
   );
-  const previewOutline = clampValue(outlineWidth, 0, 8) / 2;
-  const previewShadow = clampValue(shadowDepth, 0, 8);
 
   return {
-    color: parseHexColor(primaryColor) ? primaryColor : "#FFFFFF",
+    color: safePrimaryColor,
     fontFamily: styleValue(template, role, "font_family", "PingFang SC"),
     fontSize: `${previewFontSize}px`,
+    fontWeight: numericStyleValue(template, role, "font_weight", 700),
     left: `${previewPercentValue(template, role, "x", previewAspectRatio)}%`,
     top:
       template?.templates?.[role]?.y_percent !== undefined ||
@@ -335,54 +472,66 @@ function subtitlePreviewCaptionStyle(
           )}px)`,
     maxWidth: `${Math.round(clampValue(maxWidth, 0.4, 1) * 100)}%`,
     textShadow:
-      previewShadow > 0
-        ? `0 ${Math.ceil(previewShadow / 2)}px ${previewShadow}px ${styleValue(
-            template,
-            role,
-            "shadow_color",
-            "#000000",
-          )}`
+      effects.shadowOffsetPx > 0
+        ? `${cssPixels(effects.shadowOffsetPx)} ${cssPixels(effects.shadowOffsetPx)} ${cssPixels(
+            Math.max(1, effects.shadowBlurPx),
+          )} ${effects.shadowColor}, 0 0 ${cssPixels(effects.outlineWidthPx)} ${effects.outlineColor}`
         : "none",
     textAlign: alignment === "left" || alignment === "right" ? alignment : "center",
     transform: `${previewTranslateForAlignment(alignment)} rotate(${rotate}deg) skewX(${skew}deg) skewY(${skewY}deg)`,
+    paintOrder: "stroke fill",
+    WebkitTextFillColor: safePrimaryColor,
     WebkitTextStroke:
-      previewOutline > 0
-        ? `${previewOutline}px ${styleValue(template, role, "outline_color", "#111111")}`
-        : undefined,
+      effects.outlineWidthPx > 0 ? `${cssPixels(effects.outlineWidthPx)} ${effects.outlineColor}` : undefined,
   };
 }
 
-function previewSpanStyle(span: SubtitleSpan, baseFontSizePx: number): CSSProperties {
+function previewSpanStyle(
+  span: SubtitleSpan,
+  baseFontSizePx: number,
+  inheritedEffects: SubtitlePreviewTextEffects,
+): CSSProperties {
   const style = typeof span.style === "object" && span.style !== null ? span.style : {};
   const primaryColor = typeof style.primary_color === "string" ? style.primary_color : "";
+  const safePrimaryColor = parseHexColor(primaryColor) ? primaryColor : undefined;
   const fontScale = numericUnknownValue(style.font_scale, 1);
   const fontSize =
     style.font_size !== undefined
       ? numericUnknownValue(style.font_size, baseFontSizePx)
       : baseFontSizePx * clampValue(fontScale, 0.5, 1.8);
+  const hasOutlineOverride =
+    style.outline_width !== undefined || typeof style.outline_color === "string";
   const outlineWidth =
-    style.outline_width !== undefined ? clampValue(numericUnknownValue(style.outline_width, 0), 0, 8) : 0;
+    style.outline_width !== undefined
+      ? previewEffectPixels(numericUnknownValue(style.outline_width, 0), 0.25)
+      : inheritedEffects.outlineWidthPx;
+  const outlineColor =
+    typeof style.outline_color === "string" ? style.outline_color : inheritedEffects.outlineColor;
+  const hasShadowOverride =
+    style.shadow !== undefined ||
+    style.shadow_depth !== undefined ||
+    typeof style.shadow_color === "string";
   const shadowDepth =
     style.shadow !== undefined || style.shadow_depth !== undefined
-      ? clampValue(numericUnknownValue(style.shadow ?? style.shadow_depth, 0), 0, 8)
-      : 0;
+      ? numericUnknownValue(style.shadow ?? style.shadow_depth, 0)
+      : inheritedEffects.shadowOffsetPx / 0.55;
+  const shadowOffset = previewEffectPixels(shadowDepth, 0.55);
+  const shadowBlur = Math.max(1, previewEffectPixels(shadowDepth, 1.1));
+  const shadowColor =
+    typeof style.shadow_color === "string" ? style.shadow_color : inheritedEffects.shadowColor;
 
   return {
-    color: parseHexColor(primaryColor) ? primaryColor : undefined,
+    color: safePrimaryColor,
     fontFamily: typeof style.font_family === "string" ? style.font_family : undefined,
     fontSize: `${Math.round(fontSize)}px`,
+    paintOrder: "stroke fill",
     textShadow:
-      shadowDepth > 0
-        ? `0 ${Math.ceil(shadowDepth / 2)}px ${shadowDepth}px ${
-            typeof style.shadow_color === "string" ? style.shadow_color : "#000000"
-          }`
+      hasShadowOverride && shadowOffset > 0
+        ? `${cssPixels(shadowOffset)} ${cssPixels(shadowOffset)} ${cssPixels(shadowBlur)} ${shadowColor}`
         : undefined,
+    WebkitTextFillColor: safePrimaryColor,
     WebkitTextStroke:
-      outlineWidth > 0
-        ? `${outlineWidth / 2}px ${
-            typeof style.outline_color === "string" ? style.outline_color : "#111111"
-          }`
-        : undefined,
+      hasOutlineOverride && outlineWidth > 0 ? `${cssPixels(outlineWidth)} ${outlineColor}` : undefined,
   };
 }
 
@@ -423,6 +572,7 @@ function renderPreviewCaptionText(
   spans: SubtitleSpan[],
   role: SubtitleRole,
   baseFontSizePx: number,
+  inheritedEffects: SubtitlePreviewTextEffects,
 ) {
   const ranges = spanPreviewRanges(text, spans);
   if (!ranges.length) {
@@ -440,7 +590,7 @@ function renderPreviewCaptionText(
         className="subtitle-preview-local-span"
         data-testid={`subtitle-preview-local-span-${role}-${range.spanIndex}`}
         key={`${role}-${range.spanIndex}-${range.start}`}
-        style={previewSpanStyle(range.span, baseFontSizePx)}
+        style={previewSpanStyle(range.span, baseFontSizePx, inheritedEffects)}
       >
         {text.slice(range.start, range.end)}
       </span>,
@@ -645,11 +795,19 @@ export function SubtitleTemplateWorkbench() {
     if (!selected || !isEditable) {
       return;
     }
+    const nextValue = persistentStyleValue(key, value);
+    const currentSavedValue = persistentStyleValue(
+      key,
+      styleValue(selected, role, key, key === "sample_text" ? sampleText : styleFieldFallback(role, key)),
+    );
+    if (Object.is(nextValue, currentSavedValue)) {
+      return;
+    }
     resetTemplateResultState();
     setSaveErrorPlacement("editor");
     const draftRevision = nextDraftRevision(selected.id);
     const base = templateDrafts[selected.id] ?? selected;
-    const patch = stylePatch(base, role, { [key]: persistentStyleValue(key, value) });
+    const patch = stylePatch(base, role, { [key]: nextValue });
     const nextTemplate = { ...base, ...patch };
     setTemplateDrafts((current) => ({ ...current, [selected.id]: nextTemplate }));
     saveTemplate.mutate({ id: selected.id, patch, draftRevision });
@@ -708,7 +866,11 @@ export function SubtitleTemplateWorkbench() {
     updater: (span: SubtitleSpan) => SubtitleSpan,
   ) => {
     const base = templateDrafts[selected?.id ?? ""] ?? selectedDraft;
-    const spans = updateSpanAt(roleSpans(base, role), index, updater);
+    const currentSpans = roleSpans(base, role);
+    const spans = updateSpanAt(currentSpans, index, updater);
+    if (selected && subtitleSpansEqual(roleSpans(selected, role), spans)) {
+      return;
+    }
     saveRoleSpans(role, spans);
   };
 
@@ -836,30 +998,42 @@ export function SubtitleTemplateWorkbench() {
                 <option value="16:9">16:9</option>
               </select>
             </label>
-            <div
-              className="subtitle-preview-frame"
-              data-testid="subtitle-preview-frame"
-              style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
-            >
-              {editableRoles.map(({ role, label }) => {
-                const captionStyle = subtitlePreviewCaptionStyle(
-                  selectedDraft,
-                  role,
-                  previewAspectRatio,
-                );
-                const baseFontSize = Number.parseFloat(String(captionStyle.fontSize ?? "16")) || 16;
-                return (
-                  <span
-                    aria-label={`${label}预览`}
-                    className={`subtitle-preview-caption subtitle-preview-caption-${role}`}
-                    data-testid={`subtitle-preview-caption-${role}`}
-                    key={role}
-                    style={captionStyle}
-                  >
-                    {renderPreviewCaptionText(sampleText, roleSpans(selectedDraft, role), role, baseFontSize)}
-                  </span>
-                );
-              })}
+            <div className="subtitle-preview-screen" data-testid="subtitle-preview-screen">
+              <div
+                className="subtitle-preview-frame"
+                data-testid="subtitle-preview-frame"
+                style={{ aspectRatio: previewAspectRatio === "16:9" ? "16 / 9" : "9 / 16" }}
+              >
+                <div className="subtitle-preview-safe-area" data-testid="subtitle-preview-safe-area" />
+                {editableRoles.map(({ role, label }) => {
+                  const effects = subtitlePreviewTextEffects(selectedDraft, role);
+                  const captionText = styleValue(selectedDraft, role, "sample_text", sampleText);
+                  const captionStyle = subtitlePreviewCaptionStyle(
+                    selectedDraft,
+                    role,
+                    previewAspectRatio,
+                    effects,
+                  );
+                  const baseFontSize = Number.parseFloat(String(captionStyle.fontSize ?? "16")) || 16;
+                  return (
+                    <span
+                      aria-label={`${label}预览`}
+                      className={`subtitle-preview-caption subtitle-preview-caption-${role}`}
+                      data-testid={`subtitle-preview-caption-${role}`}
+                      key={role}
+                      style={captionStyle}
+                    >
+                      {renderPreviewCaptionText(
+                        captionText,
+                        roleSpans(selectedDraft, role),
+                        role,
+                        baseFontSize,
+                        effects,
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
             <div className="button-row">
               <button
@@ -914,105 +1088,17 @@ export function SubtitleTemplateWorkbench() {
           {editableRoles.map(({ role, label }) => (
             <fieldset key={role}>
               <legend>{label}</legend>
-              <label>
-                <span>字体</span>
-                <select
-                  disabled={!isEditable}
-                  value={styleValue(selectedDraft, role, "font_family", "PingFang SC")}
-                  onChange={(event) => {
-                    updateStyleDraft(role, "font_family", event.target.value);
-                    saveStyleValue(role, "font_family", event.target.value);
-                  }}
-                >
-                  <option value="PingFang SC">PingFang SC</option>
-                  <option value="Noto Sans CJK SC">Noto Sans CJK SC</option>
-                </select>
-              </label>
-              <label>
-                <span>主色</span>
-                <input
-                  disabled={!isEditable}
-                  value={styleValue(selectedDraft, role, "primary_color", "#FFFFFF")}
-                  onBlur={(event) => saveStyleValue(role, "primary_color", event.target.value)}
-                  onChange={(event) =>
-                    updateStyleDraft(role, "primary_color", event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                <span>字号比例</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="decimal"
-                  value={styleValue(selectedDraft, role, "font_size_scale", "1")}
-                  onBlur={(event) => saveStyleValue(role, "font_size_scale", event.target.value)}
-                  onChange={(event) =>
-                    updateStyleDraft(role, "font_size_scale", event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                <span>描边宽度</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="numeric"
-                  value={styleValue(selectedDraft, role, "outline_width", "2")}
-                  onBlur={(event) => saveStyleValue(role, "outline_width", event.target.value)}
-                  onChange={(event) =>
-                    updateStyleDraft(role, "outline_width", event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                <span>阴影强度</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="numeric"
-                  value={styleValue(selectedDraft, role, "shadow", "0")}
-                  onBlur={(event) => saveStyleValue(role, "shadow", event.target.value)}
-                  onChange={(event) => updateStyleDraft(role, "shadow", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>垂直位置</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="numeric"
-                  value={styleValue(selectedDraft, role, "margin_v", "96")}
-                  onBlur={(event) => saveStyleValue(role, "margin_v", event.target.value)}
-                  onChange={(event) => updateStyleDraft(role, "margin_v", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>最大宽度</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="decimal"
-                  value={styleValue(selectedDraft, role, "max_width", "0.86")}
-                  onBlur={(event) => saveStyleValue(role, "max_width", event.target.value)}
-                  onChange={(event) => updateStyleDraft(role, "max_width", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>旋转</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="numeric"
-                  value={styleValue(selectedDraft, role, "rotate", "0")}
-                  onBlur={(event) => saveStyleValue(role, "rotate", event.target.value)}
-                  onChange={(event) => updateStyleDraft(role, "rotate", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>倾斜</span>
-                <input
-                  disabled={!isEditable}
-                  inputMode="numeric"
-                  value={styleValue(selectedDraft, role, "skew", "0")}
-                  onBlur={(event) => saveStyleValue(role, "skew", event.target.value)}
-                  onChange={(event) => updateStyleDraft(role, "skew", event.target.value)}
-                />
-              </label>
+              <SubtitleRoleStyleFields
+                isEditable={isEditable}
+                role={role}
+                roleDefaults={previewRoleDefaults[role]}
+                sampleText={sampleText}
+                styleValue={(styleRole, key, fallback) =>
+                  styleValue(selectedDraft, styleRole, key, fallback)
+                }
+                onSaveStyleValue={saveStyleValue}
+                onUpdateStyleDraft={updateStyleDraft}
+              />
               <SubtitleLocalStyleEditor
                 isEditable={isEditable}
                 label={label}
@@ -1030,4 +1116,39 @@ export function SubtitleTemplateWorkbench() {
       </div>
     </article>
   );
+}
+
+function subtitleSpansEqual(first: SubtitleSpan[], second: SubtitleSpan[]): boolean {
+  return stableJson(first.map(normalizeSubtitleSpanForCompare)) === stableJson(second.map(normalizeSubtitleSpanForCompare));
+}
+
+function normalizeSubtitleSpanForCompare(span: SubtitleSpan): SubtitleSpan {
+  return {
+    animation:
+      typeof span.animation === "object" && span.animation !== null
+        ? sortRecord(span.animation)
+        : undefined,
+    selector:
+      typeof span.selector === "object" && span.selector !== null
+        ? sortRecord(span.selector)
+        : {},
+    style: typeof span.style === "object" && span.style !== null ? sortRecord(span.style) : {},
+  };
+}
+
+function sortRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.keys(record)
+    .sort()
+    .reduce<Record<string, unknown>>((result, key) => {
+      const value = record[key];
+      result[key] =
+        typeof value === "object" && value !== null && !Array.isArray(value)
+          ? sortRecord(value as Record<string, unknown>)
+          : value;
+      return result;
+    }, {});
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value);
 }

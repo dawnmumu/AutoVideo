@@ -6,6 +6,8 @@ from typing import Any
 
 from autovideo.services.subtitles.timeline import SubtitleEvent
 
+LAYOUT_STYLE_FIELDS = {"alignment", "position", "x_percent", "y_percent"}
+
 
 def enrich_subtitle_events(
     events: list[SubtitleEvent],
@@ -24,12 +26,45 @@ def enrich_subtitle_events(
         if isinstance(track_id, str) and track_id.strip() and event.track_id == "main":
             event.track_id = track_id.strip()
 
+        layout_style = _merge_defaults(_template_block_style(template_set, block, event.template), event.style)
+        position_defaults = position_from_style_layout(layout_style, block.get("position"))
         event.style = _merge_defaults(block.get("style"), event.style)
-        event.position = _merge_defaults(block.get("position"), event.position)
+        event.position = _merge_defaults(
+            position_defaults if position_defaults is not None else block.get("position"),
+            event.position,
+        )
         event.event_animations = _merge_defaults(block.get("animations"), event.event_animations)
         event.spans = _merge_spans(block.get("spans"), event.spans)
 
     return enriched
+
+
+def position_from_style_layout(style: Any, fallback_position: Any = None) -> dict[str, Any] | None:
+    if not isinstance(style, dict) or not any(field in style for field in LAYOUT_STYLE_FIELDS):
+        return None
+
+    fallback = copy.deepcopy(fallback_position) if isinstance(fallback_position, dict) else {}
+    position = fallback if isinstance(fallback, dict) else {}
+
+    x = _percent_to_ratio(style.get("x_percent"))
+    if x is not None:
+        position["x"] = x
+    elif "x" not in position:
+        position["x"] = 0.5
+
+    y = _percent_to_ratio(style.get("y_percent"))
+    if y is not None:
+        position["y"] = y
+    elif "y" not in position:
+        position["y"] = _fallback_y_for_position(style.get("position"))
+
+    anchor = _anchor_from_alignment(style.get("alignment"))
+    if anchor is not None:
+        position["anchor"] = anchor
+    elif "anchor" not in position:
+        position["anchor"] = "center"
+
+    return position
 
 
 def _resolve_block(template_set: dict[str, Any], event: SubtitleEvent) -> dict[str, Any] | None:
@@ -47,6 +82,18 @@ def _base_block(template_set: dict[str, Any], role: str) -> dict[str, Any] | Non
         if isinstance(block, dict) and block.get("role") == role:
             return block
     return None
+
+
+def _template_block_style(template_set: dict[str, Any], block: dict[str, Any], role: str) -> dict[str, Any]:
+    style: dict[str, Any] = {}
+    templates = template_set.get("templates") if isinstance(template_set, dict) else {}
+    template = templates.get(block.get("role") or role) if isinstance(templates, dict) else None
+    if isinstance(template, dict):
+        style.update(copy.deepcopy(template))
+    block_style = block.get("style")
+    if isinstance(block_style, dict):
+        style.update(copy.deepcopy(block_style))
+    return style
 
 
 def _variant_block(template_set: dict[str, Any], role: str, variant_id: str | None) -> dict[str, Any] | None:
@@ -156,10 +203,27 @@ def _merge_spans(default_spans: Any, current_spans: list[dict[str, Any]]) -> lis
             if selector_key in selector_indexes:
                 if source_index == 0:
                     merged[selector_indexes[selector_key]] = candidate
+                else:
+                    index = selector_indexes[selector_key]
+                    merged[index] = _merge_span_animation_default(candidate, merged[index])
                 continue
 
             selector_indexes[selector_key] = len(merged)
             merged.append(candidate)
+    return merged
+
+
+def _merge_span_animation_default(default_span: dict[str, Any], current_span: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(current_span)
+    default_animation = default_span.get("animation")
+    if not isinstance(default_animation, dict):
+        return merged
+
+    current_animation = merged.get("animation")
+    if isinstance(current_animation, dict):
+        merged["animation"] = _merge_defaults(default_animation, current_animation)
+    else:
+        merged["animation"] = copy.deepcopy(default_animation)
     return merged
 
 
@@ -200,3 +264,41 @@ def _span_range_int(value: Any) -> int | None:
             return None
         return int(number)
     return None
+
+
+def _percent_to_ratio(value: Any) -> float | None:
+    number = _finite_number(value)
+    if number is None:
+        return None
+    return max(0, min(1, number / 100))
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value) if math.isfinite(value) else None
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            number = float(candidate)
+        except ValueError:
+            return None
+        return number if math.isfinite(number) else None
+    return None
+
+
+def _fallback_y_for_position(value: Any) -> float:
+    position = str(value or "").strip()
+    if position == "upper":
+        return 0.25
+    if position == "center":
+        return 0.5
+    return 0.78
+
+
+def _anchor_from_alignment(value: Any) -> str | None:
+    candidate = str(value or "").strip()
+    return candidate if candidate in {"left", "center", "right"} else None

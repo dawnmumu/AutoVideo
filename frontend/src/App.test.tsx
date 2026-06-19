@@ -341,11 +341,13 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("uses a readable neutral preview canvas instead of a black frame", () => {
+  it("uses the target dark video preview canvas", () => {
+    expect(stylesCss).toMatch(/\.subtitle-preview-screen \{[\s\S]*?background:\s*#0b0f14;/);
+    expect(stylesCss).toMatch(/\.subtitle-preview-frame \{[\s\S]*?background:\s*#101820;/);
     expect(stylesCss).toMatch(
-      /\.subtitle-preview-frame \{[\s\S]*?background:\s*linear-gradient\([\s\S]*?#f8fafc/,
+      /\.subtitle-preview-safe-area \{[\s\S]*?border-top:\s*1px dashed rgba\(255,\s*255,\s*255,\s*0\.22\);/,
     );
-    expect(stylesCss).not.toMatch(/\.subtitle-preview-frame \{[\s\S]*?background:\s*#111827;/);
+    expect(stylesCss).not.toMatch(/\.subtitle-preview-frame \{[\s\S]*?background:\s*linear-gradient/);
   });
 
   it("returns to the remix workspace through hash navigation", async () => {
@@ -544,19 +546,28 @@ describe("AutoVideo shell", () => {
 
     expect(await screen.findByRole("button", { name: "设为默认" })).toBeInTheDocument();
     expect(screen.getByLabelText("示例文本")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("文本")).toHaveLength(3);
     expect(screen.getAllByLabelText("字体")).toHaveLength(3);
-    expect(screen.getAllByLabelText("主色")).toHaveLength(3);
+    expect(screen.getAllByLabelText("颜色")).toHaveLength(3);
+    expect(screen.getAllByLabelText("背景")).toHaveLength(3);
+    expect(screen.getAllByLabelText("强调色")).toHaveLength(3);
+    expect(screen.getAllByLabelText("括号装饰")).toHaveLength(3);
+    expect(screen.getAllByLabelText("描边")).toHaveLength(3);
+    expect(screen.getAllByLabelText("阴影")).toHaveLength(3);
     expect(screen.getByRole("group", { name: "底部字幕" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "强调字幕" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "冲击字幕" })).toBeInTheDocument();
     expect(screen.getByLabelText("预览画幅")).toHaveValue("9:16");
-    expect(screen.getAllByLabelText("字号比例")).toHaveLength(3);
+    expect(screen.getAllByLabelText("横向位置 %")).toHaveLength(3);
+    expect(screen.getAllByLabelText("纵向位置 %")).toHaveLength(3);
+    expect(screen.getAllByLabelText("对齐")).toHaveLength(3);
+    expect(screen.getAllByLabelText("字号")).toHaveLength(3);
     expect(screen.getAllByLabelText("描边宽度")).toHaveLength(3);
     expect(screen.getAllByLabelText("阴影强度")).toHaveLength(3);
-    expect(screen.getAllByLabelText("垂直位置")).toHaveLength(3);
     expect(screen.getAllByLabelText("最大宽度")).toHaveLength(3);
     expect(screen.getAllByLabelText("旋转")).toHaveLength(3);
-    expect(screen.getAllByLabelText("倾斜")).toHaveLength(3);
+    expect(screen.getAllByLabelText("X 倾斜")).toHaveLength(3);
+    expect(screen.getAllByLabelText("Y 倾斜")).toHaveLength(3);
     expect(screen.queryByLabelText("局部关键词")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("局部高亮色")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存局部高亮" })).not.toBeInTheDocument();
@@ -947,6 +958,30 @@ describe("AutoVideo shell", () => {
       ),
     );
 
+    await user.selectOptions(screen.getByLabelText("强调字幕局部样式 1 动画"), "fade");
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-local-style-editor",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "highlight",
+                spans: [
+                  expect.objectContaining({
+                    animation: { type: "fade" },
+                    selector: { type: "keyword", value: "重复" },
+                    style: expect.objectContaining({ primary_color: "#00E5FF" }),
+                  }),
+                ],
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+
     await user.click(screen.getByRole("button", { name: "新增冲击字幕局部样式" }));
 
     await waitFor(() =>
@@ -1020,9 +1055,7 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "局部数字输入模板" }));
-    const fontScaleInput = await screen.findByLabelText(
-      "强调字幕局部样式 1 字号比例",
-    ) as HTMLInputElement;
+    const fontScaleInput = await screen.findByLabelText("强调字幕局部样式 1 字号") as HTMLInputElement;
     const rangeStartInput = await screen.findByLabelText(
       "冲击字幕局部样式 1 开始",
     ) as HTMLInputElement;
@@ -1078,6 +1111,188 @@ describe("AutoVideo shell", () => {
         }),
       ),
     );
+  });
+
+  it("does not save unchanged local subtitle span fields on blur", async () => {
+    const user = userEvent.setup();
+    const localStyleTemplate = templateFixture({
+      id: "tmpl-local-style-noop-blur",
+      name: "局部样式无变更模板",
+      is_modified: true,
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: { font_family: "PingFang SC", primary_color: "#FFD54F" },
+          spans: [
+            {
+              selector: { type: "keyword", value: "AI" },
+              style: { primary_color: "#00E5FF", font_family: "PingFang SC", font_scale: 1.1 },
+              animation: { type: "fade" },
+            },
+          ],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: { font_family: "PingFang SC", primary_color: "#FFFFFF" },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [localStyleTemplate],
+      presets: [cleanBottomPreset],
+    });
+    mockedUpdateSubtitleTemplateSet.mockImplementation(async ({ id, patch }) => ({
+      ...localStyleTemplate,
+      ...patch,
+      id,
+    }));
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "局部样式无变更模板" }));
+    const keywordInput = await screen.findByLabelText("强调字幕局部样式 1 关键词");
+
+    keywordInput.focus();
+    await user.tab();
+
+    expect(mockedUpdateSubtitleTemplateSet).not.toHaveBeenCalled();
+  });
+
+  it("updates target-aligned subtitle block fields in the live preview", async () => {
+    const user = userEvent.setup();
+    const targetFieldsTemplate = templateFixture({
+      id: "tmpl-target-fields",
+      name: "目标字段模板",
+      is_modified: true,
+      templates: {
+        bottom: {
+          font_family: "Noto Sans CJK SC",
+          font_size_scale: 1,
+          primary_color: "#FFFFFF",
+          outline_color: "#111111",
+          outline_width: 4,
+          shadow_color: "#000000",
+          shadow_depth: 2,
+          x_percent: 50,
+          y_percent: 78,
+          alignment: "center",
+          skew_y_deg: 0,
+        },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: {
+            font_family: "Noto Sans CJK SC",
+            font_size_scale: 1,
+            primary_color: "#FFFFFF",
+            outline_color: "#111111",
+            outline_width: 4,
+            shadow_color: "#000000",
+            shadow_depth: 2,
+            x_percent: 50,
+            y_percent: 78,
+            alignment: "center",
+            skew_y_deg: 0,
+          },
+          spans: [],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [targetFieldsTemplate],
+      presets: [cleanBottomPreset],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+    await user.click(await screen.findByRole("button", { name: "目标字段模板" }));
+    const caption = await screen.findByTestId("subtitle-preview-caption-bottom");
+    const textInput = screen.getAllByLabelText("文本")[0] as HTMLInputElement;
+    const xInput = screen.getAllByLabelText("横向位置 %")[0] as HTMLInputElement;
+    const yInput = screen.getAllByLabelText("纵向位置 %")[0] as HTMLInputElement;
+    const alignSelect = screen.getAllByLabelText("对齐")[0] as HTMLSelectElement;
+    const colorInput = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
+    const outlineColorInput = screen.getAllByLabelText("描边")[0] as HTMLInputElement;
+    const shadowColorInput = screen.getAllByLabelText("阴影")[0] as HTMLInputElement;
+    const ySkewInput = screen.getAllByLabelText("Y 倾斜")[0] as HTMLInputElement;
+
+    await user.clear(textInput);
+    await user.type(textInput, "底部字幕预览");
+    expect(caption).toHaveTextContent("底部字幕预览");
+
+    await user.clear(xInput);
+    await user.type(xInput, "40");
+    expect(caption.style.left).toBe("40%");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-target-fields",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "bottom",
+                position: expect.objectContaining({ x: 0.4, y: 0.78, anchor: "center" }),
+                style: expect.objectContaining({ x_percent: 40 }),
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+
+    await user.clear(yInput);
+    await user.type(yInput, "62");
+    expect(caption.style.top).toBe("62%");
+    await user.tab();
+
+    await user.selectOptions(alignSelect, "left");
+    expect(caption.style.textAlign).toBe("left");
+    expect(caption.style.transform).toContain("translate(0, -50%)");
+    await waitFor(() =>
+      expect(mockedUpdateSubtitleTemplateSet).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: "tmpl-target-fields",
+          patch: expect.objectContaining({
+            blocks: expect.arrayContaining([
+              expect.objectContaining({
+                role: "bottom",
+                position: expect.objectContaining({ x: 0.4, y: 0.62, anchor: "left" }),
+                style: expect.objectContaining({ alignment: "left", y_percent: 62 }),
+              }),
+            ]),
+          }),
+        }),
+      ),
+    );
+
+    await user.clear(colorInput);
+    await user.type(colorInput, "#FFF176");
+    expect(caption.style.webkitTextFillColor).toBe("rgb(255, 241, 118)");
+
+    await user.clear(outlineColorInput);
+    await user.type(outlineColorInput, "#FF5252");
+    expect(caption.style.webkitTextStroke).toContain("#FF5252");
+
+    await user.clear(shadowColorInput);
+    await user.type(shadowColorInput, "#123456");
+    expect(caption.style.textShadow).toContain("#123456");
+
+    await user.clear(ySkewInput);
+    await user.type(ySkewInput, "8");
+    expect(caption.style.transform).toContain("skewY(8deg)");
   });
 
   it("updates the live subtitle preview style without adding caption boards", async () => {
@@ -1145,6 +1360,139 @@ describe("AutoVideo shell", () => {
       transform: "translate(-50%, -50%) rotate(-4deg) skewX(6deg) skewY(0deg)",
     });
     expect(previewCaption.style.backgroundColor).toBe("");
+  });
+
+  it("keeps target fill colors visible for high-outline subtitle presets", async () => {
+    const user = userEvent.setup();
+    const boldYellowTemplate = templateFixture({
+      id: "preset-bold-yellow-preview",
+      name: "醒目黄黑大字",
+      templates: {
+        bottom: {
+          font_family: "Noto Sans CJK SC",
+          font_weight: 800,
+          primary_color: "#FFFFFF",
+          accent_color: "#FFB300",
+          outline_color: "#111111",
+          outline_width: 4,
+          shadow_color: "#000000",
+          shadow_depth: 2,
+        },
+        highlight: {
+          font_family: "Noto Sans CJK SC",
+          font_weight: 800,
+          primary_color: "#FFFFFF",
+          accent_color: "#FFB300",
+          outline_color: "#111111",
+          outline_width: 4,
+          shadow_color: "#000000",
+          shadow_depth: 2,
+        },
+        punch: {
+          font_family: "Noto Sans CJK SC",
+          font_weight: 900,
+          primary_color: "#FFF176",
+          accent_color: "#FF5252",
+          outline_color: "#111111",
+          outline_width: 5,
+          shadow_color: "#000000",
+          shadow_depth: 3,
+          y_percent: 50,
+        },
+      },
+      blocks: [
+        {
+          id: "bottom-main",
+          role: "bottom",
+          style: {
+            font_family: "Noto Sans CJK SC",
+            font_weight: 800,
+            primary_color: "#FFFFFF",
+            accent_color: "#FFB300",
+            outline_color: "#111111",
+            outline_width: 4,
+            shadow_color: "#000000",
+            shadow_depth: 2,
+          },
+          spans: [
+            {
+              selector: { type: "keyword", value: "字幕" },
+              style: { primary_color: "#FFB300", outline_color: "#111111", font_scale: 1.06 },
+            },
+          ],
+        },
+        {
+          id: "highlight-main",
+          role: "highlight",
+          style: {
+            font_family: "Noto Sans CJK SC",
+            font_weight: 800,
+            primary_color: "#FFFFFF",
+            accent_color: "#FFB300",
+            outline_color: "#111111",
+            outline_width: 4,
+            shadow_color: "#000000",
+            shadow_depth: 2,
+          },
+          spans: [
+            {
+              selector: { type: "keyword", value: "预览" },
+              style: {
+                primary_color: "#FFB300",
+                outline_color: "#111111",
+                font_scale: 1.16,
+                outline_width: 5,
+              },
+            },
+          ],
+        },
+        {
+          id: "punch-main",
+          role: "punch",
+          style: {
+            font_family: "Noto Sans CJK SC",
+            font_weight: 900,
+            primary_color: "#FFF176",
+            accent_color: "#FF5252",
+            outline_color: "#111111",
+            outline_width: 5,
+            shadow_color: "#000000",
+            shadow_depth: 3,
+            y_percent: 50,
+          },
+          spans: [
+            {
+              selector: { type: "range", start: 0, end: 2 },
+              style: { primary_color: "#FF5252", accent_color: "#FFF176", font_scale: 1.28 },
+            },
+          ],
+        },
+      ],
+    });
+    mockedFetchSubtitleTemplateSets.mockResolvedValue({
+      items: [],
+      presets: [boldYellowTemplate],
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "字幕模板" }));
+
+    const bottom = await screen.findByTestId("subtitle-preview-caption-bottom");
+    expect(screen.getByTestId("subtitle-preview-screen")).toBeInTheDocument();
+    expect(bottom.style.color).toBe("rgb(255, 255, 255)");
+    expect(bottom.style.fontWeight).toBe("800");
+    expect(bottom.style.paintOrder).toBe("stroke fill");
+    expect(bottom.style.webkitTextFillColor).toBe("rgb(255, 255, 255)");
+    expect(bottom.style.webkitTextStroke).toBe("1px #111111");
+    expect(bottom.style.backgroundColor).toBe("");
+    expect(bottom.style.webkitTextStroke).not.toBe("2px #111111");
+    const bottomSpan = await screen.findByTestId("subtitle-preview-local-span-bottom-0");
+    expect(bottomSpan.style.color).toBe("rgb(255, 179, 0)");
+    expect(bottomSpan.style.webkitTextFillColor).toBe("rgb(255, 179, 0)");
+    expect(bottomSpan.style.webkitTextStroke).toBe("1px #111111");
+    const punchSpan = await screen.findByTestId("subtitle-preview-local-span-punch-0");
+    expect(punchSpan.style.color).toBe("rgb(255, 82, 82)");
+    expect(punchSpan.style.webkitTextFillColor).toBe("rgb(255, 82, 82)");
   });
 
   it("does not add caption boards for custom subtitle colors", async () => {
@@ -1264,12 +1612,16 @@ describe("AutoVideo shell", () => {
     const previewCaption = await screen.findByTestId("subtitle-preview-caption-bottom");
     const shadowInput = screen.getAllByLabelText("阴影强度")[0] as HTMLInputElement;
 
-    expect(previewCaption).toHaveStyle({ textShadow: "0 1px 1px #000000" });
+    expect(previewCaption.style.textShadow).toBe(
+      "0.55px 0.55px 1.1px #000000, 0 0 0.5px #111111",
+    );
 
     await user.clear(shadowInput);
     await user.type(shadowInput, "6");
 
-    expect(previewCaption).toHaveStyle({ textShadow: "0 3px 6px #000000" });
+    expect(previewCaption.style.textShadow).toBe(
+      "3.3px 3.3px 6.6px #000000, 0 0 0.5px #111111",
+    );
   });
 
   it("creates a new custom subtitle template from a selected custom template source", async () => {
@@ -1317,7 +1669,7 @@ describe("AutoVideo shell", () => {
     expect(await screen.findByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
     const subtitleWorkbench = screen.getByRole("article", { name: "字幕模板" });
     expect(within(subtitleWorkbench).getByText("当前模板：内置底部字幕")).toBeInTheDocument();
-    expect(within(subtitleWorkbench).getAllByLabelText("主色")[0]).toBeDisabled();
+    expect(within(subtitleWorkbench).getAllByLabelText("颜色")[0]).toBeDisabled();
     expect(within(subtitleWorkbench).getByRole("button", { name: "还原预设" })).not.toBeDisabled();
 
     await user.click(within(subtitleWorkbench).getByRole("button", { name: "设为默认" }));
@@ -1490,7 +1842,7 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
-    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    const primaryColor = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
 
     await user.clear(primaryColor);
     await user.type(primaryColor, "#123456");
@@ -1531,8 +1883,8 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
-    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
-    const fontScale = screen.getAllByLabelText("字号比例")[0] as HTMLInputElement;
+    const primaryColor = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
+    const fontScale = screen.getAllByLabelText("字号")[0] as HTMLInputElement;
 
     await user.clear(primaryColor);
     await user.type(primaryColor, "#111111");
@@ -1635,7 +1987,7 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("button", { name: "精准预览" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("预览渲染不可用");
 
-    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    const primaryColor = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
     await user.clear(primaryColor);
     await user.type(primaryColor, "#223344");
 
@@ -1652,7 +2004,7 @@ describe("AutoVideo shell", () => {
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
-    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    const primaryColor = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
 
     await user.clear(primaryColor);
     await user.type(primaryColor, "#334455");
@@ -1674,7 +2026,7 @@ describe("AutoVideo shell", () => {
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
     await user.click(await screen.findByRole("button", { name: "品牌底部字幕" }));
-    const primaryColor = screen.getAllByLabelText("主色")[0] as HTMLInputElement;
+    const primaryColor = screen.getAllByLabelText("颜色")[0] as HTMLInputElement;
 
     await user.clear(primaryColor);
     await user.type(primaryColor, "#334455");

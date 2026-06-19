@@ -159,7 +159,11 @@ def test_variant_block_merges_base_defaults_before_event_overrides():
             "style": {"font_size": 50, "primary_color": "#FFFFFF", "outline_width": 3},
             "spans": [
                 {"selector": {"type": "keyword", "value": "AI"}, "style": {"primary_color": "#FFD54F"}},
-                {"selector": {"type": "keyword", "value": "效率"}, "style": {"primary_color": "#FFFFFF"}},
+                {
+                    "selector": {"type": "keyword", "value": "效率"},
+                    "style": {"primary_color": "#FFFFFF"},
+                    "animation": {"type": "fade"},
+                },
             ],
             "animations": {"in": {"type": "fade"}, "out": {"type": "fade_out"}},
         }
@@ -204,6 +208,7 @@ def test_variant_block_merges_base_defaults_before_event_overrides():
     assert ai_spans[0]["style"]["primary_color"] == "#FF00FF"
     assert len(efficiency_spans) == 1
     assert efficiency_spans[0]["style"]["primary_color"] == "#00E5FF"
+    assert efficiency_spans[0]["animation"] == {"type": "fade"}
 
 
 def test_keyword_extractor_failure_keeps_events_renderable():
@@ -281,6 +286,24 @@ def test_ass_renderer_emits_event_style_and_position_override_tags():
     content = ass_renderer.render_ass(enriched, template, (1080, 1920))
 
     assert "{\\fs72\\c&HFFE500&\\pos(270,1440)\\fad(120,0)}业务字幕" in content
+
+
+def test_ass_renderer_uses_style_layout_fields_for_event_position():
+    template = _template()
+    template["blocks"][0]["style"] = {
+        "font_size": 72,
+        "primary_color": "#00E5FF",
+        "x_percent": 40,
+        "y_percent": 62,
+        "alignment": "left",
+    }
+    events = [SubtitleEvent(index=1, shot_index=1, start_ms=0, end_ms=1000, text="样式定位", template="bottom")]
+
+    enriched = event_enrichment.enrich_subtitle_events(events, template, (1080, 1920))
+    content = ass_renderer.render_ass(enriched, template, (1080, 1920))
+
+    assert enriched[0].position == {"x": 0.4, "y": 0.62, "anchor": "left"}
+    assert "{\\fs72\\c&HFFE500&\\an4\\pos(432,1190.4)\\fad(120,0)}样式定位" in content
 
 
 def test_ass_renderer_emits_weight_italic_and_position_anchor_tags():
