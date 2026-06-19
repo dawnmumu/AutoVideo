@@ -731,6 +731,7 @@ export function SubtitleTemplateWorkbench() {
   const timelinePreviewSrc = timelinePreview.data
     ? `data:${timelinePreview.data.mime_type};base64,${timelinePreview.data.data}`
     : "";
+  const validationWarnings = validateTemplate.data?.warnings ?? [];
 
   const resetPreviewResultState = () => {
     validateTemplate.reset();
@@ -1042,7 +1043,7 @@ export function SubtitleTemplateWorkbench() {
                 onClick={() => validateTemplate.mutate()}
               >
                 <Check aria-hidden="true" size={16} />
-                校验模板
+                {validateTemplate.isPending ? "检查中" : "检查模板"}
               </button>
               <button
                 disabled={!selected || precisePreview.isPending}
@@ -1067,8 +1068,14 @@ export function SubtitleTemplateWorkbench() {
                 <track kind="captions" />
               </video>
             ) : null}
-            {validateTemplate.data?.warnings.length ? (
-              <p role="alert">{validateTemplate.data.warnings.join("；")}</p>
+            {validationWarnings.length ? (
+              <p className="subtitle-validation-feedback warning" role="alert">
+                模板检查发现问题：{validationWarnings.join("；")}
+              </p>
+            ) : validateTemplate.isSuccess ? (
+              <p className="subtitle-validation-feedback success" role="status">
+                模板格式正常，可用于预览和渲染。
+              </p>
             ) : null}
             {precisePreview.isError ? (
               <p role="alert">{previewErrorText(precisePreview.error)}</p>
