@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import math
 import shutil
 import subprocess
@@ -20,6 +21,13 @@ MIN_TIMELINE_DURATION_MS = 500
 MAX_TIMELINE_DURATION_MS = 5000
 FFMPEG_TIMEOUT_SECONDS = 15
 PREVIEW_BACKGROUND_COLOR = "0xE2E8F0"
+LIVE_PREVIEW_DISPLAY_WIDTH = 280
+LIVE_PREVIEW_BASE_FONT_SIZE = 16
+LIVE_PREVIEW_FONT_REFERENCE = 54
+LIVE_PREVIEW_FONT_SIZE_MIN_SCALE = 0.82
+LIVE_PREVIEW_FONT_SIZE_MAX_SCALE = 1.35
+LIVE_PREVIEW_FONT_SCALE_MIN = 0.6
+LIVE_PREVIEW_FONT_SCALE_MAX = 1.8
 
 
 class SubtitlePreviewRendererUnavailableError(RuntimeError):
@@ -46,6 +54,7 @@ def render_preview_png(
             sample_text,
             DEFAULT_PREVIEW_DURATION_MS,
             resolution,
+            match_live_preview_font_size=True,
         )
         output_path = preview_dir / "preview.png"
         duration_seconds = _duration_seconds(DEFAULT_PREVIEW_DURATION_MS)
@@ -147,9 +156,17 @@ def _write_preview_ass(
     sample_text: str,
     duration_ms: int,
     resolution: tuple[int, int],
+    *,
+    match_live_preview_font_size: bool = False,
 ) -> Path:
     block = _template_block(template_set, template_type)
     position = _preview_block_position(template_set, template_type, block)
+    if match_live_preview_font_size:
+        style = _preview_event_style(template_set, template_type, block, resolution)
+        spans = _preview_event_spans(block, resolution)
+    else:
+        style = dict(block.get("style")) if isinstance(block.get("style"), dict) else {}
+        spans = _list_of_dicts(block.get("spans"))
     event = SubtitleEvent(
         index=1,
         shot_index=1,
@@ -158,8 +175,8 @@ def _write_preview_ass(
         text=sample_text or DEFAULT_PREVIEW_SAMPLE_TEXT,
         template=template_type or "bottom",
         track_id=str(block.get("track_id") or "main"),
-        spans=_list_of_dicts(block.get("spans")),
-        style=dict(block.get("style")) if isinstance(block.get("style"), dict) else {},
+        spans=spans,
+        style=style,
         position=position,
         event_animations=dict(block.get("animations")) if isinstance(block.get("animations"), dict) else {},
     )
@@ -191,6 +208,103 @@ def _preview_block_position(
         layout_style.update(dict(block["style"]))
     position = position_from_style_layout(layout_style, fallback_position)
     return dict(position if position is not None else fallback_position)
+
+
+def _preview_event_style(
+    template_set: dict[str, Any],
+    template_type: str,
+    block: dict[str, Any],
+    resolution: tuple[int, int],
+) -> dict[str, Any]:
+    style = _merged_template_block_style(template_set, template_type, block)
+    style["font_size"] = _live_preview_equivalent_font_size(style, resolution)
+    style.pop("font_size_scale", None)
+    style.pop("font_scale", None)
+    return style
+
+
+def _preview_event_spans(block: dict[str, Any], resolution: tuple[int, int]) -> list[dict[str, Any]]:
+    spans = block.get("spans")
+    if not isinstance(spans, list):
+        return []
+
+    preview_spans: list[dict[str, Any]] = []
+    for item in spans:
+        if not isinstance(item, dict):
+            continue
+        span = copy.deepcopy(item)
+        style = span.get("style")
+        if isinstance(style, dict) and "font_size" in style:
+            font_size = _live_preview_equivalent_css_font_size(style.get("font_size"), resolution)
+            if font_size is not None:
+                style["font_size"] = font_size
+        preview_spans.append(span)
+    return preview_spans
+
+
+def _merged_template_block_style(
+    template_set: dict[str, Any],
+    template_type: str,
+    block: dict[str, Any],
+) -> dict[str, Any]:
+    style: dict[str, Any] = {}
+    templates = template_set.get("templates") if isinstance(template_set, dict) else {}
+    template = templates.get(template_type) if isinstance(templates, dict) else None
+    if isinstance(template, dict):
+        style.update(dict(template))
+    if isinstance(block.get("style"), dict):
+        style.update(dict(block["style"]))
+    return style
+
+
+def _live_preview_equivalent_font_size(style: dict[str, Any], resolution: tuple[int, int]) -> int:
+    font_size = _positive_number(style.get("font_size"), LIVE_PREVIEW_FONT_REFERENCE)
+    font_scale = _positive_number(
+        style.get("font_size_scale", style.get("font_scale", 1)),
+        1,
+    )
+    live_font_size = _round_preview_number(
+        _clamp(font_size / LIVE_PREVIEW_FONT_REFERENCE, LIVE_PREVIEW_FONT_SIZE_MIN_SCALE, LIVE_PREVIEW_FONT_SIZE_MAX_SCALE)
+        * LIVE_PREVIEW_BASE_FONT_SIZE
+        * _clamp(font_scale, LIVE_PREVIEW_FONT_SCALE_MIN, LIVE_PREVIEW_FONT_SCALE_MAX),
+    )
+    preview_width = max(1, int(resolution[0]))
+    return max(1, _round_preview_number(live_font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH))
+
+
+def _live_preview_equivalent_css_font_size(value: Any, resolution: tuple[int, int]) -> int | None:
+    font_size = _positive_number(value, 0)
+    if font_size <= 0:
+        return None
+    preview_width = max(1, int(resolution[0]))
+    return max(1, _round_preview_number(font_size * preview_width / LIVE_PREVIEW_DISPLAY_WIDTH))
+
+
+def _positive_number(value: Any, default: int | float) -> int | float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int | float):
+        return value if math.isfinite(value) and value > 0 else default
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return default
+        try:
+            number = float(candidate)
+        except ValueError:
+            return default
+        if not math.isfinite(number) or number <= 0:
+            return default
+        return int(number) if number.is_integer() else number
+    return default
+
+
+def _clamp(value: int | float, minimum: int | float, maximum: int | float) -> int | float:
+    return min(maximum, max(minimum, value))
+
+
+def _round_preview_number(value: int | float) -> int:
+    return int(math.floor(value + 0.5))
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
