@@ -149,16 +149,10 @@ class SubtitleTemplateStore:
 
     def select_auto_template_set(self) -> dict[str, Any]:
         custom = self.list_template_sets()
-        favorite_custom = [item for item in custom if _is_favorite(item)]
-        if favorite_custom:
-            return copy.deepcopy(_sort_for_selection(favorite_custom)[0])
         if custom:
             return copy.deepcopy(_sort_for_selection(custom)[0])
 
         presets = self.list_presets()
-        favorite_presets = [item for item in presets if _is_favorite(item)]
-        if favorite_presets:
-            return copy.deepcopy(_sort_for_selection(favorite_presets)[0])
         if presets:
             return copy.deepcopy(presets[0])
 
@@ -263,10 +257,6 @@ def _store_lock_for_path(path: Path) -> threading.RLock:
             lock = threading.RLock()
             _STORE_LOCKS[path] = lock
         return lock
-
-
-def _is_favorite(item: dict[str, Any]) -> bool:
-    return bool(item.get("is_favorite") or item.get("favorite"))
 
 
 def _append_existing_variant_pool(

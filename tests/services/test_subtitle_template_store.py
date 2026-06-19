@@ -58,7 +58,7 @@ def test_create_update_and_delete_custom_template_set(tmp_path):
     updated = store.update_template_set(
         created["id"],
         {
-            "name": "默认字幕",
+            "name": "更新字幕",
             "is_favorite": True,
             "blocks": [
                 {
@@ -71,9 +71,9 @@ def test_create_update_and_delete_custom_template_set(tmp_path):
         },
     )
 
-    assert updated["name"] == "默认字幕"
+    assert updated["name"] == "更新字幕"
     assert updated["is_favorite"] is True
-    assert store.get_template_set(created["id"])["name"] == "默认字幕"
+    assert store.get_template_set(created["id"])["name"] == "更新字幕"
     assert json.loads(store.store_path.read_text(encoding="utf-8"))["items"]
 
     store.delete_template_set(created["id"])
@@ -82,22 +82,22 @@ def test_create_update_and_delete_custom_template_set(tmp_path):
         store.get_template_set(created["id"])
 
 
-def test_select_auto_template_set_prefers_favorite_then_sort_key(tmp_path):
+def test_select_auto_template_set_ignores_favorite_and_uses_sort_key(tmp_path):
     store = _store(tmp_path)
     old = store.create_template_set("旧模板", preset_id=TARGET_PRESET_ID)
     new = store.create_template_set("新模板", preset_id=TARGET_PRESET_ID)
     store.update_template_set(old["id"], {"is_favorite": True, "updated_at": "2026-01-01T00:00:00+00:00"})
-    store.update_template_set(new["id"], {"is_favorite": True, "updated_at": "2026-02-01T00:00:00+00:00"})
+    store.update_template_set(new["id"], {"is_favorite": False, "updated_at": "2026-02-01T00:00:00+00:00"})
 
     selected = store.select_auto_template_set()
 
     assert selected["id"] == new["id"]
 
 
-def test_preset_override_preserves_favorite_metadata(tmp_path):
+def test_preset_override_preserves_favorite_metadata_without_affecting_auto_selection(tmp_path):
     store = _store(tmp_path)
 
-    updated = store.update_preset(TARGET_PRESET_ID, {"is_favorite": True, "name": "收藏预设"})
+    updated = store.update_preset("clean_white", {"is_favorite": True, "name": "收藏预设"})
     selected = store.select_auto_template_set()
 
     assert updated["is_favorite"] is True

@@ -10,7 +10,6 @@ import {
   previewSubtitleTemplateSet,
   previewSubtitleTimeline,
   resetSubtitlePresetOverride,
-  updateSubtitlePresetOverride,
   updateSubtitleTemplateSet,
   validateSubtitleTemplateSet,
 } from "../api/subtitles";
@@ -682,20 +681,6 @@ export function SubtitleTemplateWorkbench() {
     },
   });
 
-  const markDefault = useMutation({
-    mutationFn: () =>
-      isSelectedPreset
-        ? updateSubtitlePresetOverride({
-            id: String(selected?.id),
-            patch: { is_favorite: true },
-          })
-        : updateSubtitleTemplateSet({
-            id: String(selected?.id),
-            patch: { is_favorite: true },
-          }),
-    onSuccess: invalidateTemplates,
-  });
-
   const resetPreset = useMutation({
     mutationFn: () => resetSubtitlePresetOverride(String(selected?.id)),
     onSuccess: invalidateTemplates,
@@ -747,7 +732,6 @@ export function SubtitleTemplateWorkbench() {
     onSuccess: (template) => {
       resetPreviewResultState();
       saveTemplate.reset();
-      markDefault.reset();
       resetPreset.reset();
       setSelectedId(template.id);
       invalidateTemplates();
@@ -757,7 +741,6 @@ export function SubtitleTemplateWorkbench() {
   const resetTemplateResultState = () => {
     resetPreviewResultState();
     createFromPreset.reset();
-    markDefault.reset();
     resetPreset.reset();
     saveTemplate.reset();
   };
@@ -930,9 +913,6 @@ export function SubtitleTemplateWorkbench() {
               onClick={() => handleSelectTemplate(template.id)}
             >
               <span>{template.name}</span>
-              {template.is_favorite || template.favorite ? (
-                <strong aria-hidden="true">默认</strong>
-              ) : null}
             </button>
           ))}
           <button
@@ -945,17 +925,6 @@ export function SubtitleTemplateWorkbench() {
           >
             <CopyPlus aria-hidden="true" size={16} />
             从预设新建
-          </button>
-          <button
-            disabled={!selected || markDefault.isPending}
-            type="button"
-            onClick={() => {
-              resetTemplateResultState();
-              markDefault.mutate();
-            }}
-          >
-            <Check aria-hidden="true" size={16} />
-            设为默认
           </button>
           <button
             disabled={!isSelectedPreset || resetPreset.isPending}
@@ -971,11 +940,6 @@ export function SubtitleTemplateWorkbench() {
           {createFromPreset.isError ? (
             <p role="alert">
               {mutationErrorText(createFromPreset.error, "字幕模板新建失败")}
-            </p>
-          ) : null}
-          {markDefault.isError ? (
-            <p role="alert">
-              {mutationErrorText(markDefault.error, "默认字幕模板设置失败")}
             </p>
           ) : null}
           {resetPreset.isError ? (
