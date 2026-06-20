@@ -13,6 +13,7 @@ from autovideo.api.routes.online_mix import router as online_mix_router
 from autovideo.api.routes.scripts import router as scripts_router
 from autovideo.api.routes.subtitle_templates import router as subtitle_templates_router
 from autovideo.api.routes.tasks import router as tasks_router
+from autovideo.api.routes.voices import router as voices_router
 from autovideo.core.settings import Settings
 from autovideo.services.online_materials import build_provider_registry
 
@@ -98,6 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             max_request_bytes = active_settings.max_online_material_request_bytes
         elif request.method == "POST" and request.url.path == "/api/online-mix/tasks":
             max_request_bytes = active_settings.max_online_mix_request_bytes
+        elif request.method == "POST" and request.url.path == "/api/voices/preview":
+            max_request_bytes = active_settings.max_voice_preview_request_bytes
 
         if max_request_bytes is not None:
             request_length_error = _request_length_error_response(request)
@@ -115,6 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(scripts_router)
     app.include_router(subtitle_templates_router)
     app.include_router(tasks_router)
+    app.include_router(voices_router)
     assets_dir = FRONTEND_DIST_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")

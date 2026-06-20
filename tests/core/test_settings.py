@@ -13,6 +13,9 @@ AUTOVIDEO_ENV_VARS = [
     "AUTOVIDEO_DATA_DIR",
     "AUTOVIDEO_FFMPEG_PATH",
     "AUTOVIDEO_FISH_SPEECH_URL",
+    "AUTOVIDEO_EDGE_TTS_DEFAULT_VOICE",
+    "AUTOVIDEO_MAX_VOICE_PREVIEW_TEXT_CHARS",
+    "AUTOVIDEO_MAX_VOICE_PREVIEW_REQUEST_BYTES",
     "AUTOVIDEO_MAX_UPLOAD_BYTES",
     "AUTOVIDEO_MAX_MULTIPART_OVERHEAD_BYTES",
     "AUTOVIDEO_MAX_TASK_MATERIALS",
@@ -54,6 +57,9 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.data_dir == Path("data")
     assert settings.ffmpeg_path == "ffmpeg"
     assert settings.fish_speech_url is None
+    assert settings.edge_tts_default_voice == "zh-CN-XiaoxiaoNeural"
+    assert settings.max_voice_preview_text_chars == 300
+    assert settings.max_voice_preview_request_bytes == 8192
 
 
 def test_settings_read_autovideo_environment(monkeypatch) -> None:
@@ -61,6 +67,9 @@ def test_settings_read_autovideo_environment(monkeypatch) -> None:
     monkeypatch.setenv("AUTOVIDEO_PORT", "9010")
     monkeypatch.setenv("AUTOVIDEO_FFMPEG_PATH", "/usr/local/bin/ffmpeg")
     monkeypatch.setenv("AUTOVIDEO_FISH_SPEECH_URL", "http://127.0.0.1:7860")
+    monkeypatch.setenv("AUTOVIDEO_EDGE_TTS_DEFAULT_VOICE", "zh-CN-YunxiNeural")
+    monkeypatch.setenv("AUTOVIDEO_MAX_VOICE_PREVIEW_TEXT_CHARS", "180")
+    monkeypatch.setenv("AUTOVIDEO_MAX_VOICE_PREVIEW_REQUEST_BYTES", "4096")
 
     settings = Settings(_env_file=None)
 
@@ -68,6 +77,9 @@ def test_settings_read_autovideo_environment(monkeypatch) -> None:
     assert settings.port == 9010
     assert settings.ffmpeg_path == "/usr/local/bin/ffmpeg"
     assert settings.fish_speech_url == "http://127.0.0.1:7860"
+    assert settings.edge_tts_default_voice == "zh-CN-YunxiNeural"
+    assert settings.max_voice_preview_text_chars == 180
+    assert settings.max_voice_preview_request_bytes == 4096
 
 
 def test_empty_optional_service_url_is_disabled(monkeypatch) -> None:
