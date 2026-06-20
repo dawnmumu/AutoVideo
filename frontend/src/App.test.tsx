@@ -252,6 +252,14 @@ function previewTopPercent(testId: string): number {
   return Number.parseFloat(value);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe("AutoVideo shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -460,7 +468,7 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("keeps the workbench voice selector responsive without hover-only dependencies", () => {
+  it("keeps the workbench voice dropdown responsive without hover-only dependencies", () => {
     expect(stylesCss).toMatch(
       /@media \(max-width: 1160px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
     );
@@ -468,7 +476,16 @@ describe("AutoVideo shell", () => {
       /@media \(max-width: 760px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
     );
     expect(stylesCss).toMatch(
-      /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
+      /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-dropdown select,\s*\.voice-dropdown button,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown,\s*\.voice-selector \{[\s\S]*?grid-column:\s*1 \/ -1;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown select \{[\s\S]*?min-width:\s*0;[\s\S]*?text-overflow:\s*ellipsis;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown label,\s*\.voice-dropdown \.voice-selected-summary \{[\s\S]*?min-width:\s*0;/,
     );
     expect(stylesCss).toMatch(
       /\.voice-preview-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
@@ -2842,34 +2859,108 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("shows workbench voice selection with the default Edge TTS voice", async () => {
+  it("shows workbench voice selection as a dropdown with the default Edge TTS voice", async () => {
     renderApp();
 
-    const workbenchVoiceSelector = await screen.findByRole("group", { name: "旁白音色" });
-    expect(workbenchVoiceSelector).toBeInTheDocument();
-    expect(workbenchVoiceSelector.querySelector(".voice-selector-filters")).toBeInTheDocument();
+    const voiceDropdown = await screen.findByRole("combobox", { name: "旁白音色" });
+    expect(voiceDropdown).toHaveDisplayValue("Xiaoxiao · zh-CN · Female");
     expect(
-      await screen.findByRole("button", {
-        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-      }),
-    ).toHaveAttribute("aria-pressed", "true");
+      screen.getByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("搜索音色")).toBeInTheDocument();
     expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
     expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
   });
 
-  it("keeps voice search Enter from submitting the workbench form", async () => {
+  it("filters workbench dropdown voices by language and search while keeping native select", async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
-    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await screen.findByRole("combobox", { name: "旁白音色" });
+    await user.selectOptions(screen.getByLabelText("音色语言"), "en-US");
     await user.type(screen.getByLabelText("搜索音色"), "Jenny");
-    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "en-US", q: "Jenny" });
+    });
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toBeInTheDocument();
+  });
+
+  it("keeps workbench voice controls loading and prevents null voice submission while status is pending", async () => {
+    const user = userEvent.setup();
+    const status = deferred<Awaited<ReturnType<typeof fetchVoiceStatus>>>();
+    mockedFetchVoiceStatus.mockReturnValue(status.promise);
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "状态未完成短视频",
+      topic: "精油睡眠放松",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白 1",
+          subtitle: "字幕 1",
+          visual_description: "relaxing bedroom night",
+          keywords: ["relaxing bedroom night"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValueOnce({
+      id: "task-1",
+      title: "状态未完成短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const voiceDropdown = await screen.findByRole("combobox", { name: "旁白音色" });
+    expect(voiceDropdown).toBeDisabled();
+    expect(screen.getByRole("status", { name: "旁白音色状态" })).toHaveTextContent(
+      "正在读取音色状态",
+    );
+    expect(screen.getByRole("button", { name: "试听旁白音色" })).toBeDisabled();
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("状态未完成短视频");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            voice_id: "zh-CN-XiaoxiaoNeural",
+          }),
+        }),
+      );
+    });
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          voice_id: null,
+        }),
+      }),
+    );
+  });
+
+  it("changes the workbench narration voice from the dropdown without submitting the form", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "旁白音色" }),
+      "en-US-JennyNeural",
+    );
 
     expect(mockedGenerateScript).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toHaveDisplayValue(
+      "Jenny · en-US · Female",
+    );
   });
 
   it("previews the selected workbench voice with the first script narration", async () => {
@@ -2895,9 +2986,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("睡前精油短视频");
@@ -2918,9 +3007,7 @@ describe("AutoVideo shell", () => {
     const user = userEvent.setup();
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
     expect(await screen.findByLabelText("旁白音色试听音频")).toHaveAttribute(
       "src",
@@ -3307,9 +3394,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("睡前精油短视频");
@@ -3358,18 +3443,13 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Microsoft Jenny Online (Natural) - English (United States)",
-      }),
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "旁白音色" }),
+      "en-US-JennyNeural",
     );
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", {
-          name: "Microsoft Jenny Online (Natural) - English (United States)",
-        }),
-      ).toHaveAttribute("aria-pressed", "true");
-    });
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toHaveDisplayValue(
+      "Jenny · en-US · Female",
+    );
     await user.type(await screen.findByLabelText("视频主题"), "咖啡店早高峰");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("英文旁白短视频");
