@@ -252,6 +252,14 @@ function previewTopPercent(testId: string): number {
   return Number.parseFloat(value);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe("AutoVideo shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2859,10 +2867,84 @@ describe("AutoVideo shell", () => {
     expect(
       screen.getByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("搜索音色")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("音色语言")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("搜索音色")).toBeInTheDocument();
+    expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
     expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
-    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "", q: "" });
+    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("filters workbench dropdown voices by language and search while keeping native select", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("combobox", { name: "旁白音色" });
+    await user.selectOptions(screen.getByLabelText("音色语言"), "en-US");
+    await user.type(screen.getByLabelText("搜索音色"), "Jenny");
+
+    await waitFor(() => {
+      expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "en-US", q: "Jenny" });
+    });
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toBeInTheDocument();
+  });
+
+  it("keeps workbench voice controls loading and prevents null voice submission while status is pending", async () => {
+    const user = userEvent.setup();
+    const status = deferred<Awaited<ReturnType<typeof fetchVoiceStatus>>>();
+    mockedFetchVoiceStatus.mockReturnValue(status.promise);
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "状态未完成短视频",
+      topic: "精油睡眠放松",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白 1",
+          subtitle: "字幕 1",
+          visual_description: "relaxing bedroom night",
+          keywords: ["relaxing bedroom night"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValueOnce({
+      id: "task-1",
+      title: "状态未完成短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const voiceDropdown = await screen.findByRole("combobox", { name: "旁白音色" });
+    expect(voiceDropdown).toBeDisabled();
+    expect(screen.getByRole("status", { name: "旁白音色状态" })).toHaveTextContent(
+      "正在读取音色状态",
+    );
+    expect(screen.getByRole("button", { name: "试听旁白音色" })).toBeDisabled();
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("状态未完成短视频");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            voice_id: "zh-CN-XiaoxiaoNeural",
+          }),
+        }),
+      );
+    });
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          voice_id: null,
+        }),
+      }),
+    );
   });
 
   it("changes the workbench narration voice from the dropdown without submitting the form", async () => {

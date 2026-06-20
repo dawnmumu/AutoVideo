@@ -650,6 +650,11 @@ h2 {
   min-width: 0;
 }
 
+.voice-dropdown-filters,
+.voice-dropdown .voice-search-input input {
+  min-width: 0;
+}
+
 .voice-dropdown select {
   min-width: 0;
   max-width: 100%;

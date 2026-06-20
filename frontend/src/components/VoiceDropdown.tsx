@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Play, RefreshCw, Volume2 } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { Play, RefreshCw, Search, Volume2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createVoicePreview,
@@ -9,6 +9,13 @@ import {
 } from "../api/voices";
 import type { CreateVoicePreviewInput, VoiceItem } from "../api/voices";
 import { readableVoiceError, selectDefaultVoice, voiceTags } from "./VoiceSelector";
+
+const LOCALE_OPTIONS = [
+  { value: "zh-CN", label: "中文" },
+  { value: "en-US", label: "英语" },
+  { value: "ja-JP", label: "日语" },
+  { value: "ko-KR", label: "韩语" },
+];
 
 interface VoiceDropdownProps {
   previewText: string;
@@ -26,13 +33,17 @@ function voiceSelectLabel(voice: VoiceItem): string {
 }
 
 export function VoiceDropdown({ previewText, value, onChange }: VoiceDropdownProps) {
+  const [locale, setLocale] = useState("zh-CN");
+  const [query, setQuery] = useState("");
+  const provisionalVoiceIdRef = useRef<string | null>(null);
+
   const status = useQuery({
     queryKey: ["voice-status"],
     queryFn: fetchVoiceStatus,
   });
   const voices = useQuery({
-    queryKey: ["voices", "all", ""],
-    queryFn: () => fetchVoices({ locale: "", q: "" }),
+    queryKey: ["voices", locale, query],
+    queryFn: () => fetchVoices({ locale, q: query }),
   });
   const preview = useMutation({
     mutationFn: (input: CreateVoicePreviewInput) => createVoicePreview(input),
@@ -45,20 +56,45 @@ export function VoiceDropdown({ previewText, value, onChange }: VoiceDropdownPro
   const selectedVoice = value
     ? voiceItems.find((voice) => voice.id === value.id) ?? value
     : null;
+  const selectableVoiceItems =
+    selectedVoice && !voiceItems.some((voice) => voice.id === selectedVoice.id)
+      ? [selectedVoice, ...voiceItems]
+      : voiceItems;
+  const isVoiceLoading = voices.isLoading || !statusReady;
+  const isVoiceUnavailable = voices.isError || voiceItems.length === 0;
 
   useEffect(() => {
-    if (value || voices.isLoading || voices.isError || !statusReady) {
+    if (value || voices.isLoading || voices.isError || statusReady) {
+      return;
+    }
+
+    const fallbackVoice = voiceItems[0] ?? null;
+    if (fallbackVoice) {
+      provisionalVoiceIdRef.current = fallbackVoice.id;
+      onChange(fallbackVoice);
+    }
+  }, [onChange, statusReady, value, voiceItems, voices.isError, voices.isLoading]);
+
+  useEffect(() => {
+    if (voices.isLoading || voices.isError || !statusReady) {
+      return;
+    }
+
+    const hasProvisionalVoice =
+      Boolean(provisionalVoiceIdRef.current) && value?.id === provisionalVoiceIdRef.current;
+    if (value && !hasProvisionalVoice) {
       return;
     }
 
     const nextVoice = selectDefaultVoice(
       voiceItems,
       status.data?.edge_tts.default_voice,
-      null,
+      value?.id ?? null,
       { preserveCurrentVoice: false },
     );
 
     if (nextVoice) {
+      provisionalVoiceIdRef.current = null;
       onChange(nextVoice);
     }
   }, [
@@ -76,7 +112,7 @@ export function VoiceDropdown({ previewText, value, onChange }: VoiceDropdownPro
   }, [previewText, selectedVoiceId]);
 
   const canCreatePreview =
-    Boolean(selectedVoiceId) && previewText.trim().length > 0 && !preview.isPending;
+    statusReady && Boolean(selectedVoiceId) && previewText.trim().length > 0 && !preview.isPending;
   const hasCurrentPreviewAudio = Boolean(
     preview.data &&
       preview.variables?.text === previewText &&
@@ -86,25 +122,69 @@ export function VoiceDropdown({ previewText, value, onChange }: VoiceDropdownPro
   return (
     <fieldset className="voice-dropdown">
       <legend>旁白音色</legend>
+      <div className="voice-selector-filters voice-dropdown-filters">
+        <label>
+          音色语言
+          <select
+            disabled={isVoiceLoading}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value)}
+          >
+            {LOCALE_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          搜索音色
+          <span className="voice-search-input">
+            <Search aria-hidden="true" size={18} />
+            <input
+              disabled={isVoiceLoading}
+              placeholder="Xiaoxiao"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                }
+              }}
+            />
+          </span>
+        </label>
+      </div>
       <label>
         <span>旁白音色</span>
         <select
-          disabled={voices.isLoading || voices.isError || voiceItems.length === 0}
+          disabled={isVoiceLoading || isVoiceUnavailable}
           value={selectedVoiceId}
           onChange={(event) => {
             const nextVoice = voiceItems.find((voice) => voice.id === event.target.value) ?? null;
             onChange(nextVoice);
           }}
         >
-          {voices.isLoading ? <option value="">正在读取音色</option> : null}
-          {!voices.isLoading && voiceItems.length === 0 ? <option value="">暂无音色</option> : null}
-          {voiceItems.map((voice) => (
+          {isVoiceLoading ? <option value="">正在读取音色</option> : null}
+          {!isVoiceLoading && voiceItems.length === 0 ? <option value="">暂无音色</option> : null}
+          {selectableVoiceItems.map((voice) => (
             <option key={voice.id} value={voice.id}>
               {voiceSelectLabel(voice)}
             </option>
           ))}
         </select>
       </label>
+
+      {isVoiceLoading ? (
+        <div
+          aria-label="旁白音色状态"
+          aria-live="polite"
+          className="runtime-status"
+          role="status"
+        >
+          {voices.isLoading ? "正在读取音色" : "正在读取音色状态"}
+        </div>
+      ) : null}
 
       {voices.isError ? (
         <div className="inline-error" role="alert">
