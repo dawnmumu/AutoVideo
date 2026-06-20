@@ -15,7 +15,7 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "../api/onlineRemix";
-import { VoiceSelector } from "./VoiceSelector";
+import { VoiceDropdown } from "./VoiceDropdown";
 import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 type ShotSearchState = "idle" | "searching" | "ready" | "failed" | "empty";
@@ -371,8 +371,7 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
             去字幕模板页编辑
           </button>
         </fieldset>
-        <VoiceSelector
-          compact
+        <VoiceDropdown
           previewText={voicePreviewText}
           value={selectedVoice}
           onChange={setSelectedVoice}

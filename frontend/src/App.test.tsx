@@ -460,7 +460,7 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("keeps the workbench voice selector responsive without hover-only dependencies", () => {
+  it("keeps the workbench voice dropdown responsive without hover-only dependencies", () => {
     expect(stylesCss).toMatch(
       /@media \(max-width: 1160px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
     );
@@ -468,7 +468,16 @@ describe("AutoVideo shell", () => {
       /@media \(max-width: 760px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
     );
     expect(stylesCss).toMatch(
-      /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
+      /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-dropdown select,\s*\.voice-dropdown button,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown,\s*\.voice-selector \{[\s\S]*?grid-column:\s*1 \/ -1;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown select \{[\s\S]*?min-width:\s*0;[\s\S]*?text-overflow:\s*ellipsis;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-dropdown label,\s*\.voice-dropdown \.voice-selected-summary \{[\s\S]*?min-width:\s*0;/,
     );
     expect(stylesCss).toMatch(
       /\.voice-preview-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
@@ -2842,34 +2851,34 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("shows workbench voice selection with the default Edge TTS voice", async () => {
+  it("shows workbench voice selection as a dropdown with the default Edge TTS voice", async () => {
     renderApp();
 
-    const workbenchVoiceSelector = await screen.findByRole("group", { name: "旁白音色" });
-    expect(workbenchVoiceSelector).toBeInTheDocument();
-    expect(workbenchVoiceSelector.querySelector(".voice-selector-filters")).toBeInTheDocument();
+    const voiceDropdown = await screen.findByRole("combobox", { name: "旁白音色" });
+    expect(voiceDropdown).toHaveDisplayValue("Xiaoxiao · zh-CN · Female");
     expect(
-      await screen.findByRole("button", {
-        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-      }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
+      screen.getByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("搜索音色")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("音色语言")).not.toBeInTheDocument();
     expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
-    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "", q: "" });
   });
 
-  it("keeps voice search Enter from submitting the workbench form", async () => {
+  it("changes the workbench narration voice from the dropdown without submitting the form", async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
-    await user.type(screen.getByLabelText("搜索音色"), "Jenny");
-    await user.keyboard("{Enter}");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "旁白音色" }),
+      "en-US-JennyNeural",
+    );
 
     expect(mockedGenerateScript).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toHaveDisplayValue(
+      "Jenny · en-US · Female",
+    );
   });
 
   it("previews the selected workbench voice with the first script narration", async () => {
@@ -2895,9 +2904,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("睡前精油短视频");
@@ -2918,9 +2925,7 @@ describe("AutoVideo shell", () => {
     const user = userEvent.setup();
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
     expect(await screen.findByLabelText("旁白音色试听音频")).toHaveAttribute(
       "src",
@@ -3307,9 +3312,7 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await screen.findByRole("button", {
-      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
-    });
+    await screen.findByRole("combobox", { name: "旁白音色" });
     await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("睡前精油短视频");
@@ -3358,18 +3361,13 @@ describe("AutoVideo shell", () => {
     });
     renderApp();
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Microsoft Jenny Online (Natural) - English (United States)",
-      }),
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "旁白音色" }),
+      "en-US-JennyNeural",
     );
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", {
-          name: "Microsoft Jenny Online (Natural) - English (United States)",
-        }),
-      ).toHaveAttribute("aria-pressed", "true");
-    });
+    expect(screen.getByRole("combobox", { name: "旁白音色" })).toHaveDisplayValue(
+      "Jenny · en-US · Female",
+    );
     await user.type(await screen.findByLabelText("视频主题"), "咖啡店早高峰");
     await user.click(screen.getByRole("button", { name: "生成脚本" }));
     await screen.findByDisplayValue("英文旁白短视频");
