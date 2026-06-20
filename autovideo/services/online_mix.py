@@ -77,6 +77,12 @@ class SubtitleTemplateInvalidError(ValueError):
     pass
 
 
+class VoiceProviderInvalidError(ValueError):
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+        super().__init__(provider)
+
+
 def _shot_indexes(script: dict[str, Any]) -> set[int]:
     try:
         shots = script.get("shots", [])
@@ -324,6 +330,30 @@ def normalize_subtitle_options(
         "subtitle_template_set_name": template_name,
         "subtitle_template_snapshot": snapshot_with_font,
         "subtitle_font_family": font_family,
+    }
+
+
+def normalize_voice_options(options: dict[str, Any]) -> dict[str, Any]:
+    voice_id = _optional_text(options.get("voice_id"))
+    if not voice_id:
+        return {
+            "voice_id": None,
+            "voice_name": None,
+            "voice_provider": None,
+            "voice_locale": None,
+            "voice_gender": None,
+        }
+
+    provider = _optional_text(options.get("voice_provider")) or "edge_tts"
+    if provider != "edge_tts":
+        raise VoiceProviderInvalidError(provider)
+
+    return {
+        "voice_id": voice_id,
+        "voice_name": _optional_text(options.get("voice_name")),
+        "voice_provider": provider,
+        "voice_locale": _optional_text(options.get("voice_locale")),
+        "voice_gender": _optional_text(options.get("voice_gender")),
     }
 
 
@@ -584,6 +614,7 @@ def create_online_mix_task(
         asset_strategy,
     )
     subtitle_options = normalize_subtitle_options(store, options)
+    voice_options = normalize_voice_options(options)
 
     for item in shot_assets:
         assert token_service is not None
@@ -731,7 +762,9 @@ def create_online_mix_task(
     if {item["shot_index"] for item in manifest_shots} != _shot_indexes(script):
         raise OnlineMixNoMaterialMatchError()
 
-    sanitized_options = sanitized_online_mix_options({**options, **subtitle_options})
+    sanitized_options = sanitized_online_mix_options(
+        {**options, **subtitle_options, **voice_options}
+    )
 
     return create_task(
         store,
@@ -751,6 +784,11 @@ def create_online_mix_task(
             "subtitle_template_set_name": subtitle_options["subtitle_template_set_name"],
             "subtitle_template_snapshot": subtitle_options["subtitle_template_snapshot"],
             "subtitle_font_family": subtitle_options["subtitle_font_family"],
+            "voice_id": voice_options["voice_id"],
+            "voice_name": voice_options["voice_name"],
+            "voice_provider": voice_options["voice_provider"],
+            "voice_locale": voice_options["voice_locale"],
+            "voice_gender": voice_options["voice_gender"],
             "provider_status_snapshot": provider_status_snapshot,
         },
         output_builder=_render_online_mix_output_builder(
