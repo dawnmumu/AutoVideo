@@ -33,6 +33,53 @@ from autovideo.services.bgm.models import (
 _STORE_LOCKS_GUARD = threading.Lock()
 _STORE_LOCKS: dict[Path, threading.RLock] = {}
 _CATEGORY_UNSET = object()
+FFPROBE_TIMEOUT_SECONDS = 15
+SUPPORTED_PROBE_MEDIA = (
+    (
+        "audio/mpeg",
+        {"mp3"},
+        {"mp3"},
+    ),
+    (
+        "audio/wav",
+        {"wav"},
+        {
+            "pcm_alaw",
+            "pcm_f32be",
+            "pcm_f32le",
+            "pcm_f64be",
+            "pcm_f64le",
+            "pcm_mulaw",
+            "pcm_s16be",
+            "pcm_s16le",
+            "pcm_s24be",
+            "pcm_s24le",
+            "pcm_s32be",
+            "pcm_s32le",
+            "pcm_u8",
+        },
+    ),
+    (
+        "audio/mp4",
+        {"3g2", "3gp", "m4a", "mj2", "mov", "mp4"},
+        {"aac", "alac"},
+    ),
+    (
+        "audio/aac",
+        {"aac"},
+        {"aac"},
+    ),
+    (
+        "audio/ogg",
+        {"ogg"},
+        {"flac", "opus", "vorbis"},
+    ),
+    (
+        "audio/flac",
+        {"flac"},
+        {"flac"},
+    ),
+)
 
 AudioProbe = Callable[[Path], AudioProbeResult]
 
@@ -121,28 +168,29 @@ class BgmLibraryService:
         if expected_media_type is None:
             raise BgmFileUnsupportedError(f"Unsupported BGM file extension: {extension}")
 
+        self._tracks_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = self._tracks_dir / f".upload-{secrets.token_hex(16)}.{extension}.tmp"
         target_path: Path | None = None
-        temp_path: Path | None = None
-        with self._mutation_lock():
-            data = self._load()
-            if category_id is not None:
-                self._find_category(data, category_id)
 
-            track_id = self._new_track_id(data)
-            target_filename = f"{track_id}.{extension}"
-            target_path = self._track_path(target_filename)
-            self._tracks_dir.mkdir(parents=True, exist_ok=True)
-            temp_path = self._tracks_dir / f".{target_filename}.{secrets.token_hex(8)}.tmp"
+        try:
+            temp_path.write_bytes(content)
+            metadata = self.audio_probe(temp_path)
+            if metadata.media_type != expected_media_type:
+                raise BgmFileUnsupportedError(
+                    f"BGM media type {metadata.media_type} does not match .{extension}"
+                )
 
-            try:
-                temp_path.write_bytes(content)
-                metadata = self.audio_probe(temp_path)
-                if metadata.media_type != expected_media_type:
-                    raise BgmFileUnsupportedError(
-                        f"BGM media type {metadata.media_type} does not match .{extension}"
-                    )
+            with self._mutation_lock():
+                data = self._load()
+                if category_id is not None:
+                    self._find_category(data, category_id)
 
+                track_id = self._new_track_id(data)
+                target_filename = f"{track_id}.{extension}"
+                target_path = self._track_path(target_filename)
                 os.replace(temp_path, target_path)
+                temp_path = None
+
                 now = _utc_now()
                 track = {
                     "id": track_id,
@@ -158,10 +206,10 @@ class BgmLibraryService:
                 data["tracks"].append(track)
                 self._write(data)
                 return self._public_track(track, self._categories_by_id(data))
-            except Exception:
-                self._cleanup_file(temp_path)
-                self._cleanup_file(target_path)
-                raise
+        except Exception:
+            self._cleanup_file(temp_path)
+            self._cleanup_file(target_path)
+            raise
 
     def update_track(
         self,
@@ -237,23 +285,25 @@ class BgmLibraryService:
             return {"tracks": [], "categories": []}
 
         try:
-            data = json.loads(self._metadata_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise BgmLibraryCorruptError(f"Invalid BGM library JSON: {self._metadata_path}") from exc
+            raw = self._metadata_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise _corrupt_library("invalid JSON") from exc
 
         if not isinstance(data, dict):
-            raise BgmLibraryCorruptError(f"BGM library must contain a JSON object: {self._metadata_path}")
+            raise _corrupt_library("root must be an object")
         tracks = data.get("tracks")
         categories = data.get("categories")
         if not isinstance(tracks, list) or not isinstance(categories, list):
-            raise BgmLibraryCorruptError(f"BGM library has invalid shape: {self._metadata_path}")
-        if not all(isinstance(track, dict) for track in tracks):
-            raise BgmLibraryCorruptError(f"BGM library tracks must be objects: {self._metadata_path}")
-        if not all(isinstance(category, dict) for category in categories):
-            raise BgmLibraryCorruptError(f"BGM library categories must be objects: {self._metadata_path}")
+            raise _corrupt_library("tracks and categories must be arrays")
+
+        normalized_categories = [_validate_category_row(category) for category in categories]
+        _require_unique_ids(normalized_categories, "category")
+        normalized_tracks = [_validate_track_row(track) for track in tracks]
+        _require_unique_ids(normalized_tracks, "track")
         return {
-            "tracks": [copy.deepcopy(track) for track in tracks],
-            "categories": [copy.deepcopy(category) for category in categories],
+            "tracks": normalized_tracks,
+            "categories": normalized_categories,
         }
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -405,9 +455,15 @@ def probe_audio_metadata(path: Path) -> AudioProbeResult:
             check=True,
             capture_output=True,
             text=True,
+            timeout=FFPROBE_TIMEOUT_SECONDS,
         )
         payload = json.loads(result.stdout)
-    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+    ) as exc:
         raise BgmFileUnsupportedError("Unable to probe BGM audio metadata") from exc
 
     stream = _first_audio_stream(payload)
@@ -478,16 +534,82 @@ def _probe_duration_seconds(stream: dict[str, Any], format_info: Any) -> float:
 
 def _media_type_from_probe(codec_name: str, format_name: str) -> str:
     format_names = {item for item in format_name.split(",") if item}
-    if codec_name == "mp3" or "mp3" in format_names:
-        return "audio/mpeg"
-    if "wav" in format_names and (codec_name.startswith("pcm_") or codec_name):
-        return "audio/wav"
-    if format_names.intersection({"mov", "mp4", "m4a", "3gp", "3g2", "mj2"}):
-        return "audio/mp4"
-    if codec_name == "aac" and "aac" in format_names:
-        return "audio/aac"
-    if "ogg" in format_names and codec_name in {"vorbis", "opus", "flac"}:
-        return "audio/ogg"
-    if codec_name == "flac" and "flac" in format_names:
-        return "audio/flac"
+    for media_type, allowed_containers, allowed_codecs in SUPPORTED_PROBE_MEDIA:
+        if codec_name in allowed_codecs and format_names.intersection(allowed_containers):
+            return media_type
     raise BgmFileUnsupportedError(f"Unsupported BGM audio codec/container: {codec_name}/{format_name}")
+
+
+def _corrupt_library(reason: str) -> BgmLibraryCorruptError:
+    return BgmLibraryCorruptError(f"Invalid BGM library metadata: {reason}")
+
+
+def _validate_category_row(category: Any) -> dict[str, Any]:
+    if not isinstance(category, dict):
+        raise _corrupt_library("category row must be an object")
+    return {
+        "id": _required_text(category, "id", "category"),
+        "name": _required_text(category, "name", "category"),
+        "created_at": _required_text(category, "created_at", "category"),
+        "updated_at": _required_text(category, "updated_at", "category"),
+    }
+
+
+def _validate_track_row(track: Any) -> dict[str, Any]:
+    if not isinstance(track, dict):
+        raise _corrupt_library("track row must be an object")
+    filename = _required_text(track, "filename", "track")
+    if Path(filename).name != filename:
+        raise _corrupt_library("track filename is invalid")
+    media_type = _required_text(track, "media_type", "track")
+    if media_type not in set(SUPPORTED_BGM_MEDIA_TYPES.values()):
+        raise _corrupt_library("track media_type is unsupported")
+    extension = Path(filename).suffix.lower().lstrip(".")
+    if SUPPORTED_BGM_MEDIA_TYPES.get(extension) != media_type:
+        raise _corrupt_library("track media_type does not match filename")
+    return {
+        "id": _required_text(track, "id", "track"),
+        "filename": filename,
+        "original_filename": _required_text(track, "original_filename", "track"),
+        "display_name": _required_text(track, "display_name", "track"),
+        "category_id": _optional_text(track, "category_id", "track"),
+        "duration_seconds": _required_duration(track),
+        "media_type": media_type,
+        "created_at": _required_text(track, "created_at", "track"),
+        "updated_at": _required_text(track, "updated_at", "track"),
+    }
+
+
+def _required_text(row: dict[str, Any], key: str, row_name: str) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise _corrupt_library(f"{row_name}.{key} is required")
+    return value
+
+
+def _optional_text(row: dict[str, Any], key: str, row_name: str) -> str | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _corrupt_library(f"{row_name}.{key} must be a string")
+    return value
+
+
+def _required_duration(track: dict[str, Any]) -> float:
+    try:
+        duration = float(track.get("duration_seconds"))
+    except (TypeError, ValueError) as exc:
+        raise _corrupt_library("track.duration_seconds must be numeric") from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise _corrupt_library("track.duration_seconds must be positive")
+    return duration
+
+
+def _require_unique_ids(rows: list[dict[str, Any]], row_name: str) -> None:
+    seen: set[str] = set()
+    for row in rows:
+        row_id = str(row["id"])
+        if row_id in seen:
+            raise _corrupt_library(f"duplicate {row_name} id")
+        seen.add(row_id)

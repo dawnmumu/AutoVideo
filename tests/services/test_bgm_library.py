@@ -1,4 +1,6 @@
 import json
+import subprocess
+from concurrent.futures import TimeoutError
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from autovideo.services.bgm import (
     BgmTrackNameRequiredError,
     BgmTrackNotFoundError,
     AudioProbeResult,
+    probe_audio_metadata,
 )
 
 
@@ -105,6 +108,31 @@ def test_store_track_rejects_probe_failures_and_cleans_temp_file(tmp_path: Path)
 
     assert list((tmp_path / "bgm" / "tracks").glob("*")) == []
     assert service.library()["items"] == []
+
+
+def test_store_track_does_not_hold_metadata_lock_while_probe_runs(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path))
+
+    def probe(path: Path) -> AudioProbeResult:
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(service.create_category, "Probe Side Category")
+        try:
+            future.result(timeout=0.5)
+        except TimeoutError:
+            future.cancel()
+            raise
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+        return AudioProbeResult(duration_seconds=12.5, media_type="audio/mpeg")
+
+    service.audio_probe = probe
+
+    track = service.store_track(content=b"fake", original_filename="probe-lock.mp3")
+
+    assert track["display_name"] == "probe-lock"
+    assert [category["name"] for category in service.library()["categories"]] == [
+        "Probe Side Category"
+    ]
 
 
 def test_update_track_preserves_id_and_audio_url(tmp_path: Path) -> None:
@@ -204,10 +232,75 @@ def test_corrupt_metadata_is_not_overwritten(tmp_path: Path) -> None:
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text("{not-json", encoding="utf-8")
 
-    with pytest.raises(BgmLibraryCorruptError):
+    with pytest.raises(BgmLibraryCorruptError) as exc_info:
         service.library()
 
+    assert str(tmp_path) not in str(exc_info.value)
     assert metadata_path.read_text(encoding="utf-8") == "{not-json"
+
+
+def test_invalid_utf8_metadata_is_corrupt_and_not_overwritten(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    metadata_path = service.metadata_path()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_bytes(b"\xff\xfe\xfd")
+
+    with pytest.raises(BgmLibraryCorruptError) as exc_info:
+        service.library()
+
+    assert str(tmp_path) not in str(exc_info.value)
+    assert metadata_path.read_bytes() == b"\xff\xfe\xfd"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"tracks": [{"id": "bgm_bad"}], "categories": []},
+        {
+            "tracks": [
+                {
+                    "id": "bgm_bad",
+                    "filename": "bgm_bad.mp3",
+                    "original_filename": "bad.mp3",
+                    "display_name": "bad",
+                    "category_id": None,
+                    "duration_seconds": "not-a-number",
+                    "media_type": "audio/mpeg",
+                    "created_at": "2026-06-21T00:00:00+00:00",
+                    "updated_at": "2026-06-21T00:00:00+00:00",
+                }
+            ],
+            "categories": [],
+        },
+        {"tracks": [], "categories": [{"id": "cat_bad"}]},
+        {
+            "tracks": [],
+            "categories": [
+                {
+                    "id": "",
+                    "name": "bad",
+                    "created_at": "2026-06-21T00:00:00+00:00",
+                    "updated_at": "2026-06-21T00:00:00+00:00",
+                }
+            ],
+        },
+    ],
+)
+def test_malformed_metadata_rows_are_corrupt_and_not_overwritten(
+    tmp_path: Path,
+    payload: dict[str, object],
+) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    metadata_path = service.metadata_path()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    raw = json.dumps(payload, ensure_ascii=False)
+    metadata_path.write_text(raw, encoding="utf-8")
+
+    with pytest.raises(BgmLibraryCorruptError) as exc_info:
+        service.library()
+
+    assert str(tmp_path) not in str(exc_info.value)
+    assert metadata_path.read_text(encoding="utf-8") == raw
 
 
 def test_concurrent_metadata_mutations_do_not_drop_updates(tmp_path: Path) -> None:
@@ -226,3 +319,133 @@ def test_concurrent_metadata_mutations_do_not_drop_updates(tmp_path: Path) -> No
     assert sorted(item["id"] for item in library["items"]) == sorted(ids)
     raw = json.loads(service.metadata_path().read_text(encoding="utf-8"))
     assert len(raw["tracks"]) == 8
+
+
+def _patch_ffprobe(monkeypatch: pytest.MonkeyPatch, payload: dict[str, object]):
+    calls = []
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append({"args": args, "kwargs": kwargs})
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+
+    monkeypatch.setattr("autovideo.services.bgm.service.subprocess.run", fake_run)
+    return calls
+
+
+def _ffprobe_payload(
+    *,
+    codec_name: str = "mp3",
+    format_name: str = "mp3",
+    stream_duration: str | None = "12.5",
+    format_duration: str | None = "12.5",
+    codec_type: str = "audio",
+) -> dict[str, object]:
+    stream = {
+        "codec_type": codec_type,
+        "codec_name": codec_name,
+    }
+    if stream_duration is not None:
+        stream["duration"] = stream_duration
+    format_info = {"format_name": format_name}
+    if format_duration is not None:
+        format_info["duration"] = format_duration
+    return {"streams": [stream], "format": format_info}
+
+
+def test_probe_audio_metadata_maps_valid_ffprobe_json_and_sets_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _patch_ffprobe(monkeypatch, _ffprobe_payload())
+
+    result = probe_audio_metadata(tmp_path / "track.mp3")
+
+    assert result == AudioProbeResult(duration_seconds=12.5, media_type="audio/mpeg")
+    assert calls[0]["kwargs"]["timeout"] > 0
+
+
+def test_probe_audio_metadata_uses_format_duration_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_ffprobe(
+        monkeypatch,
+        _ffprobe_payload(stream_duration=None, format_duration="7.25"),
+    )
+
+    result = probe_audio_metadata(tmp_path / "track.mp3")
+
+    assert result.duration_seconds == 7.25
+
+
+def test_probe_audio_metadata_rejects_missing_duration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_ffprobe(
+        monkeypatch,
+        _ffprobe_payload(stream_duration=None, format_duration=None),
+    )
+
+    with pytest.raises(BgmFileUnsupportedError):
+        probe_audio_metadata(tmp_path / "track.mp3")
+
+
+def test_probe_audio_metadata_rejects_no_audio_stream(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_ffprobe(
+        monkeypatch,
+        _ffprobe_payload(codec_name="h264", format_name="mov,mp4,m4a,3gp,3g2,mj2", codec_type="video"),
+    )
+
+    with pytest.raises(BgmFileUnsupportedError):
+        probe_audio_metadata(tmp_path / "track.mp4")
+
+
+def test_probe_audio_metadata_rejects_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
+
+    monkeypatch.setattr("autovideo.services.bgm.service.subprocess.run", fake_run)
+
+    with pytest.raises(BgmFileUnsupportedError):
+        probe_audio_metadata(tmp_path / "track.mp3")
+
+
+def test_probe_audio_metadata_rejects_unsupported_wav_codec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_ffprobe(monkeypatch, _ffprobe_payload(codec_name="mp3", format_name="wav"))
+
+    with pytest.raises(BgmFileUnsupportedError):
+        probe_audio_metadata(tmp_path / "track.wav")
+
+
+@pytest.mark.parametrize(
+    "codec_name, format_name",
+    [
+        ("vorbis", "mov,mp4,m4a,3gp,3g2,mj2"),
+        ("aac", "matroska,webm"),
+    ],
+)
+def test_probe_audio_metadata_rejects_unsupported_mp4_codec_container_combinations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    codec_name: str,
+    format_name: str,
+) -> None:
+    _patch_ffprobe(monkeypatch, _ffprobe_payload(codec_name=codec_name, format_name=format_name))
+
+    with pytest.raises(BgmFileUnsupportedError):
+        probe_audio_metadata(tmp_path / "track.m4a")
