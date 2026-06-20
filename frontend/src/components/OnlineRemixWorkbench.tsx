@@ -3,6 +3,7 @@ import { Captions, FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react"
 import { useState } from "react";
 
 import { fetchSubtitleTemplateSets } from "../api/subtitles";
+import type { VoiceItem } from "../api/voices";
 import {
   GeneratedScript,
   LocalMaterial,
@@ -14,6 +15,7 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "../api/onlineRemix";
+import { VoiceSelector } from "./VoiceSelector";
 import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
 type ShotSearchState = "idle" | "searching" | "ready" | "failed" | "empty";
@@ -58,6 +60,7 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
   const [subtitleEnabled, setSubtitleEnabled] = useState(true);
   const [subtitleTemplateSetId, setSubtitleTemplateSetId] = useState("");
   const [subtitleFontFamily, setSubtitleFontFamily] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState<VoiceItem | null>(null);
   const [script, setScript] = useState<GeneratedScript | null>(null);
   const [shotState, setShotState] = useState<Record<number, ShotSearchState>>({});
   const [openShots, setOpenShots] = useState<Record<number, boolean>>({});
@@ -140,6 +143,12 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
     },
   });
 
+  const voicePreviewText =
+    script?.shots.find((shot) => shot.narration.trim())?.narration.trim() ||
+    (topic.trim()
+      ? `你好，这是一条关于${topic.trim().slice(0, 20)}的视频旁白试听。`
+      : "你好，这是一段视频旁白试听，你可以先听听这款人声是否适合当前视频。");
+
   const createTask = useMutation({
     mutationFn: () => {
       if (!script) {
@@ -164,6 +173,11 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
           subtitle_enabled: subtitleEnabled,
           subtitle_template_set_id: subtitleEnabled ? subtitleTemplateSetId || null : null,
           subtitle_font_family: subtitleEnabled ? subtitleFontFamily || null : null,
+          voice_id: selectedVoice?.id ?? null,
+          voice_name: selectedVoice?.name ?? null,
+          voice_provider: selectedVoice?.provider ?? null,
+          voice_locale: selectedVoice?.locale ?? null,
+          voice_gender: selectedVoice?.gender ?? null,
         },
       });
     },
@@ -357,6 +371,12 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
             去字幕模板页编辑
           </button>
         </fieldset>
+        <VoiceSelector
+          compact
+          previewText={voicePreviewText}
+          value={selectedVoice}
+          onChange={setSelectedVoice}
+        />
         <button className="primary-action" disabled={!topic.trim() || generate.isPending} type="submit">
           <Sparkles aria-hidden="true" size={18} />
           {generate.isPending ? "生成中" : "生成脚本"}

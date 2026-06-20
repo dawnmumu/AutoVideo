@@ -460,6 +460,22 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("keeps the workbench voice selector responsive without hover-only dependencies", () => {
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 1160px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 760px\) \{[\s\S]*?\.voice-selector-filters[\s\S]*?grid-template-columns:\s*1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.voice-preview-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
+    );
+    expect(stylesCss).not.toMatch(/\.voice-selector[^{,]*:hover/);
+  });
+
   it("returns to the remix workspace through hash navigation", async () => {
     const user = userEvent.setup();
     window.history.pushState(null, "", "/#subtitles");
@@ -541,7 +557,7 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "音色复刻" })).toBeDisabled();
     expect(screen.getByText("未配置 AUTOVIDEO_FISH_SPEECH_URL")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Microsoft Jenny Online (Natural) - English (United States)" })).toBeInTheDocument();
-    expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
+    expect(mockedFetchVoiceStatus).toHaveBeenCalled();
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
   });
 
@@ -2799,6 +2815,62 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("shows workbench voice selection with the default Edge TTS voice", async () => {
+    renderApp();
+
+    expect(await screen.findByRole("group", { name: "旁白音色" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", {
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
+    expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
+    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("previews the selected workbench voice with the first script narration", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "睡前精油短视频",
+      topic: "精油睡眠放松",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "睡前点一滴精油，让卧室慢慢安静下来。",
+          subtitle: "睡前放松",
+          visual_description: "relaxing bedroom night",
+          keywords: ["relaxing bedroom night"],
+        },
+      ],
+    });
+    renderApp();
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("睡前精油短视频");
+    await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
+
+    await waitFor(() => {
+      expect(mockedCreateVoicePreview).toHaveBeenCalledWith({
+        text: "睡前点一滴精油，让卧室慢慢安静下来。",
+        voice_id: "zh-CN-XiaoxiaoNeural",
+        rate: "+0%",
+        volume: "+0%",
+        pitch: "+0Hz",
+      });
+    });
+  });
+
   it("does not render removed auth or netdisk copy", async () => {
     renderApp();
     await screen.findByRole("heading", { name: "混剪工作台" });
@@ -3142,6 +3214,169 @@ describe("AutoVideo shell", () => {
       }),
     );
     expect(screen.queryByText("已选择 0/2 个镜头")).not.toBeInTheDocument();
+  });
+
+  it("sends the selected voice when creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "睡前精油短视频",
+      topic: "精油睡眠放松",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白 1",
+          subtitle: "字幕 1",
+          visual_description: "relaxing bedroom night",
+          keywords: ["relaxing bedroom night"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValueOnce({
+      id: "task-1",
+      title: "睡前精油短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("睡前精油短视频");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            voice_id: "zh-CN-XiaoxiaoNeural",
+            voice_name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+            voice_provider: "edge_tts",
+            voice_locale: "zh-CN",
+            voice_gender: "Female",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("uses the manually selected workbench voice when creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "英文旁白短视频",
+      topic: "咖啡店早高峰",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白 1",
+          subtitle: "字幕 1",
+          visual_description: "coffee shop morning counter",
+          keywords: ["coffee shop morning"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValueOnce({
+      id: "task-1",
+      title: "英文旁白短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Microsoft Jenny Online (Natural) - English (United States)",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Microsoft Jenny Online (Natural) - English (United States)",
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+    await user.type(await screen.findByLabelText("视频主题"), "咖啡店早高峰");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("英文旁白短视频");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            voice_id: "en-US-JennyNeural",
+            voice_name: "Microsoft Jenny Online (Natural) - English (United States)",
+            voice_provider: "edge_tts",
+            voice_locale: "en-US",
+            voice_gender: "Female",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("creates an online remix task with null voice fields when the voice service is unavailable", async () => {
+    const user = userEvent.setup();
+    mockedFetchVoices.mockRejectedValueOnce(new VoiceApiError("VOICE_LIST_FAILED", 503));
+    mockedGenerateScript.mockResolvedValueOnce({
+      id: "script-1",
+      title: "无音色服务短视频",
+      topic: "精油睡眠放松",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白 1",
+          subtitle: "字幕 1",
+          visual_description: "relaxing bedroom night",
+          keywords: ["relaxing bedroom night"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValueOnce({
+      id: "task-1",
+      title: "无音色服务短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "无法读取 Edge TTS 音色，请检查网络后重试。",
+    );
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByDisplayValue("无音色服务短视频");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            voice_id: null,
+            voice_name: null,
+            voice_provider: null,
+            voice_locale: null,
+            voice_gender: null,
+          }),
+        }),
+      );
+    });
   });
 
   it("shows create failure with collapsible error details", async () => {
