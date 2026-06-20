@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -32,6 +33,8 @@ import {
   fetchVoiceStatus,
   fetchVoices,
 } from "./api/voices";
+import type { VoiceItem } from "./api/voices";
+import { VoiceSelector, selectDefaultVoice } from "./components/VoiceSelector";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -205,6 +208,41 @@ function renderApp() {
   return render(
     <QueryClientProvider client={queryClient}>
       <App />
+    </QueryClientProvider>,
+  );
+}
+
+function renderVoiceSelectorHarness({
+  previewText = "睡前点一滴精油，让卧室慢慢安静下来。",
+  initialVoice = null,
+}: {
+  previewText?: string;
+  initialVoice?: VoiceItem | null;
+} = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  function Harness() {
+    const [selectedVoice, setSelectedVoice] = useState<VoiceItem | null>(initialVoice);
+
+    return (
+      <VoiceSelector
+        compact
+        previewText={previewText}
+        value={selectedVoice}
+        onChange={setSelectedVoice}
+      />
+    );
+  }
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Harness />
     </QueryClientProvider>,
   );
 }
@@ -542,6 +580,257 @@ describe("AutoVideo shell", () => {
     await user.click(screen.getByRole("button", { name: "生成试听" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("试听文案不能超过 6 个字");
+  });
+
+  it("selects the default voice through the shared VoiceSelector helper", () => {
+    const voiceItems: VoiceItem[] = [
+      {
+        id: "en-US-JennyNeural",
+        name: "Microsoft Jenny Online (Natural) - English (United States)",
+        provider: "edge_tts",
+        locale: "en-US",
+        gender: "Female",
+        content_categories: ["General"],
+        personalities: ["Friendly"],
+      },
+      {
+        id: "zh-CN-XiaoxiaoNeural",
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+        provider: "edge_tts",
+        locale: "zh-CN",
+        gender: "Female",
+        content_categories: ["General"],
+        personalities: ["Warm", "Friendly"],
+      },
+    ];
+
+    expect(
+      selectDefaultVoice(voiceItems, "zh-CN-XiaoxiaoNeural", null, {
+        preserveCurrentVoice: false,
+      })?.id,
+    ).toBe("zh-CN-XiaoxiaoNeural");
+    expect(
+      selectDefaultVoice(voiceItems, "zh-CN-XiaoxiaoNeural", "en-US-JennyNeural", {
+        preserveCurrentVoice: false,
+      })?.id,
+    ).toBe("zh-CN-XiaoxiaoNeural");
+    expect(
+      selectDefaultVoice(voiceItems, "zh-CN-XiaoxiaoNeural", "en-US-JennyNeural", {
+        preserveCurrentVoice: true,
+      })?.id,
+    ).toBe("en-US-JennyNeural");
+    expect(
+      selectDefaultVoice(voiceItems, null, null, { preserveCurrentVoice: false })?.id,
+    ).toBe("en-US-JennyNeural");
+    expect(
+      selectDefaultVoice(voiceItems, "missing-default", "missing-current", {
+        preserveCurrentVoice: true,
+      })?.id,
+    ).toBe("en-US-JennyNeural");
+    expect(
+      selectDefaultVoice([], "zh-CN-XiaoxiaoNeural", null, {
+        preserveCurrentVoice: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("waits for voice status before falling back to the first VoiceSelector voice", async () => {
+    let resolveStatus: (
+      value: Awaited<ReturnType<typeof fetchVoiceStatus>>,
+    ) => void = () => undefined;
+    const statusPromise = new Promise<Awaited<ReturnType<typeof fetchVoiceStatus>>>((resolve) => {
+      resolveStatus = resolve;
+    });
+    mockedFetchVoiceStatus.mockReturnValueOnce(statusPromise);
+    mockedFetchVoices.mockResolvedValueOnce({
+      provider: "edge_tts",
+      total: 2,
+      items: [
+        {
+          id: "en-US-JennyNeural",
+          name: "Microsoft Jenny Online (Natural) - English (United States)",
+          provider: "edge_tts",
+          locale: "en-US",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Friendly"],
+        },
+        {
+          id: "zh-CN-XiaoxiaoNeural",
+          name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+          provider: "edge_tts",
+          locale: "zh-CN",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Warm", "Friendly"],
+        },
+      ],
+    });
+    renderVoiceSelectorHarness();
+
+    const firstVoice = await screen.findByRole("button", {
+      name: "Microsoft Jenny Online (Natural) - English (United States)",
+    });
+    const defaultVoice = screen.getByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    expect(firstVoice).toHaveAttribute("aria-pressed", "false");
+    expect(defaultVoice).toHaveAttribute("aria-pressed", "false");
+
+    await act(async () => {
+      resolveStatus({
+        edge_tts: {
+          enabled: true,
+          provider: "edge_tts",
+          requires_api_key: false,
+          default_voice: "zh-CN-XiaoxiaoNeural",
+          max_preview_text_chars: 180,
+        },
+        fish_speech: {
+          configured: false,
+          enabled: false,
+        },
+      });
+      await statusPromise;
+    });
+
+    await waitFor(() => {
+      expect(defaultVoice).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(firstVoice).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("falls back to the first VoiceSelector voice when status fails", async () => {
+    mockedFetchVoiceStatus.mockRejectedValueOnce(new VoiceApiError("VOICE_STATUS_FAILED", 503));
+    renderVoiceSelectorHarness();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("falls back to the first VoiceSelector voice when status has no default voice", async () => {
+    mockedFetchVoiceStatus.mockResolvedValueOnce({
+      edge_tts: {
+        enabled: true,
+        provider: "edge_tts",
+        requires_api_key: false,
+        default_voice: "",
+        max_preview_text_chars: 180,
+      },
+      fish_speech: {
+        configured: false,
+        enabled: false,
+      },
+    });
+    renderVoiceSelectorHarness();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("falls back to the first VoiceSelector voice when the default voice is missing from the list", async () => {
+    mockedFetchVoiceStatus.mockResolvedValueOnce({
+      edge_tts: {
+        enabled: true,
+        provider: "edge_tts",
+        requires_api_key: false,
+        default_voice: "missing-voice",
+        max_preview_text_chars: 180,
+      },
+      fish_speech: {
+        configured: false,
+        enabled: false,
+      },
+    });
+    renderVoiceSelectorHarness();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps a manually selected VoiceSelector voice instead of the Edge TTS default voice", async () => {
+    const user = userEvent.setup();
+    mockedFetchVoices.mockResolvedValueOnce({
+      provider: "edge_tts",
+      total: 2,
+      items: [
+        {
+          id: "en-US-JennyNeural",
+          name: "Microsoft Jenny Online (Natural) - English (United States)",
+          provider: "edge_tts",
+          locale: "en-US",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Friendly"],
+        },
+        {
+          id: "zh-CN-XiaoxiaoNeural",
+          name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+          provider: "edge_tts",
+          locale: "zh-CN",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Warm", "Friendly"],
+        },
+      ],
+    });
+    renderVoiceSelectorHarness();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Microsoft Jenny Online (Natural) - English (United States)",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Microsoft Jenny Online (Natural) - English (United States)",
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+  });
+
+  it("renders VoiceSelector with the default Edge TTS voice", async () => {
+    renderVoiceSelectorHarness();
+
+    expect(await screen.findByRole("group", { name: "旁白音色" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", {
+        name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
+    expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
+    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("previews the selected VoiceSelector voice with provided narration text", async () => {
+    const user = userEvent.setup();
+    renderVoiceSelectorHarness({ previewText: "睡前点一滴精油，让卧室慢慢安静下来。" });
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
+
+    await waitFor(() => {
+      expect(mockedCreateVoicePreview).toHaveBeenCalledWith({
+        text: "睡前点一滴精油，让卧室慢慢安静下来。",
+        voice_id: "zh-CN-XiaoxiaoNeural",
+        rate: "+0%",
+        volume: "+0%",
+        pitch: "+0Hz",
+      });
+    });
   });
 
   it("keeps enabled mobile navigation entries before disabled placeholders", async () => {

@@ -11,12 +11,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  VoiceApiError,
-  VoiceItem,
   createVoicePreview,
   fetchVoiceStatus,
   fetchVoices,
 } from "../api/voices";
+import { readableVoiceError, selectDefaultVoice, voiceTags } from "./VoiceSelector";
 
 const LOCALE_OPTIONS = [
   { value: "zh-CN", label: "中文" },
@@ -33,38 +32,11 @@ function signedPitch(value: number): string {
   return `${value >= 0 ? "+" : ""}${value}Hz`;
 }
 
-function voiceTags(voice: VoiceItem): string {
-  return [voice.locale, voice.gender, ...voice.personalities].filter(Boolean).join(" · ");
-}
-
-function detailNumber(error: VoiceApiError, key: string): number | null {
-  const value = error.detail[key];
-  return typeof value === "number" ? value : null;
-}
-
-function readableError(error: unknown, maxPreviewTextChars: number): string {
-  if (error instanceof VoiceApiError) {
-    if (error.code === "VOICE_LIST_FAILED") {
-      return "无法读取 Edge TTS 音色，请检查网络后重试。";
-    }
-    if (error.code === "VOICE_PREVIEW_TEXT_TOO_LONG") {
-      const maxChars = detailNumber(error, "max_chars") ?? maxPreviewTextChars;
-      return `试听文案不能超过 ${maxChars} 个字`;
-    }
-    if (error.code === "VOICE_NOT_FOUND") {
-      return "当前音色不可用，请重新选择。";
-    }
-    if (error.code === "VOICE_PREVIEW_FAILED") {
-      return "试听生成失败，请稍后重试。";
-    }
-  }
-  return "音色请求失败，请稍后重试。";
-}
-
 export function VoiceCenterWorkbench() {
   const [locale, setLocale] = useState("zh-CN");
   const [query, setQuery] = useState("");
   const [selectedVoiceId, setSelectedVoiceId] = useState("");
+  const [hasManualVoiceSelection, setHasManualVoiceSelection] = useState(false);
   const [previewText, setPreviewText] = useState("你好，欢迎使用 AutoVideo。");
   const [rate, setRate] = useState(0);
   const [volume, setVolume] = useState(0);
@@ -78,31 +50,51 @@ export function VoiceCenterWorkbench() {
     queryKey: ["voices", locale, query],
     queryFn: () => fetchVoices({ locale, q: query }),
   });
+
+  const voiceItems = useMemo(() => voices.data?.items ?? [], [voices.data?.items]);
+  const statusReady = status.isSuccess || status.isError;
+  const defaultVoiceId = status.data?.edge_tts.default_voice ?? null;
+  const selectedVoice = useMemo(() => {
+    if (!statusReady) {
+      return voiceItems.find((voice) => voice.id === selectedVoiceId) ?? null;
+    }
+    return selectDefaultVoice(voiceItems, defaultVoiceId, selectedVoiceId || null, {
+      preserveCurrentVoice: hasManualVoiceSelection,
+    });
+  }, [defaultVoiceId, hasManualVoiceSelection, selectedVoiceId, statusReady, voiceItems]);
+  const maxPreviewTextChars = status.data?.edge_tts.max_preview_text_chars ?? 300;
+
   const preview = useMutation({
     mutationFn: () =>
       createVoicePreview({
         text: previewText,
-        voice_id: selectedVoiceId,
+        voice_id: selectedVoice?.id ?? selectedVoiceId,
         rate: signedPercent(rate),
         volume: signedPercent(volume),
         pitch: signedPitch(pitch),
       }),
   });
 
-  const voiceItems = useMemo(() => voices.data?.items ?? [], [voices.data?.items]);
-  const selectedVoice =
-    voiceItems.find((voice) => voice.id === selectedVoiceId) ?? voiceItems[0] ?? null;
-  const maxPreviewTextChars = status.data?.edge_tts.max_preview_text_chars ?? 300;
-
   useEffect(() => {
-    if (selectedVoiceId && voiceItems.some((voice) => voice.id === selectedVoiceId)) {
+    if (voices.isLoading || voices.isError || !statusReady) {
       return;
     }
-    const defaultVoice = status.data?.edge_tts.default_voice;
-    const nextVoice =
-      voiceItems.find((voice) => voice.id === defaultVoice) ?? voiceItems[0] ?? null;
-    setSelectedVoiceId(nextVoice?.id ?? "");
-  }, [selectedVoiceId, status.data?.edge_tts.default_voice, voiceItems]);
+    const nextVoice = selectDefaultVoice(voiceItems, defaultVoiceId, selectedVoiceId || null, {
+      preserveCurrentVoice: hasManualVoiceSelection,
+    });
+    const nextVoiceId = nextVoice?.id ?? "";
+    if (nextVoiceId !== selectedVoiceId) {
+      setSelectedVoiceId(nextVoiceId);
+    }
+  }, [
+    defaultVoiceId,
+    hasManualVoiceSelection,
+    selectedVoiceId,
+    statusReady,
+    voiceItems,
+    voices.isError,
+    voices.isLoading,
+  ]);
 
   const canCreatePreview =
     Boolean(selectedVoice?.id) && previewText.trim().length > 0 && !preview.isPending;
@@ -167,7 +159,7 @@ export function VoiceCenterWorkbench() {
             </div>
           ) : voices.isError ? (
             <div className="inline-error" role="alert">
-              <span>{readableError(voices.error, maxPreviewTextChars)}</span>
+              <span>{readableVoiceError(voices.error, maxPreviewTextChars)}</span>
               <button type="button" onClick={() => void voices.refetch()}>
                 <RefreshCw aria-hidden="true" size={18} />
                 重试
@@ -187,7 +179,10 @@ export function VoiceCenterWorkbench() {
                   className={voice.id === selectedVoice?.id ? "active" : ""}
                   key={voice.id}
                   type="button"
-                  onClick={() => setSelectedVoiceId(voice.id)}
+                  onClick={() => {
+                    setHasManualVoiceSelection(true);
+                    setSelectedVoiceId(voice.id);
+                  }}
                 >
                   <span>{voice.name}</span>
                   <small>{voiceTags(voice)}</small>
@@ -277,7 +272,7 @@ export function VoiceCenterWorkbench() {
 
           {preview.isError ? (
             <div className="inline-error" role="alert">
-              {readableError(preview.error, maxPreviewTextChars)}
+              {readableVoiceError(preview.error, maxPreviewTextChars)}
             </div>
           ) : null}
           {preview.data ? (
