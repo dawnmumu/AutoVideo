@@ -474,7 +474,7 @@ describe("AutoVideo shell", () => {
       /\.voice-preview-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
     );
     expect(stylesCss).toMatch(
-      /\.voice-selector \.voice-search-input input \{[\s\S]*?border:\s*0;[\s\S]*?padding:\s*8px 0;[\s\S]*?min-height:\s*40px;[\s\S]*?min-width:\s*0;/,
+      /\.voice-selector \.voice-search-input input \{[^}]*border:\s*0;[^}]*padding:\s*8px 0;[^}]*min-height:\s*44px;[^}]*min-width:\s*0;[^}]*\}/,
     );
     expect(stylesCss).not.toMatch(/\.voice-selector[^{,]*:hover/);
   });
