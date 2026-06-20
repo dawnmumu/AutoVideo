@@ -91,7 +91,6 @@ export function VoiceSelector({
 }: VoiceSelectorProps) {
   const [locale, setLocale] = useState("zh-CN");
   const [query, setQuery] = useState("");
-  const [hasManualVoiceSelection, setHasManualVoiceSelection] = useState(false);
 
   const status = useQuery({
     queryKey: ["voice-status"],
@@ -120,33 +119,31 @@ export function VoiceSelector({
     : null;
 
   useEffect(() => {
-    if (voices.isLoading || voices.isError || !statusReady) {
+    if (value || voices.isLoading || voices.isError || !statusReady) {
       return;
     }
 
     const nextVoice = selectDefaultVoice(
       voiceItems,
       status.data?.edge_tts.default_voice,
-      value?.id,
-      { preserveCurrentVoice: hasManualVoiceSelection },
+      null,
+      { preserveCurrentVoice: false },
     );
 
-    if ((nextVoice?.id ?? null) !== (value?.id ?? null)) {
+    if (nextVoice) {
       onChange(nextVoice);
     }
   }, [
-    hasManualVoiceSelection,
     onChange,
     status.data?.edge_tts.default_voice,
     statusReady,
-    value?.id,
+    value,
     voiceItems,
     voices.isError,
     voices.isLoading,
   ]);
 
   const handleVoiceChange = (voice: VoiceItem) => {
-    setHasManualVoiceSelection(true);
     onChange(voice);
   };
 
@@ -202,7 +199,7 @@ export function VoiceSelector({
           <span>切换语言或搜索词</span>
         </div>
       ) : (
-        <div className="voice-list" role="list" aria-label="微软 Edge TTS 音色">
+        <div className="voice-list" role="group" aria-label="微软 Edge TTS 音色">
           {voiceItems.map((voice) => (
             <button
               aria-label={voice.name}

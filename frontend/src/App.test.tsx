@@ -799,6 +799,75 @@ describe("AutoVideo shell", () => {
     });
   });
 
+  it("keeps an initial controlled VoiceSelector voice instead of the Edge TTS default voice", async () => {
+    renderVoiceSelectorHarness({
+      initialVoice: {
+        id: "en-US-JennyNeural",
+        name: "Microsoft Jenny Online (Natural) - English (United States)",
+        provider: "edge_tts",
+        locale: "en-US",
+        gender: "Female",
+        content_categories: ["General"],
+        personalities: ["Friendly"],
+      },
+    });
+
+    const initialVoice = await screen.findByRole("button", {
+      name: "Microsoft Jenny Online (Natural) - English (United States)",
+    });
+    const defaultVoice = screen.getByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+
+    await waitFor(() => {
+      expect(initialVoice).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(defaultVoice).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("keeps the selected VoiceSelector voice when filters have no matching voices", async () => {
+    const user = userEvent.setup();
+    const selectedVoice: VoiceItem = {
+      id: "zh-CN-XiaoxiaoNeural",
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+      provider: "edge_tts",
+      locale: "zh-CN",
+      gender: "Female",
+      content_categories: ["General"],
+      personalities: ["Warm", "Friendly"],
+    };
+    const fallbackVoice: VoiceItem = {
+      id: "en-US-JennyNeural",
+      name: "Microsoft Jenny Online (Natural) - English (United States)",
+      provider: "edge_tts",
+      locale: "en-US",
+      gender: "Female",
+      content_categories: ["General"],
+      personalities: ["Friendly"],
+    };
+    mockedFetchVoices.mockImplementation(({ q = "" } = {}) =>
+      Promise.resolve({
+        provider: "edge_tts",
+        total: q ? 0 : 2,
+        items: q ? [] : [selectedVoice, fallbackVoice],
+      }),
+    );
+    renderVoiceSelectorHarness({ initialVoice: selectedVoice });
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.type(screen.getByLabelText("搜索音色"), "missing");
+
+    expect(await screen.findByText("没有匹配音色")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("未选择音色")).not.toBeInTheDocument();
+  });
+
   it("renders VoiceSelector with the default Edge TTS voice", async () => {
     renderVoiceSelectorHarness();
 
