@@ -26,6 +26,12 @@ import {
 } from "./api/subtitles";
 import type { SubtitleTemplateSet } from "./api/subtitles";
 import { deleteTask, fetchTasks } from "./api/tasks";
+import {
+  VoiceApiError,
+  createVoicePreview,
+  fetchVoiceStatus,
+  fetchVoices,
+} from "./api/voices";
 
 vi.mock("./api/health", () => ({
   fetchHealth: vi.fn(),
@@ -56,6 +62,16 @@ vi.mock("./api/tasks", () => ({
   deleteTask: vi.fn(),
 }));
 
+vi.mock("./api/voices", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api/voices")>();
+  return {
+    ...actual,
+    fetchVoiceStatus: vi.fn(),
+    fetchVoices: vi.fn(),
+    createVoicePreview: vi.fn(),
+  };
+});
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
@@ -73,6 +89,9 @@ const mockedResetSubtitlePresetOverride = vi.mocked(resetSubtitlePresetOverride)
 const mockedValidateSubtitleTemplateSet = vi.mocked(validateSubtitleTemplateSet);
 const mockedPreviewSubtitleTemplateSet = vi.mocked(previewSubtitleTemplateSet);
 const mockedPreviewSubtitleTimeline = vi.mocked(previewSubtitleTimeline);
+const mockedFetchVoiceStatus = vi.mocked(fetchVoiceStatus);
+const mockedFetchVoices = vi.mocked(fetchVoices);
+const mockedCreateVoicePreview = vi.mocked(createVoicePreview);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -254,6 +273,50 @@ describe("AutoVideo shell", () => {
       resolution: { width: 1080, height: 1920 },
       warnings: [],
     });
+    mockedFetchVoiceStatus.mockResolvedValue({
+      edge_tts: {
+        enabled: true,
+        provider: "edge_tts",
+        requires_api_key: false,
+        default_voice: "zh-CN-XiaoxiaoNeural",
+        max_preview_text_chars: 180,
+      },
+      fish_speech: {
+        configured: false,
+        enabled: false,
+      },
+    });
+    mockedFetchVoices.mockResolvedValue({
+      provider: "edge_tts",
+      total: 2,
+      items: [
+        {
+          id: "zh-CN-XiaoxiaoNeural",
+          name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+          provider: "edge_tts",
+          locale: "zh-CN",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Warm", "Friendly"],
+        },
+        {
+          id: "en-US-JennyNeural",
+          name: "Microsoft Jenny Online (Natural) - English (United States)",
+          provider: "edge_tts",
+          locale: "en-US",
+          gender: "Female",
+          content_categories: ["General"],
+          personalities: ["Friendly"],
+        },
+      ],
+    });
+    mockedCreateVoicePreview.mockResolvedValue({
+      voice_id: "zh-CN-XiaoxiaoNeural",
+      filename: "edge-tts-preview.mp3",
+      audio_url: "/api/voices/previews/edge-tts-preview.mp3",
+      media_type: "audio/mpeg",
+      created_at: "2026-06-20T08:00:00+08:00",
+    });
   });
 
   it("renders the Chinese product navigation", async () => {
@@ -417,6 +480,70 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("opens the voice center from navigation and lists Microsoft Edge TTS voices", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "音色中心" }));
+
+    expect(window.location.hash).toBe("#voices");
+    expect(screen.getByRole("heading", { name: "音色中心", level: 1 })).toBeInTheDocument();
+    expect(screen.getByText("微软 Edge TTS 免费音色试听")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "音色中心" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "音色" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("button", { name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByLabelText("试听文案")).toHaveAttribute("maxlength", "180");
+    expect(screen.getByLabelText("试听文案长度")).toHaveTextContent("18 / 180");
+    expect(screen.getByRole("button", { name: "音色复刻" })).toBeDisabled();
+    expect(screen.getByText("未配置 AUTOVIDEO_FISH_SPEECH_URL")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Microsoft Jenny Online (Natural) - English (United States)" })).toBeInTheDocument();
+    expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
+    expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("creates a Microsoft Edge TTS preview from the selected voice", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "音色中心" }));
+    await user.clear(await screen.findByLabelText("试听文案"));
+    await user.type(screen.getByLabelText("试听文案"), "你好，欢迎使用 AutoVideo。");
+    await user.click(screen.getByRole("button", { name: "生成试听" }));
+
+    await waitFor(() => {
+      expect(mockedCreateVoicePreview).toHaveBeenCalledWith({
+        text: "你好，欢迎使用 AutoVideo。",
+        voice_id: "zh-CN-XiaoxiaoNeural",
+        rate: "+0%",
+        volume: "+0%",
+        pitch: "+0Hz",
+      });
+    });
+    expect(await screen.findByLabelText("音色试听音频")).toHaveAttribute(
+      "src",
+      "/api/voices/previews/edge-tts-preview.mp3",
+    );
+  });
+
+  it("shows actionable voice preview errors in Chinese", async () => {
+    const user = userEvent.setup();
+    mockedCreateVoicePreview.mockRejectedValueOnce(
+      new VoiceApiError("VOICE_PREVIEW_TEXT_TOO_LONG", 400, { max_chars: 6 }),
+    );
+    renderApp();
+
+    await user.click(await screen.findByRole("link", { name: "音色中心" }));
+    await user.click(screen.getByRole("button", { name: "生成试听" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("试听文案不能超过 6 个字");
+  });
+
   it("keeps enabled mobile navigation entries before disabled placeholders", async () => {
     renderApp();
 
@@ -426,7 +553,7 @@ describe("AutoVideo shell", () => {
     const labels = Array.from(mobileNav.querySelectorAll("a, span")).map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels.slice(0, 3)).toEqual(["混剪", "字幕", "任务"]);
+    expect(labels.slice(0, 4)).toEqual(["混剪", "字幕", "音色", "任务"]);
   });
 
   it("opens the task output list and links rendered videos for download", async () => {

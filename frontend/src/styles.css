@@ -251,7 +251,13 @@ h2 {
 
 .task-output-panel,
 .task-output-list,
-.task-output-main {
+.task-output-main,
+.voice-center-panel,
+.voice-center-grid,
+.voice-clone-panel,
+.voice-list-panel,
+.voice-preview-panel,
+.voice-list {
   display: grid;
   gap: 14px;
 }
@@ -427,7 +433,58 @@ h2 {
   align-items: end;
 }
 
-.online-remix-panel label {
+.voice-center-grid {
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  align-items: start;
+  margin-top: 18px;
+}
+
+.voice-list-panel,
+.voice-preview-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.voice-filter-row,
+.voice-slider-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.voice-clone-panel {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  margin-top: 4px;
+  padding: 14px;
+}
+
+.voice-clone-panel div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.voice-clone-panel span,
+.voice-text-count {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.voice-filter-row {
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.3fr);
+}
+
+.online-remix-panel label,
+.voice-filter-row label,
+.voice-preview-panel label,
+.voice-slider-grid label {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -437,7 +494,10 @@ h2 {
 
 .online-remix-panel input,
 .online-remix-panel select,
-.online-remix-panel textarea {
+.online-remix-panel textarea,
+.voice-filter-row select,
+.voice-search-input input,
+.voice-preview-panel textarea {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--line);
@@ -448,9 +508,121 @@ h2 {
   padding: 10px 12px;
 }
 
+.voice-search-input {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 10px;
+}
+
+.voice-search-input input {
+  min-height: 40px;
+  border: 0;
+  padding: 8px 0;
+  outline: 0;
+}
+
+.voice-search-input:focus-within {
+  border-color: var(--accent);
+  outline: 3px solid rgba(23, 107, 135, 0.25);
+  outline-offset: 2px;
+}
+
 .online-remix-panel textarea {
   min-height: 88px;
   resize: vertical;
+}
+
+.voice-preview-panel textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.voice-list {
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.voice-list button {
+  min-height: 72px;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  text-align: left;
+  background: var(--surface);
+}
+
+.voice-list button.active,
+.voice-list button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: #eef7fb;
+}
+
+.voice-list button span {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.voice-list button small,
+.voice-selected-summary span,
+.voice-preview-actions span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.voice-selected-summary,
+.voice-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.voice-selected-summary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.voice-selected-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.voice-selected-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.voice-slider-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.voice-slider-grid input[type="range"] {
+  width: 100%;
+  min-height: 44px;
+}
+
+.voice-preview-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.voice-preview-actions span {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-preview-audio {
+  width: 100%;
 }
 
 button,
@@ -486,6 +658,8 @@ button:focus-visible,
 .online-remix-panel input:focus-visible,
 .online-remix-panel select:focus-visible,
 .online-remix-panel textarea:focus-visible,
+.voice-filter-row select:focus-visible,
+.voice-preview-panel textarea:focus-visible,
 .error-list summary:focus-visible,
 .shot-row summary:focus-visible {
   outline: 3px solid rgba(23, 107, 135, 0.25);
@@ -736,7 +910,10 @@ button:disabled,
 .subtitle-settings select:focus-visible,
 .subtitle-settings button:focus-visible,
 .task-output-panel button:focus-visible,
-.task-output-panel a:focus-visible {
+.task-output-panel a:focus-visible,
+.voice-list button:focus-visible,
+.voice-preview-panel button:focus-visible,
+.voice-preview-panel input:focus-visible {
   outline: 3px solid rgba(23, 107, 135, 0.25);
   outline-offset: 2px;
 }
@@ -935,6 +1112,10 @@ button:disabled,
     grid-template-columns: 1fr;
   }
 
+  .voice-center-grid {
+    grid-template-columns: 1fr;
+  }
+
   .subtitle-local-style-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -948,6 +1129,9 @@ button:disabled,
 
   .online-remix-form,
   .shot-fields,
+  .voice-filter-row,
+  .voice-slider-grid,
+  .voice-clone-panel,
   .shot-actions,
   .create-task-row,
   .candidate-row,
@@ -1052,6 +1236,9 @@ button:disabled,
 
   .online-remix-form,
   .shot-fields,
+  .voice-filter-row,
+  .voice-slider-grid,
+  .voice-clone-panel,
   .shot-actions,
   .create-task-row,
   .candidate-row,
@@ -1076,6 +1263,8 @@ button:disabled,
   .task-output-actions a,
   .task-output-actions button,
   .task-output-actions .disabled-action,
+  .voice-preview-actions button,
+  .voice-clone-panel button,
   .task-delete-confirmation-actions button,
   .inline-error button,
   .shot-actions button,

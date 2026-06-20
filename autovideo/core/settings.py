@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("data"))
     ffmpeg_path: str = "ffmpeg"
     fish_speech_url: str | None = None
+    edge_tts_default_voice: str = "zh-CN-XiaoxiaoNeural"
+    max_voice_preview_text_chars: int = Field(default=300, ge=1, le=2000)
+    max_voice_preview_request_bytes: int = Field(default=8192, ge=1)
     max_upload_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
     max_multipart_overhead_bytes: int = Field(default=1024 * 1024, ge=0)
     max_task_materials: int = Field(default=100, ge=1)
