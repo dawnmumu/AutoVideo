@@ -558,6 +558,31 @@ def test_online_mix_rejects_invalid_voice_provider(client) -> None:
     assert response.json()["detail"]["code"] == "VOICE_PROVIDER_INVALID"
 
 
+def test_online_mix_rejects_invalid_voice_provider_without_voice_id(client) -> None:
+    material_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = material_response.json()
+
+    response = client.post(
+        "/api/online-mix/tasks",
+        json={
+            "title": "无音色非法 provider 任务",
+            "script": _single_shot_script(),
+            "asset_strategy": "manual",
+            "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+            "options": {
+                "subtitle_enabled": False,
+                "voice_provider": "fish_speech",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "VOICE_PROVIDER_INVALID"
+
+
 def test_online_mix_auto_subtitle_snapshot_includes_random_variant_pool(tmp_path):
     app = create_app(
         Settings(data_dir=tmp_path, ffmpeg_path="missing-autovideo-ffmpeg-binary")

@@ -334,6 +334,10 @@ def normalize_subtitle_options(
 
 
 def normalize_voice_options(options: dict[str, Any]) -> dict[str, Any]:
+    provider = _optional_text(options.get("voice_provider"))
+    if provider and provider != "edge_tts":
+        raise VoiceProviderInvalidError(provider)
+
     voice_id = _optional_text(options.get("voice_id"))
     if not voice_id:
         return {
@@ -344,14 +348,10 @@ def normalize_voice_options(options: dict[str, Any]) -> dict[str, Any]:
             "voice_gender": None,
         }
 
-    provider = _optional_text(options.get("voice_provider")) or "edge_tts"
-    if provider != "edge_tts":
-        raise VoiceProviderInvalidError(provider)
-
     return {
         "voice_id": voice_id,
         "voice_name": _optional_text(options.get("voice_name")),
-        "voice_provider": provider,
+        "voice_provider": provider or "edge_tts",
         "voice_locale": _optional_text(options.get("voice_locale")),
         "voice_gender": _optional_text(options.get("voice_gender")),
     }
