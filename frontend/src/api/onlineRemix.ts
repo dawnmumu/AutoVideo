@@ -124,6 +124,11 @@ export interface CreateOnlineMixTaskInput {
     subtitle_enabled?: boolean;
     subtitle_template_set_id?: string | null;
     subtitle_font_family?: string | null;
+    voice_id?: string | null;
+    voice_name?: string | null;
+    voice_provider?: "edge_tts" | null;
+    voice_locale?: string | null;
+    voice_gender?: string | null;
   };
 }
 

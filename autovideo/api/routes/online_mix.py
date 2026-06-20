@@ -30,6 +30,7 @@ from autovideo.services.online_mix import (
     OnlineMixNoMaterialMatchError,
     OnlineMixShotSelectionInvalidError,
     SubtitleTemplateInvalidError,
+    VoiceProviderInvalidError,
     create_online_mix_task,
     validate_manual_shot_coverage,
     validate_shot_selection,
@@ -273,6 +274,12 @@ def create_online_mix_video_task(
             status.HTTP_400_BAD_REQUEST,
             "SUBTITLE_TEMPLATE_INVALID",
             message=str(exc),
+        ) from exc
+    except VoiceProviderInvalidError as exc:
+        raise structured_error(
+            status.HTTP_400_BAD_REQUEST,
+            "VOICE_PROVIDER_INVALID",
+            provider=exc.provider,
         ) from exc
     except FfmpegRenderFailedError as exc:
         raise structured_error(

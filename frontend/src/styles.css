@@ -449,6 +449,7 @@ h2 {
 }
 
 .voice-filter-row,
+.voice-selector-filters,
 .voice-slider-grid {
   display: grid;
   gap: 12px;
@@ -477,11 +478,13 @@ h2 {
   line-height: 1.4;
 }
 
-.voice-filter-row {
+.voice-filter-row,
+.voice-selector-filters {
   grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.3fr);
 }
 
 .online-remix-panel label,
+.voice-selector label,
 .voice-filter-row label,
 .voice-preview-panel label,
 .voice-slider-grid label {
@@ -621,8 +624,33 @@ h2 {
   gap: 8px;
 }
 
+.voice-selector input,
+.voice-selector select,
+.voice-selector button {
+  min-height: 44px;
+}
+
+.voice-selector input,
+.voice-selector select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.voice-selector .voice-search-input input {
+  border: 0;
+  padding: 8px 0;
+  min-height: 44px;
+  min-width: 0;
+}
+
 .voice-preview-audio {
   width: 100%;
+  max-width: 100%;
 }
 
 button,
@@ -659,6 +687,7 @@ button:focus-visible,
 .online-remix-panel select:focus-visible,
 .online-remix-panel textarea:focus-visible,
 .voice-filter-row select:focus-visible,
+.voice-selector-filters select:focus-visible,
 .voice-preview-panel textarea:focus-visible,
 .error-list summary:focus-visible,
 .shot-row summary:focus-visible {
@@ -824,7 +853,8 @@ button:disabled,
 .subtitle-template-list,
 .subtitle-preview-panel,
 .subtitle-editor-panel,
-.subtitle-settings {
+.subtitle-settings,
+.voice-selector {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1070,6 +1100,20 @@ button:disabled,
   padding: 0 4px;
 }
 
+.voice-selector {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.voice-selector legend {
+  color: var(--text);
+  font-weight: 700;
+  padding: 0 4px;
+}
+
 .subtitle-settings {
   grid-column: 1 / -1;
 }
@@ -1130,6 +1174,7 @@ button:disabled,
   .online-remix-form,
   .shot-fields,
   .voice-filter-row,
+  .voice-selector-filters,
   .voice-slider-grid,
   .voice-clone-panel,
   .shot-actions,
@@ -1237,6 +1282,7 @@ button:disabled,
   .online-remix-form,
   .shot-fields,
   .voice-filter-row,
+  .voice-selector-filters,
   .voice-slider-grid,
   .voice-clone-panel,
   .shot-actions,

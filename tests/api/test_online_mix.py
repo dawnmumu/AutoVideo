@@ -352,6 +352,11 @@ def test_online_mix_sanitizes_sensitive_options_in_manifest(client) -> None:
         "aspect_ratio": "9:16",
         "subtitle_enabled": False,
         "render_profile": {"preset": "fast"},
+        "voice_id": None,
+        "voice_name": None,
+        "voice_provider": None,
+        "voice_locale": None,
+        "voice_gender": None,
     }
     serialized = json.dumps(output, ensure_ascii=False)
     assert "signed-token" not in serialized
@@ -400,6 +405,182 @@ def test_online_mix_persists_subtitle_snapshot_and_font_override(tmp_path):
     assert snapshot["templates"]["bottom"]["font_family"] == "Noto Sans CJK SC"
     assert snapshot["blocks"][0]["style"]["font_family"] == "Noto Sans CJK SC"
     assert manifest["render_plan"]["subtitles_ass"] == "subtitles.ass"
+
+
+def test_online_mix_persists_voice_options_in_task_and_manifest(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "音色任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "voice_id": "zh-CN-XiaoxiaoNeural",
+                    "voice_name": (
+                        "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"
+                    ),
+                    "voice_provider": "edge_tts",
+                    "voice_locale": "zh-CN",
+                    "voice_gender": "Female",
+                },
+            },
+        )
+        task = response.json()
+
+    assert response.status_code == 201
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for payload in [task["options"], manifest]:
+        assert payload["voice_id"] == "zh-CN-XiaoxiaoNeural"
+        assert (
+            payload["voice_name"]
+            == "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"
+        )
+        assert payload["voice_provider"] == "edge_tts"
+        assert payload["voice_locale"] == "zh-CN"
+        assert payload["voice_gender"] == "Female"
+
+
+def test_online_mix_defaults_empty_voice_options_to_null(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "无音色任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+        task = response.json()
+
+    assert response.status_code == 201
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for payload in [task["options"], manifest]:
+        assert payload["voice_id"] is None
+        assert payload["voice_name"] is None
+        assert payload["voice_provider"] is None
+        assert payload["voice_locale"] is None
+        assert payload["voice_gender"] is None
+
+
+def test_online_mix_defaults_missing_voice_provider_to_edge_tts(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "默认 provider 音色任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "voice_id": "zh-CN-XiaoxiaoNeural",
+                    "voice_name": "Microsoft Xiaoxiao",
+                    "voice_provider": "",
+                },
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["options"]["voice_provider"] == "edge_tts"
+
+
+def test_online_mix_rejects_invalid_voice_provider(client) -> None:
+    material_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = material_response.json()
+
+    response = client.post(
+        "/api/online-mix/tasks",
+        json={
+            "title": "非法 provider 音色任务",
+            "script": _single_shot_script(),
+            "asset_strategy": "manual",
+            "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+            "options": {
+                "subtitle_enabled": False,
+                "voice_id": "voice-1",
+                "voice_provider": "fish_speech",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "VOICE_PROVIDER_INVALID"
+
+
+def test_online_mix_rejects_invalid_voice_provider_without_voice_id(client) -> None:
+    material_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    material = material_response.json()
+
+    response = client.post(
+        "/api/online-mix/tasks",
+        json={
+            "title": "无音色非法 provider 任务",
+            "script": _single_shot_script(),
+            "asset_strategy": "manual",
+            "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+            "options": {
+                "subtitle_enabled": False,
+                "voice_provider": "fish_speech",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "VOICE_PROVIDER_INVALID"
 
 
 def test_online_mix_auto_subtitle_snapshot_includes_random_variant_pool(tmp_path):
