@@ -641,6 +641,13 @@ h2 {
   padding: 10px 12px;
 }
 
+.voice-selector .voice-search-input input {
+  border: 0;
+  padding: 8px 0;
+  min-height: 40px;
+  min-width: 0;
+}
+
 .voice-preview-audio {
   width: 100%;
   max-width: 100%;
@@ -680,6 +687,7 @@ button:focus-visible,
 .online-remix-panel select:focus-visible,
 .online-remix-panel textarea:focus-visible,
 .voice-filter-row select:focus-visible,
+.voice-selector-filters select:focus-visible,
 .voice-preview-panel textarea:focus-visible,
 .error-list summary:focus-visible,
 .shot-row summary:focus-visible {

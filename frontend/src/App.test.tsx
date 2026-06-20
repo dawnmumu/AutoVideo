@@ -473,6 +473,9 @@ describe("AutoVideo shell", () => {
     expect(stylesCss).toMatch(
       /\.voice-preview-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
     );
+    expect(stylesCss).toMatch(
+      /\.voice-selector \.voice-search-input input \{[\s\S]*?border:\s*0;[\s\S]*?padding:\s*8px 0;[\s\S]*?min-height:\s*40px;[\s\S]*?min-width:\s*0;/,
+    );
     expect(stylesCss).not.toMatch(/\.voice-selector[^{,]*:hover/);
   });
 
@@ -915,6 +918,30 @@ describe("AutoVideo shell", () => {
         volume: "+0%",
         pitch: "+0Hz",
       });
+    });
+  });
+
+  it("clears VoiceSelector preview audio after selected voice changes", async () => {
+    const user = userEvent.setup();
+    renderVoiceSelectorHarness({ previewText: "睡前点一滴精油，让卧室慢慢安静下来。" });
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
+    expect(await screen.findByLabelText("旁白音色试听音频")).toHaveAttribute(
+      "src",
+      "/api/voices/previews/edge-tts-preview.mp3",
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Microsoft Jenny Online (Natural) - English (United States)",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("旁白音色试听音频")).not.toBeInTheDocument();
     });
   });
 
@@ -2818,7 +2845,9 @@ describe("AutoVideo shell", () => {
   it("shows workbench voice selection with the default Edge TTS voice", async () => {
     renderApp();
 
-    expect(await screen.findByRole("group", { name: "旁白音色" })).toBeInTheDocument();
+    const workbenchVoiceSelector = await screen.findByRole("group", { name: "旁白音色" });
+    expect(workbenchVoiceSelector).toBeInTheDocument();
+    expect(workbenchVoiceSelector.querySelector(".voice-selector-filters")).toBeInTheDocument();
     expect(
       await screen.findByRole("button", {
         name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
@@ -2827,6 +2856,20 @@ describe("AutoVideo shell", () => {
     expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");
     expect(mockedFetchVoiceStatus).toHaveBeenCalledTimes(1);
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("keeps voice search Enter from submitting the workbench form", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.type(screen.getByLabelText("搜索音色"), "Jenny");
+    await user.keyboard("{Enter}");
+
+    expect(mockedGenerateScript).not.toHaveBeenCalled();
   });
 
   it("previews the selected workbench voice with the first script narration", async () => {
@@ -2868,6 +2911,26 @@ describe("AutoVideo shell", () => {
         volume: "+0%",
         pitch: "+0Hz",
       });
+    });
+  });
+
+  it("clears workbench preview audio when the preview text changes", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("button", {
+      name: "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)",
+    });
+    await user.click(screen.getByRole("button", { name: "试听旁白音色" }));
+    expect(await screen.findByLabelText("旁白音色试听音频")).toHaveAttribute(
+      "src",
+      "/api/voices/previews/edge-tts-preview.mp3",
+    );
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("旁白音色试听音频")).not.toBeInTheDocument();
     });
   });
 

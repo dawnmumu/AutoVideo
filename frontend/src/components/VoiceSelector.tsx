@@ -8,7 +8,7 @@ import {
   fetchVoiceStatus,
   fetchVoices,
 } from "../api/voices";
-import type { VoiceItem } from "../api/voices";
+import type { CreateVoicePreviewInput, VoiceItem } from "../api/voices";
 
 const LOCALE_OPTIONS = [
   { value: "zh-CN", label: "中文" },
@@ -101,19 +101,13 @@ export function VoiceSelector({
     queryFn: () => fetchVoices({ locale, q: query }),
   });
   const preview = useMutation({
-    mutationFn: () =>
-      createVoicePreview({
-        text: previewText,
-        voice_id: value?.id ?? "",
-        rate: "+0%",
-        volume: "+0%",
-        pitch: "+0Hz",
-      }),
+    mutationFn: (input: CreateVoicePreviewInput) => createVoicePreview(input),
   });
 
   const voiceItems = useMemo(() => voices.data?.items ?? [], [voices.data?.items]);
   const statusReady = status.isSuccess || status.isError;
   const maxPreviewTextChars = status.data?.edge_tts.max_preview_text_chars ?? 300;
+  const selectedVoiceId = value?.id ?? "";
   const selectedVoice = value
     ? voiceItems.find((voice) => voice.id === value.id) ?? value
     : null;
@@ -143,12 +137,21 @@ export function VoiceSelector({
     voices.isLoading,
   ]);
 
+  useEffect(() => {
+    preview.reset();
+  }, [previewText, selectedVoiceId]);
+
   const handleVoiceChange = (voice: VoiceItem) => {
     onChange(voice);
   };
 
   const canCreatePreview =
-    Boolean(value?.id) && previewText.trim().length > 0 && !preview.isPending;
+    Boolean(selectedVoiceId) && previewText.trim().length > 0 && !preview.isPending;
+  const hasCurrentPreviewAudio = Boolean(
+    preview.data &&
+      preview.variables?.text === previewText &&
+      preview.variables.voice_id === selectedVoiceId,
+  );
 
   return (
     <fieldset
@@ -157,7 +160,7 @@ export function VoiceSelector({
     >
       <legend>旁白音色</legend>
 
-      <div className="voice-filter-row">
+      <div className="voice-selector-filters">
         <label>
           音色语言
           <select value={locale} onChange={(event) => setLocale(event.target.value)}>
@@ -176,6 +179,11 @@ export function VoiceSelector({
               placeholder="Xiaoxiao"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                }
+              }}
             />
           </span>
         </label>
@@ -229,7 +237,15 @@ export function VoiceSelector({
           className="primary-action"
           disabled={!canCreatePreview}
           type="button"
-          onClick={() => preview.mutate()}
+          onClick={() =>
+            preview.mutate({
+              text: previewText,
+              voice_id: selectedVoiceId,
+              rate: "+0%",
+              volume: "+0%",
+              pitch: "+0Hz",
+            })
+          }
         >
           {preview.isPending ? (
             <RefreshCw aria-hidden="true" size={18} />
@@ -245,7 +261,7 @@ export function VoiceSelector({
           {readableVoiceError(preview.error, maxPreviewTextChars)}
         </div>
       ) : null}
-      {preview.data ? (
+      {hasCurrentPreviewAudio && preview.data ? (
         <audio
           aria-label="旁白音色试听音频"
           className="voice-preview-audio"
