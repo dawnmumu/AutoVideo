@@ -121,9 +121,9 @@ docker build \
 - `DELETE /api/tasks/{task_id}`：删除任务记录并清理该任务的输出目录；任务不存在时返回 `TASK_NOT_FOUND`。
 - `GET /api/subtitle-template-sets`：返回自定义模板组和 20 个内置预设；内置预设与目标项目默认字幕模板保持一致。
 - `POST /api/subtitle-template-sets`：从预设或已有模板复制创建自定义模板组。
-- `PUT /api/subtitle-template-sets/{id}`：保存模板组字段、DSL v2 blocks、`is_favorite` 默认模板标记。
+- `PUT /api/subtitle-template-sets/{id}`：保存模板组字段和 DSL v2 blocks；旧 `is_favorite` 字段仅作为兼容元数据保留，不再参与自动选择。
 - `DELETE /api/subtitle-template-sets/{id}`：删除自定义模板组；内置预设不能通过该接口删除。
-- `PUT /api/subtitle-template-sets/presets/{id}`：保存内置预设的本地覆盖项，例如默认模板标记。
+- `PUT /api/subtitle-template-sets/presets/{id}`：保存内置预设的本地覆盖项，例如名称和样式覆盖；旧 `is_favorite` 字段仅作为兼容元数据保留。
 - `DELETE /api/subtitle-template-sets/presets/{id}`：清除内置预设覆盖项并恢复出厂预设。
 - `POST /api/subtitle-template-sets/validate`：校验并归一字幕模板。
 - `POST /api/subtitle-template-sets/preview`：生成精准预览；可传 `template_types` 一次预览 `bottom`、`highlight`、`punch` 三类字幕，FFmpeg/libass 不可用时返回 `SUBTITLE_PREVIEW_RENDERER_UNAVAILABLE`。

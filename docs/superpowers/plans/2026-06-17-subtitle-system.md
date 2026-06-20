@@ -15,6 +15,15 @@
 - Design spec: `docs/superpowers/specs/2026-06-17-subtitle-system-design.md`
 - Original reference project: `/Users/sha/junxincode/Services/100.95.201.23/opt/ai/video-generator`
 
+## 2026-06-19 Supersession Note
+
+The original plan below was written before the subtitle default-template action was removed. Any step, example snippet, or checklist item that mentions `设为默认`, default template badges, favorite selection, or using `is_favorite` / `favorite` to drive automatic selection is superseded by the current design spec and implementation:
+
+- The subtitle template workbench must not expose a `设为默认` / favorite action or default badge.
+- Automatic selection ignores legacy `is_favorite` / `favorite` metadata.
+- Legacy `is_favorite` / `favorite` fields remain accepted and normalized only as compatibility metadata for old data or old clients.
+- When no template is explicitly selected, AutoVideo chooses the newest custom template by `(updated_at, created_at, id)`, otherwise the first API preset.
+
 ## File Structure
 
 ### Backend Subtitle Modules
@@ -23,7 +32,7 @@
 - Create `autovideo/services/subtitles/models.py`: dataclasses and normalization helpers for template sets, render blocks, subtitle events, and render options.
 - Create `autovideo/services/subtitles/template_presets.py`: built-in template sets for `bottom`, `highlight`, and `punch`.
 - Create `autovideo/services/subtitles/dsl_v2.py`: DSL v2 normalization and downgrade warnings.
-- Create `autovideo/services/subtitles/template_store.py`: JSON store at `<AUTOVIDEO_DATA_DIR>/subtitle_templates/subtitle_template_sets.json`, preset overrides, CRUD, favorite selection.
+- Create `autovideo/services/subtitles/template_store.py`: JSON store at `<AUTOVIDEO_DATA_DIR>/subtitle_templates/subtitle_template_sets.json`, preset overrides, CRUD, and automatic selection that ignores legacy favorite metadata.
 - Create `autovideo/services/subtitles/timeline.py`: timeline item to subtitle event conversion and punctuation splitting.
 - Create `autovideo/services/subtitles/template_assignment.py`: semantic role and variant assignment with deterministic fallback.
 - Create `autovideo/services/subtitles/keyword_spans.py`: keyword span injection with injectable extractor and safe fallback.
@@ -55,7 +64,7 @@
 ### Frontend
 
 - Create `frontend/src/api/subtitles.ts`: subtitle API types and fetch helpers.
-- Create `frontend/src/components/SubtitleTemplateWorkbench.tsx`: template list, preview, editor, save/restore/favorite controls.
+- Create `frontend/src/components/SubtitleTemplateWorkbench.tsx`: template list, preview, editor, save, copy, and restore controls. The removed default/favorite action must not be reintroduced.
 - Modify `frontend/src/components/OnlineRemixWorkbench.tsx`: subtitle task settings and submission options.
 - Modify `frontend/src/App.tsx`: active section state, enable `字幕模板`, desktop/mobile navigation semantics.
 - Modify `frontend/src/styles.css`: responsive workbench layout, preview ratio, mobile tabs, focus, disabled/loading states.

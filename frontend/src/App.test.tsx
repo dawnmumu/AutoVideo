@@ -289,7 +289,7 @@ describe("AutoVideo shell", () => {
 
     expect(window.location.hash).toBe("#subtitles");
     expect(screen.getByRole("heading", { name: "字幕模板", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("管理默认字幕样式与预览")).toBeInTheDocument();
+    expect(screen.getByText("管理字幕样式与预览")).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "线上混剪" })).not.toBeInTheDocument();
     expect(document.querySelector("section#remix")).toHaveAttribute("hidden");
     expect(screen.getByRole("link", { name: "字幕模板" })).toHaveAttribute(
@@ -630,13 +630,13 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("creates a custom subtitle template and marks a preset as default", async () => {
+  it("creates a custom subtitle template without exposing default template controls", async () => {
     const user = userEvent.setup();
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: "字幕模板" }));
 
-    expect(await screen.findByRole("button", { name: "设为默认" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设为默认" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("示例文本")).toBeInTheDocument();
     expect(screen.getAllByLabelText("文本")).toHaveLength(3);
     expect(screen.getAllByLabelText("字体")).toHaveLength(3);
@@ -669,17 +669,14 @@ describe("AutoVideo shell", () => {
 
     await user.selectOptions(screen.getByLabelText("预览画幅"), "16:9");
     expect(screen.getByTestId("subtitle-preview-frame")).toHaveStyle({ aspectRatio: "16 / 9" });
-    await user.click(screen.getByRole("button", { name: "设为默认" }));
     await user.click(screen.getByRole("button", { name: "从预设新建" }));
 
     expect(mockedCreateSubtitleTemplateSet).toHaveBeenCalledWith({
       name: "我的清晰底部字幕",
       preset_id: "preset-clean-bottom",
     });
-    expect(mockedUpdateSubtitlePresetOverride).toHaveBeenCalledWith({
-      id: "preset-clean-bottom",
-      patch: { is_favorite: true },
-    });
+    expect(mockedUpdateSubtitlePresetOverride).not.toHaveBeenCalled();
+    expect(mockedUpdateSubtitleTemplateSet).not.toHaveBeenCalled();
   });
 
   it("renders bottom highlight and punch captions with local span preview", async () => {
@@ -1764,11 +1761,9 @@ describe("AutoVideo shell", () => {
     expect(within(subtitleWorkbench).getAllByLabelText("颜色")[0]).toBeDisabled();
     expect(within(subtitleWorkbench).getByRole("button", { name: "还原预设" })).not.toBeDisabled();
 
-    await user.click(within(subtitleWorkbench).getByRole("button", { name: "设为默认" }));
-    expect(mockedUpdateSubtitlePresetOverride).toHaveBeenCalledWith({
-      id: "builtin-clean-bottom",
-      patch: { is_favorite: true },
-    });
+    expect(within(subtitleWorkbench).queryByRole("button", { name: "设为默认" })).not.toBeInTheDocument();
+    expect(within(subtitleWorkbench).queryByText("默认")).not.toBeInTheDocument();
+    expect(mockedUpdateSubtitlePresetOverride).not.toHaveBeenCalled();
     expect(mockedUpdateSubtitleTemplateSet).not.toHaveBeenCalled();
 
     await user.click(within(subtitleWorkbench).getByRole("button", { name: "从预设新建" }));
@@ -1805,7 +1800,7 @@ describe("AutoVideo shell", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("selects a custom subtitle template before a favorite preset by default", async () => {
+  it("selects a custom subtitle template before legacy favorite preset metadata", async () => {
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
       items: [customCaptionTemplate],
       presets: [
@@ -1832,7 +1827,7 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("keeps API preset order when no custom or favorite preset is available", async () => {
+  it("keeps API preset order even when legacy favorite preset metadata is available", async () => {
     const user = userEvent.setup();
     const firstPreset = templateFixture({
       id: "preset-api-first",
@@ -1845,8 +1840,8 @@ describe("AutoVideo shell", () => {
     const newerPreset = templateFixture({
       id: "preset-newer-second",
       name: "较新的第二预设",
-      favorite: false,
-      is_favorite: false,
+      favorite: true,
+      is_favorite: true,
       created_at: "2026-06-02T00:00:00+00:00",
       updated_at: "2026-06-12T00:00:00+00:00",
     });
@@ -1870,7 +1865,7 @@ describe("AutoVideo shell", () => {
     );
   });
 
-  it("selects the newest favorite custom subtitle template like the backend", async () => {
+  it("selects the newest custom subtitle template and ignores legacy favorite metadata", async () => {
     const olderFavorite = templateFixture({
       id: "tmpl-brand-old",
       name: "旧版品牌字幕",
@@ -1880,17 +1875,17 @@ describe("AutoVideo shell", () => {
       created_at: "2026-06-01T00:00:00+00:00",
       updated_at: "2026-06-10T00:00:00+00:00",
     });
-    const newerFavorite = templateFixture({
+    const newerTemplate = templateFixture({
       id: "tmpl-brand-new",
       name: "新版品牌字幕",
-      favorite: true,
-      is_favorite: true,
+      favorite: false,
+      is_favorite: false,
       is_modified: true,
       created_at: "2026-06-02T00:00:00+00:00",
       updated_at: "2026-06-12T00:00:00+00:00",
     });
     mockedFetchSubtitleTemplateSets.mockResolvedValue({
-      items: [olderFavorite, newerFavorite],
+      items: [olderFavorite, newerTemplate],
       presets: [
         templateFixture({
           id: "preset-clean-new",

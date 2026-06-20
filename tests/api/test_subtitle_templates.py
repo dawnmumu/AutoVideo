@@ -22,7 +22,7 @@ def test_list_create_update_validate_and_delete_template_set(tmp_path):
         template_id = created.json()["id"]
         updated = client.put(
             f"/api/subtitle-template-sets/{template_id}",
-            json={"name": "默认模板", "is_favorite": True},
+            json={"name": "更新模板", "is_favorite": True},
         )
         validated = client.post("/api/subtitle-template-sets/validate", json=updated.json())
         deleted = client.delete(f"/api/subtitle-template-sets/{template_id}")

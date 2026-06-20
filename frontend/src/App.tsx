@@ -50,7 +50,7 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
   },
   subtitles: {
     title: "字幕模板",
-    summary: "管理默认字幕样式与预览",
+    summary: "管理字幕样式与预览",
   },
   tasks: {
     title: "任务与输出",
