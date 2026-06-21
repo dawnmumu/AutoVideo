@@ -25,6 +25,7 @@ from autovideo.services.online_materials import (
     provider_status,
 )
 from autovideo.services.online_mix import (
+    AudioMixFailedError,
     BgmOptionInvalidError,
     OnlineMaterialProviderNotAvailableError,
     OnlineMaterialSearchFailedError,
@@ -198,6 +199,7 @@ def create_online_mix_video_task(
             results_per_query=settings.online_material_results_per_query,
             options=request_body.options,
             provider_status_snapshot=provider_status(settings, providers),
+            voice_provider=getattr(request.app.state, "edge_tts_provider", None),
         )
         return public_task(task, store)
     except OnlineMixShotSelectionInvalidError as exc:
@@ -297,6 +299,12 @@ def create_online_mix_video_task(
         raise structured_error(
             status.HTTP_502_BAD_GATEWAY,
             "FFMPEG_RENDER_FAILED",
+            message=str(exc),
+        ) from exc
+    except AudioMixFailedError as exc:
+        raise structured_error(
+            status.HTTP_502_BAD_GATEWAY,
+            "AUDIO_MIX_FAILED",
             message=str(exc),
         ) from exc
     finally:

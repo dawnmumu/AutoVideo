@@ -1165,6 +1165,80 @@ describe("AutoVideo shell", () => {
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
   });
 
+  it("shows an FFmpeg audio mix capability loading state before health is known", async () => {
+    const health = deferred<Awaited<ReturnType<typeof fetchHealth>>>();
+    mockedFetchHealth.mockReturnValueOnce(health.promise);
+
+    renderApp();
+
+    expect(
+      await screen.findByText("正在检测 FFmpeg 音频合成能力"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("配置 FFmpeg 后，所选旁白和 BGM 会合成到最终 MP4"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      health.resolve({
+        app: "AutoVideo",
+        status: "degraded",
+        environment: "development",
+        data_dir: "/tmp/autovideo",
+        checks: {
+          ffmpeg: {
+            name: "ffmpeg",
+            ok: false,
+            required: true,
+            message: "未找到 FFmpeg，可执行文件：ffmpeg",
+          },
+          fish_speech: {
+            name: "fish_speech",
+            ok: false,
+            required: false,
+            message: "Fish Speech 未配置，音色复刻功能将保持禁用",
+          },
+        },
+      });
+      await health.promise;
+    });
+  });
+
+  it("states selected narration and BGM need FFmpeg before final output mix", async () => {
+    renderApp();
+
+    expect(
+      await screen.findByText("配置 FFmpeg 后，所选旁白和 BGM 会合成到最终 MP4"),
+    ).toBeInTheDocument();
+  });
+
+  it("states selected narration and BGM are mixed when FFmpeg is available", async () => {
+    mockedFetchHealth.mockResolvedValueOnce({
+      app: "AutoVideo",
+      status: "ok",
+      environment: "development",
+      data_dir: "/tmp/autovideo",
+      checks: {
+        ffmpeg: {
+          name: "ffmpeg",
+          ok: true,
+          required: true,
+          message: "FFmpeg 可用",
+        },
+        fish_speech: {
+          name: "fish_speech",
+          ok: false,
+          required: false,
+          message: "Fish Speech 未配置，音色复刻功能将保持禁用",
+        },
+      },
+    });
+    renderApp();
+
+    expect(
+      await screen.findByText("所选旁白和 BGM 会合成到最终 MP4"),
+    ).toBeInTheDocument();
+  });
+
   it("previews the selected VoiceSelector voice with provided narration text", async () => {
     const user = userEvent.setup();
     renderVoiceSelectorHarness({ previewText: "睡前点一滴精油，让卧室慢慢安静下来。" });

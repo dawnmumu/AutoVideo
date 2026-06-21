@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Captions, FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
 
+import { fetchHealth } from "../api/health";
 import { fetchSubtitleTemplateSets } from "../api/subtitles";
 import type { VoiceItem } from "../api/voices";
 import {
@@ -98,6 +99,10 @@ export function OnlineRemixWorkbench({
   const subtitleTemplates = useQuery({
     queryKey: ["subtitle-template-sets"],
     queryFn: fetchSubtitleTemplateSets,
+  });
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: fetchHealth,
   });
 
   const generate = useMutation({
@@ -214,6 +219,13 @@ export function OnlineRemixWorkbench({
           providerReady ? null : "素材源未配置",
           secretReady ? null : "候选签名密钥未配置",
         ].filter((item): item is string => item !== null);
+  const ffmpegOk = health.data?.checks.ffmpeg?.ok;
+  const audioOutputMessage =
+    ffmpegOk === true
+      ? "所选旁白和 BGM 会合成到最终 MP4"
+      : ffmpegOk === false
+        ? "配置 FFmpeg 后，所选旁白和 BGM 会合成到最终 MP4"
+        : "正在检测 FFmpeg 音频合成能力";
   const selectedCount =
     Object.keys(selectedByShot).length + Object.keys(localMaterialByShot).length;
   const requiredShotCount = script?.shots.length ?? 0;
@@ -287,6 +299,7 @@ export function OnlineRemixWorkbench({
           {providerStatusMessages.map((message) => (
             <span key={message}>{message}</span>
           ))}
+          <span>{audioOutputMessage}</span>
         </div>
       </div>
 

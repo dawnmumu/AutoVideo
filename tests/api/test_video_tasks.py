@@ -1188,6 +1188,36 @@ def test_task_creation_rejects_options_over_configured_limit(client) -> None:
     assert payload["detail"]["options_bytes"] > 8
 
 
+def test_create_task_rejects_output_builder_options_over_configured_limit(client) -> None:
+    upload_response = client.post(
+        "/api/materials",
+        files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+    assert upload_response.status_code == 201
+    material = upload_response.json()
+    client.app.state.settings.max_task_options_bytes = 24
+
+    from autovideo.services.tasks import TaskOptionsTooLargeError, create_task
+
+    def oversized_options_builder(output_payload, output_dir):
+        output_payload["options"]["builder_payload"] = "x" * 64
+
+    store = AutoVideoStore(client.app.state.settings)
+    with pytest.raises(TaskOptionsTooLargeError) as error:
+        create_task(
+            store,
+            title="builder 扩大 options",
+            material_ids=[material["id"]],
+            options={"ok": True},
+            output_builder=oversized_options_builder,
+        )
+
+    assert error.value.max_task_options_bytes == 24
+    assert error.value.options_bytes > 24
+    assert store.list_tasks() == []
+    assert list(store.paths.outputs.iterdir()) == []
+
+
 def test_material_and_task_lists_are_paginated(client) -> None:
     materials = []
     for index in range(3):
