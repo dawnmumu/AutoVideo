@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
-from autovideo.services.bgm import AudioProbeResult
+from autovideo.services.bgm import AudioProbeResult, BgmLibraryService
 
 
 def _script() -> dict:
@@ -62,6 +62,30 @@ def _write_fake_ffmpeg(tmp_path) -> str:
     return str(ffmpeg_path)
 
 
+def _write_audio_mix_fake_ffmpeg(tmp_path, *, fail_audio_mix: bool = False) -> str:
+    log_path = tmp_path / "ffmpeg-argvs.json"
+    ffmpeg_path = tmp_path / "audio-mix-fake-ffmpeg"
+    ffmpeg_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import pathlib\n"
+        "import sys\n"
+        f"log_path = pathlib.Path({str(log_path)!r})\n"
+        "argvs = json.loads(log_path.read_text(encoding='utf-8')) if log_path.exists() else []\n"
+        "argvs.append(sys.argv[1:])\n"
+        "log_path.write_text(json.dumps(argvs, ensure_ascii=False), encoding='utf-8')\n"
+        "output_path = pathlib.Path(sys.argv[-1])\n"
+        "if output_path.name == 'output.audio-mix.tmp.mp4' and "
+        f"{fail_audio_mix!r}:\n"
+        "    sys.stderr.write('audio mix failed token=secret')\n"
+        "    sys.exit(23)\n"
+        "output_path.write_bytes(b'mixed video' if output_path.name == 'output.audio-mix.tmp.mp4' else b'rendered video')\n",
+        encoding="utf-8",
+    )
+    os.chmod(ffmpeg_path, 0o755)
+    return str(ffmpeg_path)
+
+
 def _write_failing_fake_ffmpeg(tmp_path) -> str:
     ffmpeg_path = tmp_path / "failing-online-mix-ffmpeg"
     ffmpeg_path.write_text(
@@ -99,6 +123,58 @@ def _write_plain_secret_failing_fake_ffmpeg(tmp_path, stderr: str) -> str:
     )
     ffmpeg_path.chmod(0o755)
     return str(ffmpeg_path)
+
+
+class FakeEdgeTtsProvider:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def list_voices(self) -> list[dict[str, object]]:
+        return [
+            {
+                "ShortName": "zh-CN-XiaoxiaoNeural",
+                "FriendlyName": "Microsoft Xiaoxiao",
+                "Locale": "zh-CN",
+                "Gender": "Female",
+                "VoiceTag": {},
+            }
+        ]
+
+    async def synthesize_to_file(
+        self,
+        *,
+        text,
+        voice_id,
+        output_path,
+        rate,
+        volume,
+        pitch,
+    ) -> None:
+        self.calls.append(
+            {
+                "text": text,
+                "voice_id": voice_id,
+                "output_path": output_path,
+                "rate": rate,
+                "volume": volume,
+                "pitch": pitch,
+            }
+        )
+        output_path.write_bytes(b"fake narration mp3")
+
+
+def _store_bgm_track(tmp_path, settings: Settings) -> dict:
+    service = BgmLibraryService(
+        settings,
+        audio_probe=lambda path: AudioProbeResult(
+            duration_seconds=30.0,
+            media_type="audio/mpeg",
+        ),
+    )
+    return service.store_track(
+        content=b"fake bgm mp3",
+        original_filename="calm.mp3",
+    )
 
 
 def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
@@ -157,6 +233,102 @@ def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
     assert manifest["render_plan"]["status"] == "video_rendered"
     assert manifest["render_plan"]["renderer"] == "ffmpeg"
     assert argv[-1].endswith("output.mp4")
+
+
+def test_online_mix_mixes_selected_voiceover_and_bgm_into_output(tmp_path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        ffmpeg_path=_write_audio_mix_fake_ffmpeg(tmp_path),
+    )
+    bgm_track = _store_bgm_track(tmp_path, settings)
+    provider = FakeEdgeTtsProvider()
+    app = create_app(settings)
+    app.state.edge_tts_provider = provider
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "带音频混剪",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "voice_id": "zh-CN-XiaoxiaoNeural",
+                    "voice_name": "Microsoft Xiaoxiao",
+                    "voice_provider": "edge_tts",
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm_track["id"],
+                    "bgm_volume": 0.12,
+                },
+            },
+        )
+        task = response.json()
+        output_response = client.get(task["output"]["download_url"])
+
+    assert response.status_code == 201
+    assert output_response.status_code == 200
+    assert output_response.headers["content-type"].startswith("video/mp4")
+    assert output_response.content == b"mixed video"
+    assert [call["text"] for call in provider.calls] == ["旁白 1"]
+
+    output_dir = tmp_path / "outputs" / task["id"]
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    argvs = json.loads((tmp_path / "ffmpeg-argvs.json").read_text(encoding="utf-8"))
+    audio_argv = argvs[-1]
+    audio_filter = audio_argv[audio_argv.index("-filter_complex") + 1]
+
+    assert manifest["render_plan"]["audio_mix"]["status"] == "mixed"
+    assert manifest["render_plan"]["audio_mix"]["voiceover_clip_count"] == 1
+    assert manifest["render_plan"]["audio_mix"]["bgm_status"] == "mixed"
+    assert manifest["bgm_mix_status"] == "mixed"
+    assert len(argvs) == 2
+    assert "amix=inputs=2" in audio_filter
+    assert "volume=0.12" in audio_filter
+    assert audio_argv[-1].endswith("output.audio-mix.tmp.mp4")
+
+
+def test_online_mix_cleans_output_dir_when_audio_mix_fails(tmp_path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        ffmpeg_path=_write_audio_mix_fake_ffmpeg(tmp_path, fail_audio_mix=True),
+    )
+    bgm_track = _store_bgm_track(tmp_path, settings)
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "音频混合失败",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm_track["id"],
+                    "bgm_volume": 0.12,
+                },
+            },
+        )
+        tasks_response = client.get("/api/tasks")
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "AUDIO_MIX_FAILED"
+    assert tasks_response.json() == []
+    assert list((tmp_path / "outputs").iterdir()) == []
 
 
 def test_online_mix_cleans_unregistered_output_dir_when_ffmpeg_fails(
@@ -417,12 +589,14 @@ def test_online_mix_persists_subtitle_snapshot_and_font_override(tmp_path):
 
 
 def test_online_mix_persists_voice_options_in_task_and_manifest(tmp_path):
+    provider = FakeEdgeTtsProvider()
     app = create_app(
         Settings(
             data_dir=tmp_path,
             ffmpeg_path=_write_fake_ffmpeg(tmp_path),
         )
     )
+    app.state.edge_tts_provider = provider
 
     with TestClient(app) as client:
         material = client.post(
@@ -452,6 +626,8 @@ def test_online_mix_persists_voice_options_in_task_and_manifest(tmp_path):
         task = response.json()
 
     assert response.status_code == 201
+    assert [call["text"] for call in provider.calls] == ["旁白 1"]
+    assert [call["voice_id"] for call in provider.calls] == ["zh-CN-XiaoxiaoNeural"]
     manifest = json.loads(
         (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
             encoding="utf-8"
@@ -508,12 +684,14 @@ def test_online_mix_defaults_empty_voice_options_to_null(tmp_path):
 
 
 def test_online_mix_defaults_missing_voice_provider_to_edge_tts(tmp_path):
+    provider = FakeEdgeTtsProvider()
     app = create_app(
         Settings(
             data_dir=tmp_path,
             ffmpeg_path=_write_fake_ffmpeg(tmp_path),
         )
     )
+    app.state.edge_tts_provider = provider
 
     with TestClient(app) as client:
         material = client.post(
@@ -539,6 +717,8 @@ def test_online_mix_defaults_missing_voice_provider_to_edge_tts(tmp_path):
 
     assert response.status_code == 201
     assert response.json()["options"]["voice_provider"] == "edge_tts"
+    assert [call["text"] for call in provider.calls] == ["旁白 1"]
+    assert [call["voice_id"] for call in provider.calls] == ["zh-CN-XiaoxiaoNeural"]
 
 
 def test_online_mix_rejects_invalid_voice_provider(client) -> None:
@@ -2203,7 +2383,7 @@ def test_online_mix_persists_bgm_track_options_in_task_and_manifest(tmp_path):
         assert payload["bgm_volume"] == 0.2
         assert payload["bgm_snapshot"]["id"] == bgm["track"]["id"]
         assert payload["bgm_snapshot"]["duration_seconds"] == 8.5
-        assert payload["bgm_mix_status"] == "selected_not_mixed"
+        assert payload["bgm_mix_status"] == "mixed"
 
 
 def test_online_mix_resolves_category_only_bgm_to_track_snapshot(tmp_path):
@@ -2245,7 +2425,7 @@ def test_online_mix_resolves_category_only_bgm_to_track_snapshot(tmp_path):
     assert payload["bgm_track_id"] == bgm["track"]["id"]
     assert payload["bgm_snapshot"]["id"] == bgm["track"]["id"]
     assert payload["bgm_volume"] == 0.12
-    assert payload["bgm_mix_status"] == "selected_not_mixed"
+    assert payload["bgm_mix_status"] == "mixed"
 
 
 def test_online_mix_clamps_bgm_volume_in_task_options(tmp_path):

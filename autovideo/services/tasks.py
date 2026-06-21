@@ -137,6 +137,15 @@ def encoded_json_size(value: Any) -> int:
     )
 
 
+def _ensure_task_options_size(
+    options: Any,
+    max_task_options_bytes: int,
+) -> None:
+    options_bytes = encoded_json_size(options)
+    if options_bytes > max_task_options_bytes:
+        raise TaskOptionsTooLargeError(options_bytes, max_task_options_bytes)
+
+
 def _normalized_manifest_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
@@ -199,12 +208,7 @@ def create_task(
             store.settings.max_task_materials,
         )
 
-    options_bytes = encoded_json_size(options)
-    if options_bytes > store.settings.max_task_options_bytes:
-        raise TaskOptionsTooLargeError(
-            options_bytes,
-            store.settings.max_task_options_bytes,
-        )
+    _ensure_task_options_size(options, store.settings.max_task_options_bytes)
     sanitized_options = sanitize_manifest_payload(options)
     if not isinstance(sanitized_options, dict):
         sanitized_options = {}
@@ -252,6 +256,14 @@ def create_task(
                 except ValueError as exc:
                     raise ValueError("任务输出必须位于任务输出目录内") from exc
 
+        _ensure_task_options_size(
+            output_payload.get("options"),
+            store.settings.max_task_options_bytes,
+        )
+        stored_options = sanitize_manifest_payload(output_payload.get("options"))
+        if not isinstance(stored_options, dict):
+            stored_options = sanitized_options
+
         manifest_path.write_text(
             json.dumps(output_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -263,7 +275,7 @@ def create_task(
                 "title": title,
                 "status": "succeeded",
                 "material_ids": material_ids,
-                "options": sanitized_options,
+                "options": stored_options,
                 "output": {
                     "path": str(output_path),
                     "download_url": f"/api/tasks/{task_id}/output",

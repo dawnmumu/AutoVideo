@@ -80,14 +80,16 @@ def test_frontend_source_enables_bgm_navigation() -> None:
     assert "BgmManagementWorkbench" in app_source
 
 
-def test_readme_documents_bgm_management_without_claiming_audio_mix() -> None:
+def test_readme_documents_bgm_management_and_final_audio_mix() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
     assert "BGM 管理已支持上传、分类、试听、重命名和删除" in readme
     assert "GET /api/bgm" in readme
     assert "POST /api/bgm/tracks" in readme
     assert "bgm_track_id" in readme
-    assert "当前最终视频还未混入 BGM 音轨" in readme
+    assert "FFmpeg 可用时把选中 BGM 混入最终 `output.mp4`" in readme
+    assert "创建混剪任务时会按镜头旁白生成 Edge TTS 音频并合成到最终 MP4" in readme
+    assert "当前最终视频还未混入 BGM 音轨" not in readme
 
 
 def test_frontend_build_outputs_static_assets() -> None:

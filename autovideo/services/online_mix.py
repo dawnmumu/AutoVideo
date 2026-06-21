@@ -14,6 +14,10 @@ from autovideo.services.bgm import (
     BgmLibraryService,
     BgmTrackNotFoundError,
 )
+from autovideo.services.audio_mix import (
+    AudioMixFailedError,
+    apply_audio_mix,
+)
 from autovideo.services.online_downloads import (
     DownloadResolver,
     stream_provider_download_to_material,
@@ -592,6 +596,9 @@ def _render_online_mix_output_builder(
     materials_by_id: dict[str, dict[str, Any]],
     options: dict[str, Any],
     subtitle_options: dict[str, Any],
+    voice_options: dict[str, Any],
+    bgm_options: dict[str, Any],
+    voice_provider: Any | None = None,
 ):
     def build(output_payload: dict[str, Any], output_dir: Any):
         timeline = build_render_timeline(
@@ -628,6 +635,26 @@ def _render_online_mix_output_builder(
             render_result,
             source_subtitle_masks,
         )
+        audio_mix_status = apply_audio_mix(
+            settings=store.settings,
+            output_dir=output_dir,
+            video_path=render_result.output_path,
+            timeline=safe_timeline,
+            voice_options=voice_options,
+            bgm_options=bgm_options,
+            provider=voice_provider,
+        )
+        output_payload["render_plan"]["audio_mix"] = audio_mix_status
+        if bgm_options.get("bgm_enabled"):
+            output_payload["bgm_mix_status"] = (
+                "mixed"
+                if audio_mix_status.get("bgm_status") == "mixed"
+                else bgm_options.get("bgm_mix_status")
+            )
+            if isinstance(output_payload.get("options"), dict):
+                output_payload["options"]["bgm_mix_status"] = output_payload[
+                    "bgm_mix_status"
+                ]
         return render_result.output_path
 
     return build
@@ -673,6 +700,7 @@ def create_online_mix_task(
     results_per_query: int,
     options: dict[str, Any],
     provider_status_snapshot: dict[str, Any],
+    voice_provider: Any | None = None,
 ) -> dict[str, Any]:
     validate_shot_selection(script, shot_assets, shot_materials)
     if (shot_assets or asset_strategy == "auto") and token_service is None:
@@ -901,5 +929,8 @@ def create_online_mix_task(
             materials_by_id=materials_by_id,
             options=options,
             subtitle_options=subtitle_options,
+            voice_options=voice_options,
+            bgm_options=bgm_options,
+            voice_provider=voice_provider,
         ),
     )
