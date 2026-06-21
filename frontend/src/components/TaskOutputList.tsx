@@ -17,6 +17,14 @@ import { VideoTask, deleteTask, fetchTasks } from "../api/tasks";
 
 const TASK_LIST_LIMIT = 50;
 
+const RENDER_STATUS_LABELS: Record<string, string> = {
+  video_rendered: "视频已渲染",
+  manifest_only: "仅生成清单",
+  base_video_failed: "基础视频失败",
+  subtitle_burn_failed: "字幕烧录失败",
+  subtitle_burned: "字幕已烧录",
+};
+
 type StatusView = {
   label: string;
   className: string;
@@ -55,6 +63,10 @@ function optionText(task: VideoTask, key: string): string | null {
     return String(value);
   }
   return null;
+}
+
+function renderStatusText(status: string): string {
+  return RENDER_STATUS_LABELS[status] ?? status;
 }
 
 function formatDate(value: string): string {
@@ -145,7 +157,7 @@ function TaskOutputCard({
           {aspectRatio ? <span>{aspectRatio}</span> : null}
           {resolution ? <span>{resolution}</span> : null}
           {subtitleEnabled === "true" ? <span>字幕开启</span> : null}
-          {task.output.render_status ? <span>{`渲染 ${task.output.render_status}`}</span> : null}
+          {task.output.render_status ? <span>{`渲染 ${renderStatusText(task.output.render_status)}`}</span> : null}
         </div>
         {summary ? <p className="task-output-summary">{summary}</p> : null}
       </div>
