@@ -265,6 +265,20 @@ def test_track_file_returns_safe_file_metadata(tmp_path: Path) -> None:
     assert tuple(file_info) == (file_info.path, "audio/wav", "safe-name.wav")
 
 
+def test_windows_style_upload_filename_is_sanitized(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+
+    track = service.store_track(
+        content=b"fake",
+        original_filename="C:\\fakepath\\song.mp3",
+    )
+    file_info = service.track_file(track["id"])
+
+    assert track["original_filename"] == "song.mp3"
+    assert track["display_name"] == "song"
+    assert file_info.original_filename == "song.mp3"
+
+
 def test_track_file_missing_file_raises_not_found(tmp_path: Path) -> None:
     service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
     track = service.store_track(b"fake", "missing-file.mp3")
@@ -303,6 +317,43 @@ def test_track_file_rejects_suspicious_metadata_without_path_leak(tmp_path: Path
 
     with pytest.raises(BgmLibraryCorruptError) as exc_info:
         service.track_file("bgm_bad")
+
+    assert str(tmp_path) not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("original_filename", ["folder/song.mp3", "..\\folder\\song.mp3"])
+def test_metadata_original_filename_with_path_separator_is_corrupt(
+    tmp_path: Path,
+    original_filename: str,
+) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    metadata_path = service.metadata_path()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "categories": [],
+                "tracks": [
+                    {
+                        "id": "bgm_bad",
+                        "filename": "bgm_bad.mp3",
+                        "original_filename": original_filename,
+                        "display_name": "song",
+                        "category_id": None,
+                        "duration_seconds": 12.5,
+                        "media_type": "audio/mpeg",
+                        "size_bytes": 4,
+                        "created_at": "2026-06-21T00:00:00+00:00",
+                        "updated_at": "2026-06-21T00:00:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BgmLibraryCorruptError) as exc_info:
+        service.library()
 
     assert str(tmp_path) not in str(exc_info.value)
 

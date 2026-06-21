@@ -164,7 +164,7 @@ class BgmLibraryService:
         if len(content) > self.settings.max_upload_bytes:
             raise BgmFileTooLargeError(self.settings.max_upload_bytes)
 
-        filename = Path(original_filename).name
+        filename = _safe_upload_basename(original_filename)
         extension = self._extension(filename)
         expected_media_type = SUPPORTED_BGM_MEDIA_TYPES.get(extension)
         if expected_media_type is None:
@@ -518,6 +518,14 @@ def _track_selection_key(track: dict[str, Any]) -> tuple[str, str, str]:
     return (display_name.casefold(), filename.casefold(), track_id)
 
 
+def _safe_upload_basename(filename: str) -> str:
+    return str(filename).replace("\\", "/").split("/")[-1].strip()
+
+
+def _has_path_separator(filename: str) -> bool:
+    return "/" in filename or "\\" in filename
+
+
 def _category_sort_key(category: dict[str, Any]) -> tuple[str, str]:
     name = str(category.get("name") or "")
     category_id = str(category.get("id") or "")
@@ -591,10 +599,10 @@ def _validate_track_row(track: Any) -> dict[str, Any]:
     if not isinstance(track, dict):
         raise _corrupt_library("track row must be an object")
     filename = _required_text(track, "filename", "track")
-    if Path(filename).name != filename:
+    if Path(filename).name != filename or _has_path_separator(filename):
         raise _corrupt_library("track filename is invalid")
     original_filename = _required_text(track, "original_filename", "track")
-    if Path(original_filename).name != original_filename:
+    if Path(original_filename).name != original_filename or _has_path_separator(original_filename):
         raise _corrupt_library("track original_filename is invalid")
     media_type = _required_text(track, "media_type", "track")
     if media_type not in set(SUPPORTED_BGM_MEDIA_TYPES.values()):
