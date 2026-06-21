@@ -117,6 +117,50 @@ def test_update_and_delete_bgm_track(tmp_path: Path) -> None:
     assert missing.json()["detail"]["code"] == "BGM_TRACK_NOT_FOUND"
 
 
+def test_rename_bgm_track_preserves_existing_category_when_category_omitted(
+    tmp_path: Path,
+) -> None:
+    with bgm_client(tmp_path) as client:
+        category = client.post("/api/bgm/categories", json={"name": "舒缓"}).json()
+        track = client.post(
+            "/api/bgm/tracks",
+            data={"category_id": category["id"]},
+            files={"file": ("spring.mp3", b"fake", "audio/mpeg")},
+        ).json()
+        response = client.put(
+            f"/api/bgm/tracks/{track['id']}",
+            json={"display_name": "新名字"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["display_name"] == "新名字"
+    assert payload["category_id"] == category["id"]
+    assert payload["category_name"] == "舒缓"
+
+
+def test_update_bgm_track_with_explicit_null_category_clears_category(
+    tmp_path: Path,
+) -> None:
+    with bgm_client(tmp_path) as client:
+        category = client.post("/api/bgm/categories", json={"name": "舒缓"}).json()
+        track = client.post(
+            "/api/bgm/tracks",
+            data={"category_id": category["id"]},
+            files={"file": ("spring.mp3", b"fake", "audio/mpeg")},
+        ).json()
+        response = client.put(
+            f"/api/bgm/tracks/{track['id']}",
+            json={"display_name": "新名字", "category_id": None},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["display_name"] == "新名字"
+    assert payload["category_id"] is None
+    assert payload["category_name"] == "未分类"
+
+
 def test_delete_category_moves_tracks_to_uncategorized(tmp_path: Path) -> None:
     with bgm_client(tmp_path) as client:
         category = client.post("/api/bgm/categories", json={"name": "舒缓"}).json()

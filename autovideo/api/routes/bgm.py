@@ -128,10 +128,12 @@ def update_bgm_track(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     try:
+        update_kwargs: dict[str, Any] = {"display_name": body.display_name}
+        if "category_id" in body.model_fields_set:
+            update_kwargs["category_id"] = body.category_id
         return _service(request, settings).update_track(
             track_id,
-            display_name=body.display_name,
-            category_id=body.category_id,
+            **update_kwargs,
         )
     except Exception as exc:
         _raise_bgm_error(exc)
