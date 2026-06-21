@@ -89,6 +89,7 @@ def test_readme_documents_bgm_management_and_final_audio_mix() -> None:
     assert "bgm_track_id" in readme
     assert "FFmpeg 可用时把选中 BGM 混入最终 `output.mp4`" in readme
     assert "创建混剪任务时会按镜头旁白生成 Edge TTS 音频并合成到最终 MP4" in readme
+    assert "502 AUDIO_MIX_FAILED" in readme
     assert "当前最终视频还未混入 BGM 音轨" not in readme
 
 

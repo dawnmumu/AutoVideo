@@ -283,6 +283,7 @@ curl -X POST http://127.0.0.1:8090/api/voices/preview \
 - `413 ONLINE_MATERIAL_TOO_LARGE`：线上素材下载超过 `AUTOVIDEO_ONLINE_MATERIAL_MAX_DOWNLOAD_BYTES`。
 - `502 ONLINE_MATERIAL_DOWNLOAD_FAILED`：provider 解析或下载请求失败。
 - `502 FFMPEG_RENDER_FAILED`：FFmpeg 可用但视频渲染失败。
+- `502 AUDIO_MIX_FAILED`：旁白 TTS 生成、BGM 文件解析或二次 FFmpeg 音频合成失败。
 - `400 ONLINE_MIX_SHOT_SELECTION_INVALID`：线上混剪镜头素材选择重复、冲突、越界或脚本没有有效镜头。
 - `409 ONLINE_MIX_NO_MATERIAL_MATCH`：自动匹配时没有找到可用素材，或仍有脚本镜头没有素材。
 
