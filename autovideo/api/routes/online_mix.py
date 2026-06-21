@@ -25,6 +25,7 @@ from autovideo.services.online_materials import (
     provider_status,
 )
 from autovideo.services.online_mix import (
+    BgmOptionInvalidError,
     OnlineMaterialProviderNotAvailableError,
     OnlineMaterialSearchFailedError,
     OnlineMixNoMaterialMatchError,
@@ -281,6 +282,13 @@ def create_online_mix_video_task(
             "VOICE_PROVIDER_INVALID",
             provider=exc.provider,
         ) from exc
+    except BgmOptionInvalidError as exc:
+        bgm_status = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code in {"BGM_TRACK_NOT_FOUND", "BGM_CATEGORY_NOT_FOUND"}
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise structured_error(bgm_status, exc.code) from exc
     except FfmpegRenderFailedError as exc:
         raise structured_error(
             status.HTTP_502_BAD_GATEWAY,
