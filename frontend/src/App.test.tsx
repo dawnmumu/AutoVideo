@@ -1347,6 +1347,8 @@ describe("AutoVideo shell", () => {
     expect(within(taskCard).getByText("素材 2 个")).toBeInTheDocument();
     expect(within(taskCard).getByText("9:16")).toBeInTheDocument();
     expect(within(taskCard).getByText("1080x1920")).toBeInTheDocument();
+    expect(within(taskCard).getByText("渲染 字幕已烧录")).toBeInTheDocument();
+    expect(within(taskCard).queryByText("渲染 subtitle_burned")).not.toBeInTheDocument();
     const downloadLink = within(taskCard).getByRole("link", { name: "下载视频" });
     expect(downloadLink).toHaveAttribute("href", "/api/tasks/task-video-1/output");
     expect(downloadLink).toHaveAttribute("download", "中小企业 AI 效率.mp4");
