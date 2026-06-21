@@ -117,6 +117,7 @@ class BgmLibraryService:
             category = {
                 "id": self._new_category_id(data),
                 "name": normalized_name,
+                "sort_order": len(data["categories"]),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -242,15 +243,31 @@ class BgmLibraryService:
         with self._mutation_lock():
             data = self._load()
             index = self._track_index(data, track_id)
+            original_data = copy.deepcopy(data)
             track = data["tracks"][index]
             path = self._track_path(str(track.get("filename") or ""))
+            tombstone_path: Path | None = None
             if path.exists():
+                tombstone_path = self._track_path(
+                    f".delete-{track_id}-{secrets.token_hex(8)}.tmp"
+                )
                 try:
-                    path.unlink()
+                    path.rename(tombstone_path)
                 except OSError as exc:
                     raise BgmTrackFileDeleteError("Unable to delete BGM track file") from exc
             del data["tracks"][index]
-            self._write(data)
+            try:
+                self._write(data)
+            except Exception:
+                self._restore_tombstone(tombstone_path, path)
+                raise
+            if tombstone_path is not None:
+                try:
+                    tombstone_path.unlink()
+                except OSError as exc:
+                    self._restore_tombstone(tombstone_path, path)
+                    self._restore_metadata(original_data)
+                    raise BgmTrackFileDeleteError("Unable to delete BGM track file") from exc
         return {"id": track_id, "deleted": True}
 
     def get_track(self, track_id: str) -> dict[str, Any]:
@@ -408,6 +425,7 @@ class BgmLibraryService:
             "category_name": category_name,
             "duration_seconds": float(track.get("duration_seconds") or 0),
             "media_type": str(track.get("media_type") or ""),
+            "extension": self._extension(filename),
             "size_bytes": int(track.get("size_bytes") or 0),
             "audio_url": f"/api/bgm/tracks/{track_id}/file",
             "created_at": track.get("created_at"),
@@ -460,6 +478,21 @@ class BgmLibraryService:
     def _cleanup_file(path: Path | None) -> None:
         if path is not None and path.exists():
             path.unlink()
+
+    @staticmethod
+    def _restore_tombstone(tombstone_path: Path | None, target_path: Path) -> None:
+        if tombstone_path is None or not tombstone_path.exists() or target_path.exists():
+            return
+        try:
+            tombstone_path.rename(target_path)
+        except OSError:
+            pass
+
+    def _restore_metadata(self, data: dict[str, Any]) -> None:
+        try:
+            self._write(data)
+        except Exception:
+            pass
 
 
 def probe_audio_metadata(path: Path) -> AudioProbeResult:
@@ -526,10 +559,11 @@ def _has_path_separator(filename: str) -> bool:
     return "/" in filename or "\\" in filename
 
 
-def _category_sort_key(category: dict[str, Any]) -> tuple[str, str]:
+def _category_sort_key(category: dict[str, Any]) -> tuple[int, str, str]:
+    sort_order = int(category.get("sort_order") or 0)
     name = str(category.get("name") or "")
     category_id = str(category.get("id") or "")
-    return (name.casefold(), category_id)
+    return (sort_order, name.casefold(), category_id)
 
 
 def _track_counts_by_category(tracks: list[dict[str, Any]]) -> dict[str, int]:
@@ -590,6 +624,7 @@ def _validate_category_row(category: Any) -> dict[str, Any]:
     return {
         "id": _required_text(category, "id", "category"),
         "name": _required_text(category, "name", "category"),
+        "sort_order": _optional_non_negative_int(category, "sort_order", "category"),
         "created_at": _required_text(category, "created_at", "category"),
         "updated_at": _required_text(category, "updated_at", "category"),
     }
@@ -660,6 +695,21 @@ def _required_positive_int(row: dict[str, Any], key: str, row_name: str) -> int:
         raise _corrupt_library(f"{row_name}.{key} must be numeric") from exc
     if number <= 0:
         raise _corrupt_library(f"{row_name}.{key} must be positive")
+    return number
+
+
+def _optional_non_negative_int(row: dict[str, Any], key: str, row_name: str) -> int:
+    value = row.get(key)
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        raise _corrupt_library(f"{row_name}.{key} must be non-negative")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise _corrupt_library(f"{row_name}.{key} must be numeric") from exc
+    if number < 0:
+        raise _corrupt_library(f"{row_name}.{key} must be non-negative")
     return number
 
 

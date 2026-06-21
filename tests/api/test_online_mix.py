@@ -2336,6 +2336,85 @@ def test_online_mix_returns_structured_not_found_for_missing_bgm_selection(tmp_p
             assert response.json()["detail"]["code"] == expected_code
 
 
+def test_online_mix_rejects_track_with_missing_requested_bgm_category(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "失效 BGM 分类任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm["track"]["id"],
+                    "bgm_category_id": "cat_missing",
+                },
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_NOT_FOUND"
+
+
+def test_online_mix_rejects_track_when_requested_bgm_category_mismatches(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+        other_category = client.post("/api/bgm/categories", json={"name": "欢快"}).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "不匹配 BGM 分类任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm["track"]["id"],
+                    "bgm_category_id": other_category["id"],
+                },
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_NOT_FOUND"
+
+
 def test_online_mix_returns_structured_error_for_corrupt_bgm_library(tmp_path):
     app = create_app(
         Settings(

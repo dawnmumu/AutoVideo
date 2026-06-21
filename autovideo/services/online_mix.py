@@ -385,11 +385,21 @@ def normalize_bgm_options(
 
     service = BgmLibraryService(store.settings)
     try:
+        if category_id:
+            category_ids = {
+                str(category.get("id") or "")
+                for category in service.library()["categories"]
+                if isinstance(category, dict)
+            }
+            if category_id not in category_ids:
+                raise BgmCategoryNotFoundError(category_id)
         track = (
             service.get_track(track_id)
             if track_id
             else service.select_track_for_category(category_id)
         )
+        if category_id and track.get("category_id") != category_id:
+            raise BgmCategoryNotFoundError(category_id)
         snapshot = service.track_snapshot(str(track["id"]))
     except BgmTrackNotFoundError as exc:
         raise BgmOptionInvalidError("BGM_TRACK_NOT_FOUND") from exc

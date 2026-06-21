@@ -52,6 +52,7 @@ def test_upload_bgm_track_and_download_audio(tmp_path: Path) -> None:
     assert payload["category_id"] == category["id"]
     assert payload["category_name"] == "舒缓"
     assert payload["duration_seconds"] == 9.75
+    assert payload["extension"] == "mp3"
     assert payload["size_bytes"] == len(content)
     assert audio.status_code == 200
     assert audio.headers["content-type"].startswith("audio/mpeg")
@@ -178,6 +179,25 @@ def test_delete_category_moves_tracks_to_uncategorized(tmp_path: Path) -> None:
     item = next(item for item in library["items"] if item["id"] == track["id"])
     assert item["category_id"] is None
     assert item["category_name"] == "未分类"
+
+
+def test_bgm_library_returns_category_sort_order_without_exposing_directory(
+    tmp_path: Path,
+) -> None:
+    with bgm_client(tmp_path) as client:
+        first = client.post("/api/bgm/categories", json={"name": "舒缓"}).json()
+        second = client.post("/api/bgm/categories", json={"name": "欢快"}).json()
+        response = client.get("/api/bgm")
+
+    assert response.status_code == 200
+    payload = response.json()
+    by_id = {category["id"]: category for category in payload["categories"]}
+    assert first["sort_order"] == 0
+    assert second["sort_order"] == 1
+    assert by_id[first["id"]]["sort_order"] == 0
+    assert by_id[second["id"]]["sort_order"] == 1
+    assert "directory" not in payload
+    assert str(tmp_path) not in response.text
 
 
 def test_duplicate_category_returns_structured_error(tmp_path: Path) -> None:

@@ -60,10 +60,12 @@ def test_store_track_generates_stable_id_and_audio_metadata(tmp_path: Path) -> N
     assert track["category_name"] == "舒缓"
     assert track["duration_seconds"] == 184.32
     assert track["media_type"] == "audio/mpeg"
+    assert track["extension"] == "mp3"
     assert track["size_bytes"] == len(content)
     assert track["audio_url"] == f"/api/bgm/tracks/{track['id']}/file"
     assert "directory" not in library
     assert library["total_tracks"] == 1
+    assert category["sort_order"] == 0
     assert library["categories"] == [{**category, "track_count": 1}]
     assert (tmp_path / "bgm" / "tracks" / track["filename"]).is_file()
 
@@ -222,6 +224,26 @@ def test_missing_registered_file_is_cleaned_when_deleted(tmp_path: Path) -> None
 
     assert result == {"id": track["id"], "deleted": True}
     assert service.library()["items"] == []
+
+
+def test_delete_track_restores_file_and_metadata_when_metadata_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    track = service.store_track(b"fake", "write-fails.mp3")
+    track_path = tmp_path / "bgm" / "tracks" / track["filename"]
+
+    def failing_write(data: dict[str, object]) -> None:
+        raise RuntimeError("metadata write failed")
+
+    monkeypatch.setattr(service, "_write", failing_write)
+
+    with pytest.raises(RuntimeError, match="metadata write failed"):
+        service.delete_track(track["id"])
+
+    assert track_path.is_file()
+    assert service.library()["items"][0]["id"] == track["id"]
 
 
 def test_delete_track_keeps_metadata_when_file_deletion_fails(
