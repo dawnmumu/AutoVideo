@@ -484,6 +484,7 @@ h2 {
 }
 
 .online-remix-panel label,
+.voice-dropdown label,
 .voice-selector label,
 .voice-filter-row label,
 .voice-preview-panel label,
@@ -626,12 +627,15 @@ h2 {
 
 .voice-selector input,
 .voice-selector select,
+.voice-dropdown select,
+.voice-dropdown button,
 .voice-selector button {
   min-height: 44px;
 }
 
 .voice-selector input,
-.voice-selector select {
+.voice-selector select,
+.voice-dropdown select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -639,6 +643,24 @@ h2 {
   color: var(--text);
   font: inherit;
   padding: 10px 12px;
+}
+
+.voice-dropdown label,
+.voice-dropdown .voice-selected-summary {
+  min-width: 0;
+}
+
+.voice-dropdown-filters,
+.voice-dropdown .voice-search-input input {
+  min-width: 0;
+}
+
+.voice-dropdown select {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-selector .voice-search-input input {
@@ -686,6 +708,7 @@ button:focus-visible,
 .online-remix-panel input:focus-visible,
 .online-remix-panel select:focus-visible,
 .online-remix-panel textarea:focus-visible,
+.voice-dropdown select:focus-visible,
 .voice-filter-row select:focus-visible,
 .voice-selector-filters select:focus-visible,
 .voice-preview-panel textarea:focus-visible,
@@ -854,6 +877,7 @@ button:disabled,
 .subtitle-preview-panel,
 .subtitle-editor-panel,
 .subtitle-settings,
+.voice-dropdown,
 .voice-selector,
 .bgm-selector {
   display: grid;
@@ -1088,22 +1112,34 @@ button:disabled,
 }
 
 .subtitle-editor-panel fieldset,
-.subtitle-settings {
+.subtitle-settings,
+.voice-dropdown {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
 }
 
 .subtitle-editor-panel legend,
-.subtitle-settings legend {
+.subtitle-settings legend,
+.voice-dropdown legend {
   color: var(--text);
   font-weight: 700;
   padding: 0 4px;
 }
 
+.voice-dropdown,
 .voice-selector,
 .bgm-selector {
   grid-column: 1 / -1;
+}
+
+.voice-dropdown {
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.voice-selector,
+.bgm-selector {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-strong);
@@ -1111,6 +1147,7 @@ button:disabled,
 }
 
 .voice-selector legend,
+.voice-dropdown legend,
 .bgm-selector legend {
   color: var(--text);
   font-weight: 700;
