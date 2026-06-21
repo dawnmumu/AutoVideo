@@ -283,11 +283,15 @@ def create_online_mix_video_task(
             provider=exc.provider,
         ) from exc
     except BgmOptionInvalidError as exc:
-        bgm_status = (
-            status.HTTP_404_NOT_FOUND
-            if exc.code in {"BGM_TRACK_NOT_FOUND", "BGM_CATEGORY_NOT_FOUND"}
-            else status.HTTP_400_BAD_REQUEST
-        )
+        if exc.code == "BGM_LIBRARY_CORRUPT":
+            raise structured_error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "BGM_LIBRARY_CORRUPT",
+            ) from exc
+        if exc.code in {"BGM_TRACK_NOT_FOUND", "BGM_CATEGORY_NOT_FOUND"}:
+            bgm_status = status.HTTP_404_NOT_FOUND
+        else:
+            bgm_status = status.HTTP_400_BAD_REQUEST
         raise structured_error(bgm_status, exc.code) from exc
     except FfmpegRenderFailedError as exc:
         raise structured_error(

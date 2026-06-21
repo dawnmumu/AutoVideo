@@ -10,6 +10,7 @@ import httpx
 from autovideo.services.bgm import (
     BgmCategoryEmptyError,
     BgmCategoryNotFoundError,
+    BgmLibraryCorruptError,
     BgmLibraryService,
     BgmTrackNotFoundError,
 )
@@ -396,6 +397,8 @@ def normalize_bgm_options(
         raise BgmOptionInvalidError("BGM_CATEGORY_NOT_FOUND") from exc
     except BgmCategoryEmptyError as exc:
         raise BgmOptionInvalidError("BGM_CATEGORY_EMPTY") from exc
+    except BgmLibraryCorruptError as exc:
+        raise BgmOptionInvalidError("BGM_LIBRARY_CORRUPT") from exc
 
     volume = _optional_float(options.get("bgm_volume"))
     if volume is None:
