@@ -468,6 +468,7 @@ export function BgmSelector({ value, onChange, onOpenBgmManagement }: BgmSelecto
   const previewTrack =
     selectedTrack ?? (isUnclassifiedSelected ? null : currentCategoryTracks[0]) ?? null;
   const hasUnclassifiedTracks = unclassifiedTracks.length > 0;
+  const volumePercent = Math.round(value.volume * 100);
 
   useEffect(() => {
     if (library.isLoading || library.isError) {
@@ -475,6 +476,15 @@ export function BgmSelector({ value, onChange, onOpenBgmManagement }: BgmSelecto
     }
 
     let nextValue = value;
+
+    if (tracks.length === 0) {
+      nextValue = { ...value, enabled: false, categoryId: "", trackId: "" };
+      if (!sameSelectedBgm(value, nextValue)) {
+        onChange(nextValue);
+      }
+      return;
+    }
+
     const validExplicitTrack = value.trackId
       ? currentCategoryTracks.some((track) => track.id === value.trackId)
       : true;
@@ -519,6 +529,7 @@ export function BgmSelector({ value, onChange, onOpenBgmManagement }: BgmSelecto
     library.isLoading,
     onChange,
     selectedUnclassifiedTrack,
+    tracks.length,
     unclassifiedTracks,
     value,
   ]);
@@ -606,7 +617,7 @@ export function BgmSelector({ value, onChange, onOpenBgmManagement }: BgmSelecto
           </label>
 
           <label>
-            <span>BGM 音量</span>
+            <span>BGM 音量 {volumePercent}%</span>
             <input
               aria-label="BGM 音量"
               disabled={!value.enabled}

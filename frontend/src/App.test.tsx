@@ -3110,6 +3110,7 @@ describe("AutoVideo shell", () => {
     expect(await within(bgmSelector).findByLabelText("启用 BGM")).toBeChecked();
     expect(within(bgmSelector).getByLabelText("BGM 分类")).toHaveValue("cat_calm");
     expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByText("BGM 音量 12%")).toBeInTheDocument();
     expect(
       within(bgmSelector).getByRole("option", { name: "从当前分类自动选择" }),
     ).toBeInTheDocument();
@@ -3377,6 +3378,64 @@ describe("AutoVideo shell", () => {
           bgm_category_id: null,
           bgm_track_id: "bgm_unclassified",
           bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("sends disabled BGM options when the BGM library is empty", async () => {
+    const user = userEvent.setup();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...bgmLibraryFixture(),
+      categories: [],
+      items: [],
+      total_tracks: 0,
+    });
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "空 BGM 库短视频",
+      topic: "空 BGM 库",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "空 BGM 库短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByText("暂无可试听 BGM")).toBeInTheDocument();
+    expect(within(bgmSelector).getByRole("button", { name: "去 BGM 管理页" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("启用 BGM")).not.toBeChecked();
+    });
+
+    await user.type(await screen.findByLabelText("视频主题"), "空 BGM 库");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: false,
+          bgm_category_id: null,
+          bgm_track_id: null,
+          bgm_volume: null,
         }),
       }),
     );
