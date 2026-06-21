@@ -3218,6 +3218,57 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("previews category-only BGM using Python 3.12 casefold over JS lower changes", async () => {
+    const base = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...base,
+      categories: [
+        {
+          id: "cat_unicode_version",
+          name: "Unicode 版本校验",
+          sort_order: 1,
+          track_count: 2,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      items: [
+        {
+          ...base.items[0],
+          id: "bgm_a7cb",
+          filename: "a7cb.mp3",
+          original_filename: "a7cb.mp3",
+          display_name: "\uA7CBaa",
+          category_id: "cat_unicode_version",
+          category_name: "Unicode 版本校验",
+          audio_url: "/api/bgm/tracks/bgm_a7cb/file",
+        },
+        {
+          ...base.items[1],
+          id: "bgm_0264",
+          filename: "0264.mp3",
+          original_filename: "0264.mp3",
+          display_name: "\u0264zz",
+          category_id: "cat_unicode_version",
+          category_name: "Unicode 版本校验",
+          audio_url: "/api/bgm/tracks/bgm_0264/file",
+        },
+      ],
+      total_tracks: 2,
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue(
+      "cat_unicode_version",
+    );
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_0264/file",
+    );
+  });
+
   it("keeps category-only automatic BGM selection scoped to the current category", async () => {
     const user = userEvent.setup();
     renderApp();
