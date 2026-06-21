@@ -29,11 +29,11 @@ router = APIRouter(prefix="/api/bgm", tags=["bgm"])
 
 
 class BgmCategoryRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    name: str = Field(max_length=80)
 
 
 class BgmTrackUpdateRequest(BaseModel):
-    display_name: str = Field(min_length=1, max_length=120)
+    display_name: str = Field(max_length=120)
     category_id: str | None = None
 
 

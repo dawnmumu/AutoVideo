@@ -207,3 +207,26 @@ def test_duplicate_category_returns_structured_error(tmp_path: Path) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "BGM_CATEGORY_DUPLICATE"
+
+
+def test_empty_category_name_returns_structured_error(tmp_path: Path) -> None:
+    with bgm_client(tmp_path) as client:
+        response = client.post("/api/bgm/categories", json={"name": ""})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_NAME_REQUIRED"
+
+
+def test_empty_track_display_name_returns_structured_error(tmp_path: Path) -> None:
+    with bgm_client(tmp_path) as client:
+        track = client.post(
+            "/api/bgm/tracks",
+            files={"file": ("spring.mp3", b"fake", "audio/mpeg")},
+        ).json()
+        response = client.put(
+            f"/api/bgm/tracks/{track['id']}",
+            json={"display_name": ""},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "BGM_TRACK_NAME_REQUIRED"

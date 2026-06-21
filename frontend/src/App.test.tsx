@@ -734,6 +734,9 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "上传 BGM" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新增分类" })).toBeInTheDocument();
     expect(screen.getAllByText("舒缓钢琴").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("article", { name: "舒缓钢琴" })).getByText(/更新 2026/),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("试听 舒缓钢琴")).toHaveAttribute(
       "src",
       "/api/bgm/tracks/bgm_calm/file",

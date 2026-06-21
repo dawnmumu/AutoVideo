@@ -39,6 +39,20 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "未知时间";
+  }
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function trackDraftFromTrack(track: BgmTrack): BgmTrackDraft {
   return {
     displayName: track.display_name,
@@ -294,7 +308,7 @@ export function BgmManagementWorkbench() {
                     {track.original_filename} · {formatBytes(track.size_bytes)} ·{" "}
                     {formatDuration(track.duration_seconds)}
                   </span>
-                  <span>{track.category_name}</span>
+                  <span>{track.category_name} · 更新 {formatDateTime(track.updated_at)}</span>
                 </div>
                 <audio
                   aria-label={`试听 ${track.display_name}`}

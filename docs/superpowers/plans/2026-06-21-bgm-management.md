@@ -4,6 +4,8 @@
 
 **Goal:** 实现 AutoVideo 的 BGM 资源管理、混剪工作台 BGM 选择和任务快照保存。
 
+**Completion Status:** 已完成并通过最终验证。实现包含后端 BGM 服务与 API、混剪任务 BGM 配置快照、BGM 管理页、混剪工作台 BGM 选择器、README 帮助文档和对应测试；当前仍不把 BGM 音轨混入最终 MP4。
+
 **Architecture:** 后端新增 `autovideo/services/bgm/` 服务包和 `/api/bgm` 路由，文件系统保存音频，JSON 保存元数据，所有元数据读改写在同一把 mutation lock 内完成。混剪任务只保存清洗后的 BGM 配置和快照，本轮不把 BGM 混入最终 MP4。前端新增 BGM API、BGM 管理工作台和混剪工作台选择器，并同步 README。
 
 **Tech Stack:** FastAPI, Pydantic, pytest, React, TypeScript, TanStack Query, Vitest, Testing Library, Lucide, CSS.
