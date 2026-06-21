@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createBgmCategory,
@@ -12,6 +12,12 @@ import {
   updateBgmTrack,
   uploadBgmTrack,
 } from "../api/bgm";
+import type { BgmTrack } from "../api/bgm";
+
+interface BgmTrackDraft {
+  displayName: string;
+  categoryId: string;
+}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -33,12 +39,20 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+function trackDraftFromTrack(track: BgmTrack): BgmTrackDraft {
+  return {
+    displayName: track.display_name,
+    categoryId: track.category_id ?? "",
+  };
+}
+
 export function BgmManagementWorkbench() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadCategoryId, setUploadCategoryId] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [trackDrafts, setTrackDrafts] = useState<Record<string, BgmTrackDraft>>({});
 
   const library = useQuery({
     queryKey: ["bgm-library"],
@@ -82,7 +96,18 @@ export function BgmManagementWorkbench() {
   });
   const removeCategory = useMutation({
     mutationFn: deleteBgmCategory,
-    onSuccess: invalidateLibrary,
+    onSuccess: (result) => {
+      setUploadCategoryId((current) => (current === result.id ? "" : current));
+      setTrackDrafts((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([trackId, draft]) => [
+            trackId,
+            draft.categoryId === result.id ? { ...draft, categoryId: "" } : draft,
+          ]),
+        ),
+      );
+      void invalidateLibrary();
+    },
   });
 
   const categories = library.data?.categories ?? [];
@@ -95,6 +120,15 @@ export function BgmManagementWorkbench() {
     saveCategory.error ||
     removeCategory.error ||
     null;
+
+  useEffect(() => {
+    if (!uploadCategoryId) {
+      return;
+    }
+    if (!categories.some((category) => category.id === uploadCategoryId)) {
+      setUploadCategoryId("");
+    }
+  }, [categories, uploadCategoryId]);
 
   return (
     <article className="panel bgm-management-panel" aria-label="BGM 管理">
@@ -240,69 +274,90 @@ export function BgmManagementWorkbench() {
               <span>上传音频后可在这里试听、改名和归类</span>
             </div>
           ) : null}
-          {tracks.map((track) => (
-            <article className="bgm-track-row" key={track.id} aria-label={track.display_name}>
-              <div className="bgm-track-main">
-                <strong>{track.display_name}</strong>
-                <span>
-                  {track.original_filename} · {formatBytes(track.size_bytes)} ·{" "}
-                  {formatDuration(track.duration_seconds)}
-                </span>
-                <span>{track.category_name}</span>
-              </div>
-              <audio
-                aria-label={`试听 ${track.display_name}`}
-                className="bgm-audio-player"
-                controls
-                preload="none"
-                src={track.audio_url}
-              />
-              <label>
-                BGM 名称
-                <input
-                  defaultValue={track.display_name}
-                  onBlur={(event) => {
-                    const displayName = event.currentTarget.value.trim();
-                    if (displayName && displayName !== track.display_name) {
-                      saveTrack.mutate({ id: track.id, display_name: displayName });
+          {tracks.map((track) => {
+            const draft = trackDrafts[track.id] ?? trackDraftFromTrack(track);
+            const setTrackDraft = (nextDraft: Partial<BgmTrackDraft>) => {
+              setTrackDrafts((current) => ({
+                ...current,
+                [track.id]: {
+                  ...(current[track.id] ?? trackDraftFromTrack(track)),
+                  ...nextDraft,
+                },
+              }));
+            };
+
+            return (
+              <article className="bgm-track-row" key={track.id} aria-label={track.display_name}>
+                <div className="bgm-track-main">
+                  <strong>{draft.displayName || track.display_name}</strong>
+                  <span>
+                    {track.original_filename} · {formatBytes(track.size_bytes)} ·{" "}
+                    {formatDuration(track.duration_seconds)}
+                  </span>
+                  <span>{track.category_name}</span>
+                </div>
+                <audio
+                  aria-label={`试听 ${track.display_name}`}
+                  className="bgm-audio-player"
+                  controls
+                  preload="none"
+                  src={track.audio_url}
+                />
+                <label>
+                  BGM 名称
+                  <input
+                    value={draft.displayName}
+                    onChange={(event) => setTrackDraft({ displayName: event.target.value })}
+                    onBlur={(event) => {
+                      const displayName = event.currentTarget.value.trim();
+                      if (!displayName) {
+                        setTrackDraft({ displayName: track.display_name });
+                        return;
+                      }
+                      if (displayName !== track.display_name) {
+                        saveTrack.mutate({ id: track.id, display_name: displayName });
+                      }
+                    }}
+                  />
+                </label>
+                <label>
+                  分类
+                  <select
+                    value={draft.categoryId}
+                    onChange={(event) => {
+                      const categoryId = event.target.value;
+                      const displayName = draft.displayName.trim() || track.display_name;
+                      setTrackDraft({ categoryId });
+                      saveTrack.mutate({
+                        id: track.id,
+                        display_name: displayName,
+                        category_id: categoryId || null,
+                      });
+                    }}
+                  >
+                    <option value="">未分类</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  aria-label={`删除 BGM ${track.display_name}`}
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`确定删除 BGM “${track.display_name}”吗？`)) {
+                      removeTrack.mutate(track.id);
                     }
                   }}
-                />
-              </label>
-              <label>
-                分类
-                <select
-                  value={track.category_id ?? ""}
-                  onChange={(event) =>
-                    saveTrack.mutate({
-                      id: track.id,
-                      display_name: track.display_name,
-                      category_id: event.target.value || null,
-                    })
-                  }
                 >
-                  <option value="">未分类</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                aria-label={`删除 BGM ${track.display_name}`}
-                type="button"
-                onClick={() => {
-                  if (window.confirm(`确定删除 BGM “${track.display_name}”吗？`)) {
-                    removeTrack.mutate(track.id);
-                  }
-                }}
-              >
-                <Trash2 aria-hidden="true" size={18} />
-                删除
-              </button>
-            </article>
-          ))}
+                  <Trash2 aria-hidden="true" size={18} />
+                  删除
+                </button>
+              </article>
+            );
+          })}
         </section>
       </div>
     </article>

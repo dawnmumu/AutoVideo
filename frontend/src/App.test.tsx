@@ -720,6 +720,70 @@ describe("AutoVideo shell", () => {
     expect(fileInput.files).toHaveLength(0);
   });
 
+  it("uses the latest BGM draft name when category changes after editing", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(screen.getByRole("link", { name: "BGM 管理" }));
+    const trackCard = await screen.findByRole("article", { name: "舒缓钢琴" });
+    const nameInput = within(trackCard).getByLabelText("BGM 名称");
+    const categorySelect = within(trackCard).getByLabelText("分类");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "晨间钢琴");
+    await user.selectOptions(categorySelect, "cat_upbeat");
+
+    await waitFor(() =>
+      expect(mockedUpdateBgmTrack.mock.calls.map(([input]) => input)).toContainEqual({
+        id: "bgm_calm",
+        display_name: "晨间钢琴",
+        category_id: "cat_upbeat",
+      }),
+    );
+    expect(mockedUpdateBgmTrack.mock.calls.map(([input]) => input)).not.toContainEqual({
+      id: "bgm_calm",
+      display_name: "舒缓钢琴",
+      category_id: "cat_upbeat",
+    });
+  });
+
+  it("clears a deleted upload category before uploading a BGM file", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      renderApp();
+
+      await user.click(screen.getByRole("link", { name: "BGM 管理" }));
+      await user.selectOptions(await screen.findByLabelText("上传分类"), "cat_calm");
+      await user.click(
+        within(screen.getByRole("region", { name: "BGM 分类" })).getByRole("button", {
+          name: "删除分类 舒缓",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(mockedDeleteBgmCategory.mock.calls.map(([categoryId]) => categoryId)).toContain(
+          "cat_calm",
+        ),
+      );
+      const fileInput = screen.getByLabelText("BGM 音频文件") as HTMLInputElement;
+      const file = new File(["fake audio bytes"], "after-delete.mp3", { type: "audio/mpeg" });
+
+      await user.upload(fileInput, file);
+      await user.click(screen.getByRole("button", { name: "上传 BGM" }));
+
+      await waitFor(() =>
+        expect(mockedUploadBgmTrack).toHaveBeenCalledWith({
+          file,
+          category_id: null,
+        }),
+      );
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
+
   it("creates a Microsoft Edge TTS preview from the selected voice", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -1114,6 +1178,10 @@ describe("AutoVideo shell", () => {
 
   it("declares responsive BGM workbench styles without hover-only dependencies", () => {
     expect(stylesCss).toMatch(/\.bgm-workbench-grid \{[\s\S]*?grid-template-columns:/);
+    expect(stylesCss).toMatch(/\.bgm-list-panel \{[\s\S]*?grid-column:\s*1 \/ -1;/);
+    expect(stylesCss).not.toMatch(
+      /\.bgm-track-row \{[\s\S]*?grid-template-columns:\s*minmax\(180px,\s*1fr\) minmax\(220px,\s*1fr\) minmax\(150px,\s*0\.7fr\) minmax\(130px,\s*0\.55fr\) max-content;/,
+    );
     expect(stylesCss).toMatch(
       /@media \(max-width: 760px\) \{[\s\S]*?\.bgm-workbench-grid \{[\s\S]*?grid-template-columns: 1fr;/,
     );

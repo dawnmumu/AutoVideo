@@ -1164,10 +1164,14 @@ button:disabled,
 
 .bgm-workbench-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1fr) minmax(360px, 1.45fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 16px;
   align-items: start;
   min-width: 0;
+}
+
+.bgm-list-panel {
+  grid-column: 1 / -1;
 }
 
 .bgm-upload-panel,
@@ -1248,8 +1252,8 @@ button:disabled,
 
 .bgm-track-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(150px, 0.7fr) minmax(130px, 0.55fr) max-content;
-  align-items: end;
+  grid-template-columns: 1fr;
+  align-items: stretch;
   gap: 12px;
   min-width: 0;
 }
@@ -1335,10 +1339,6 @@ button:disabled,
 
   .bgm-list-panel {
     grid-column: 1 / -1;
-  }
-
-  .bgm-track-row {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
   }
 
   .bgm-track-main,
