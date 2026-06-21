@@ -15,6 +15,8 @@ import {
   generateScript,
   searchOnlineMaterials,
 } from "../api/onlineRemix";
+import { BgmSelector } from "./BgmSelector";
+import type { SelectedBgm } from "./BgmSelector";
 import { VoiceSelector } from "./VoiceSelector";
 import { selectAutoSubtitleTemplate } from "./subtitleTemplateSelection";
 
@@ -47,9 +49,13 @@ function shotQuery(shot: ScriptShot): string {
 
 interface OnlineRemixWorkbenchProps {
   onOpenSubtitleTemplates?: () => void;
+  onOpenBgmManagement?: () => void;
 }
 
-export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWorkbenchProps) {
+export function OnlineRemixWorkbench({
+  onOpenSubtitleTemplates,
+  onOpenBgmManagement,
+}: OnlineRemixWorkbenchProps) {
   const [topic, setTopic] = useState("");
   const [durationSeconds, setDurationSeconds] = useState(30);
   const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -61,6 +67,12 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
   const [subtitleTemplateSetId, setSubtitleTemplateSetId] = useState("");
   const [subtitleFontFamily, setSubtitleFontFamily] = useState("");
   const [selectedVoice, setSelectedVoice] = useState<VoiceItem | null>(null);
+  const [selectedBgm, setSelectedBgm] = useState<SelectedBgm>({
+    enabled: true,
+    categoryId: "",
+    trackId: "",
+    volume: 0.12,
+  });
   const [script, setScript] = useState<GeneratedScript | null>(null);
   const [shotState, setShotState] = useState<Record<number, ShotSearchState>>({});
   const [openShots, setOpenShots] = useState<Record<number, boolean>>({});
@@ -178,6 +190,10 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
           voice_provider: selectedVoice?.provider ?? null,
           voice_locale: selectedVoice?.locale ?? null,
           voice_gender: selectedVoice?.gender ?? null,
+          bgm_enabled: selectedBgm.enabled,
+          bgm_category_id: selectedBgm.enabled ? selectedBgm.categoryId || null : null,
+          bgm_track_id: selectedBgm.enabled ? selectedBgm.trackId || null : null,
+          bgm_volume: selectedBgm.enabled ? selectedBgm.volume : null,
         },
       });
     },
@@ -376,6 +392,11 @@ export function OnlineRemixWorkbench({ onOpenSubtitleTemplates }: OnlineRemixWor
           previewText={voicePreviewText}
           value={selectedVoice}
           onChange={setSelectedVoice}
+        />
+        <BgmSelector
+          value={selectedBgm}
+          onChange={setSelectedBgm}
+          onOpenBgmManagement={onOpenBgmManagement}
         />
         <button className="primary-action" disabled={!topic.trim() || generate.isPending} type="submit">
           <Sparkles aria-hidden="true" size={18} />

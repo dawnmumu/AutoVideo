@@ -250,7 +250,10 @@ export default function App() {
 
         {openedSections.remix ? (
           <section className="content-grid" hidden={activeSection !== "remix"} id="remix">
-            <OnlineRemixWorkbench onOpenSubtitleTemplates={() => openSection("subtitles")} />
+            <OnlineRemixWorkbench
+              onOpenSubtitleTemplates={() => openSection("subtitles")}
+              onOpenBgmManagement={() => openSection("bgm")}
+            />
             <RuntimeStatus />
           </section>
         ) : null}

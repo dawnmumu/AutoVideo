@@ -854,7 +854,8 @@ button:disabled,
 .subtitle-preview-panel,
 .subtitle-editor-panel,
 .subtitle-settings,
-.voice-selector {
+.voice-selector,
+.bgm-selector {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1100,7 +1101,8 @@ button:disabled,
   padding: 0 4px;
 }
 
-.voice-selector {
+.voice-selector,
+.bgm-selector {
   grid-column: 1 / -1;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1108,10 +1110,89 @@ button:disabled,
   padding: 14px;
 }
 
-.voice-selector legend {
+.voice-selector legend,
+.bgm-selector legend {
   color: var(--text);
   font-weight: 700;
   padding: 0 4px;
+}
+
+.bgm-selector {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bgm-selector label,
+.bgm-selector-preview {
+  min-width: 0;
+}
+
+.bgm-selector .runtime-status,
+.bgm-selector .inline-error,
+.bgm-selector .switch-row,
+.bgm-selector-preview,
+.bgm-selector-audio {
+  grid-column: 1 / -1;
+}
+
+.bgm-selector input,
+.bgm-selector select,
+.bgm-selector button {
+  min-height: 44px;
+}
+
+.bgm-selector input,
+.bgm-selector select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.bgm-selector input[type="range"] {
+  padding: 0;
+}
+
+.bgm-selector button:focus-visible,
+.bgm-selector input:focus-visible,
+.bgm-selector select:focus-visible {
+  outline: 3px solid rgba(23, 107, 135, 0.25);
+  outline-offset: 2px;
+}
+
+.bgm-selector-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.bgm-selector-preview div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.bgm-selector-preview strong {
+  overflow-wrap: anywhere;
+}
+
+.bgm-selector-preview span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.bgm-selector-audio {
+  width: 100%;
+  max-width: 100%;
 }
 
 .subtitle-settings {
@@ -1307,14 +1388,20 @@ button:disabled,
   .shot-fields,
   .voice-filter-row,
   .voice-selector-filters,
+  .bgm-selector,
   .voice-slider-grid,
   .voice-clone-panel,
+  .bgm-selector-preview,
   .shot-actions,
   .create-task-row,
   .candidate-row,
   .task-output-card,
   .inline-error,
   .local-material-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-selector-preview {
     grid-template-columns: 1fr;
   }
 
@@ -1428,14 +1515,20 @@ button:disabled,
   .shot-fields,
   .voice-filter-row,
   .voice-selector-filters,
+  .bgm-selector,
   .voice-slider-grid,
   .voice-clone-panel,
+  .bgm-selector-preview,
   .shot-actions,
   .create-task-row,
   .candidate-row,
   .task-output-card,
   .inline-error,
   .local-material-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-selector-preview {
     grid-template-columns: 1fr;
   }
 
@@ -1456,6 +1549,7 @@ button:disabled,
   .task-output-actions .disabled-action,
   .voice-preview-actions button,
   .voice-clone-panel button,
+  .bgm-selector-preview button,
   .task-delete-confirmation-actions button,
   .inline-error button,
   .shot-actions button,

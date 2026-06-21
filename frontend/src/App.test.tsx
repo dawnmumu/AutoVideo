@@ -692,7 +692,7 @@ describe("AutoVideo shell", () => {
     expect(screen.getByLabelText("BGM 音频文件")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上传 BGM" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新增分类" })).toBeInTheDocument();
-    expect(screen.getByText("舒缓钢琴")).toBeInTheDocument();
+    expect(screen.getAllByText("舒缓钢琴").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("试听 舒缓钢琴")).toHaveAttribute(
       "src",
       "/api/bgm/tracks/bgm_calm/file",
@@ -3076,6 +3076,100 @@ describe("AutoVideo shell", () => {
           subtitle_font_family: "Noto Sans CJK SC",
         }),
       }),
+    );
+  });
+
+  it("previews the sorted automatic BGM for category-only selection", async () => {
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("启用 BGM")).toBeChecked();
+    expect(within(bgmSelector).getByLabelText("BGM 分类")).toHaveValue("cat_calm");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(
+      within(bgmSelector).getByRole("option", { name: "从当前分类自动选择" }),
+    ).toBeInTheDocument();
+    expect(within(bgmSelector).getByRole("option", { name: "静谧长夜" })).toBeInTheDocument();
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+  });
+
+  it("keeps category-only automatic BGM selection scoped to the current category", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    await user.selectOptions(await within(bgmSelector).findByLabelText("BGM 分类"), "cat_upbeat");
+
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_upbeat/file",
+    );
+  });
+
+  it("sends category-only BGM when creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "AI 办公",
+      topic: "AI 办公",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "office",
+          keywords: ["office"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "AI 办公",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "AI 办公");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: "cat_calm",
+          bgm_track_id: null,
+          bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("keeps BGM selector mobile controls touch friendly", () => {
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?grid-template-columns:/);
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?gap:\s*12px;/);
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?min-width:\s*0;/);
+    expect(stylesCss).toMatch(
+      /\.bgm-selector input,\s*\.bgm-selector select,\s*\.bgm-selector button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-selector-preview \{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 760px\) \{[\s\S]*?\.bgm-selector-preview \{[\s\S]*?grid-template-columns:\s*1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-selector-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
     );
   });
 
