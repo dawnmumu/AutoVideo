@@ -288,6 +288,27 @@ function bgmLibraryFixture(): BgmLibrary {
   };
 }
 
+function unclassifiedBgmLibraryFixture(): BgmLibrary {
+  const base = bgmLibraryFixture();
+  return {
+    ...base,
+    items: [
+      {
+        ...base.items[1],
+        id: "bgm_unclassified",
+        filename: "unclassified.mp3",
+        original_filename: "unclassified.mp3",
+        display_name: "无分类鼓组",
+        category_id: null,
+        category_name: "未分类",
+        audio_url: "/api/bgm/tracks/bgm_unclassified/file",
+      },
+    ],
+    categories: [],
+    total_tracks: 1,
+  };
+}
+
 function assertSubtitleEditorTypeContract(template: SubtitleTemplateSet) {
   const block = template.blocks[0];
   const role = block.role;
@@ -309,11 +330,14 @@ function renderApp() {
     },
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 function renderVoiceSelectorHarness({
@@ -3150,6 +3174,193 @@ describe("AutoVideo shell", () => {
           bgm_category_id: "cat_calm",
           bgm_track_id: null,
           bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("sends an explicit unclassified BGM track when no categories exist", async () => {
+    const user = userEvent.setup();
+    mockedFetchBgmLibrary.mockResolvedValue(unclassifiedBgmLibraryFixture());
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "无分类 BGM 短视频",
+      topic: "无分类 BGM",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "无分类 BGM 短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveDisplayValue("未分类");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("bgm_unclassified");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_unclassified/file",
+    );
+
+    await user.type(await screen.findByLabelText("视频主题"), "无分类 BGM");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: null,
+          bgm_track_id: "bgm_unclassified",
+          bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("clears a stale explicit BGM track before creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "旧曲目清理短视频",
+      topic: "旧曲目清理",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "旧曲目清理短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    const { queryClient } = renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    await user.selectOptions(await within(bgmSelector).findByLabelText("具体 BGM"), "bgm_calm_late");
+
+    act(() => {
+      queryClient.setQueryData<BgmLibrary>(["bgm-library"], {
+        ...bgmLibraryFixture(),
+        items: bgmLibraryFixture().items.filter((track) => track.id !== "bgm_calm_late"),
+        total_tracks: 2,
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    });
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+
+    await user.type(await screen.findByLabelText("视频主题"), "旧曲目清理");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: "cat_calm",
+          bgm_track_id: null,
+        }),
+      }),
+    );
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_track_id: "bgm_calm_late",
+        }),
+      }),
+    );
+  });
+
+  it("clears a stale BGM category when the library returns no categories", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "分类删除短视频",
+      topic: "分类删除",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "分类删除短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    const { queryClient } = renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue("cat_calm");
+
+    act(() => {
+      queryClient.setQueryData<BgmLibrary>(["bgm-library"], unclassifiedBgmLibraryFixture());
+    });
+
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("BGM 分类")).toHaveDisplayValue("未分类");
+    });
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("bgm_unclassified");
+
+    await user.type(await screen.findByLabelText("视频主题"), "分类删除");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: null,
+          bgm_track_id: "bgm_unclassified",
+        }),
+      }),
+    );
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_category_id: "cat_calm",
         }),
       }),
     );
