@@ -3120,6 +3120,55 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("previews category-only BGM using the backend auto selection key", async () => {
+    const base = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...base,
+      categories: [
+        {
+          id: "cat_sort",
+          name: "排序校验",
+          sort_order: 1,
+          track_count: 2,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      items: [
+        {
+          ...base.items[0],
+          id: "bgm_alpha_z",
+          filename: "zeta.mp3",
+          original_filename: "zeta.mp3",
+          display_name: "Alpha",
+          category_id: "cat_sort",
+          category_name: "排序校验",
+          audio_url: "/api/bgm/tracks/bgm_alpha_z/file",
+        },
+        {
+          ...base.items[1],
+          id: "bgm_alpha_a",
+          filename: "alpha.mp3",
+          original_filename: "alpha.mp3",
+          display_name: "alpha",
+          category_id: "cat_sort",
+          category_name: "排序校验",
+          audio_url: "/api/bgm/tracks/bgm_alpha_a/file",
+        },
+      ],
+      total_tracks: 2,
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue("cat_sort");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_alpha_a/file",
+    );
+  });
+
   it("keeps category-only automatic BGM selection scoped to the current category", async () => {
     const user = userEvent.setup();
     renderApp();

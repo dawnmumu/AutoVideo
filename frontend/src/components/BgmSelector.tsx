@@ -24,14 +24,34 @@ function trackLabel(track: BgmTrack): string {
   return track.display_name || track.filename;
 }
 
+function normalizedSortValue(value: string | null | undefined): string {
+  return (value || "").toLowerCase();
+}
+
 function sortTracksByAutoRule(tracks: BgmTrack[]): BgmTrack[] {
   return [...tracks].sort((left, right) => {
-    const leftLabel = trackLabel(left);
-    const rightLabel = trackLabel(right);
-    if (leftLabel === rightLabel) {
-      return 0;
+    const leftKey = [
+      normalizedSortValue(left.display_name || left.filename),
+      normalizedSortValue(left.filename),
+      left.id || "",
+    ];
+    const rightKey = [
+      normalizedSortValue(right.display_name || right.filename),
+      normalizedSortValue(right.filename),
+      right.id || "",
+    ];
+
+    for (const [index, leftValue] of leftKey.entries()) {
+      const rightValue = rightKey[index];
+      if (leftValue < rightValue) {
+        return -1;
+      }
+      if (leftValue > rightValue) {
+        return 1;
+      }
     }
-    return leftLabel > rightLabel ? 1 : -1;
+
+    return 0;
   });
 }
 
