@@ -1,0 +1,36 @@
+from autovideo.services.bgm.models import (
+    AudioProbeResult,
+    BgmCategoryDuplicateError,
+    BgmCategoryEmptyError,
+    BgmCategoryNameRequiredError,
+    BgmCategoryNotFoundError,
+    BgmFileEmptyError,
+    BgmFileTooLargeError,
+    BgmFileUnsupportedError,
+    BgmLibraryCorruptError,
+    BgmLibraryError,
+    BgmTrackFile,
+    BgmTrackFileDeleteError,
+    BgmTrackNameRequiredError,
+    BgmTrackNotFoundError,
+)
+from autovideo.services.bgm.service import BgmLibraryService, probe_audio_metadata
+
+__all__ = [
+    "AudioProbeResult",
+    "BgmCategoryDuplicateError",
+    "BgmCategoryEmptyError",
+    "BgmCategoryNameRequiredError",
+    "BgmCategoryNotFoundError",
+    "BgmFileEmptyError",
+    "BgmFileTooLargeError",
+    "BgmFileUnsupportedError",
+    "BgmLibraryCorruptError",
+    "BgmLibraryError",
+    "BgmLibraryService",
+    "BgmTrackFile",
+    "BgmTrackFileDeleteError",
+    "BgmTrackNameRequiredError",
+    "BgmTrackNotFoundError",
+    "probe_audio_metadata",
+]

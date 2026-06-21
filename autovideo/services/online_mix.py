@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 from typing import Any, Literal
 
 import httpx
 
+from autovideo.services.bgm import (
+    BgmCategoryEmptyError,
+    BgmCategoryNotFoundError,
+    BgmLibraryCorruptError,
+    BgmLibraryService,
+    BgmTrackNotFoundError,
+)
 from autovideo.services.online_downloads import (
     DownloadResolver,
     stream_provider_download_to_material,
@@ -81,6 +89,12 @@ class VoiceProviderInvalidError(ValueError):
     def __init__(self, provider: str) -> None:
         self.provider = provider
         super().__init__(provider)
+
+
+class BgmOptionInvalidError(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 def _shot_indexes(script: dict[str, Any]) -> set[int]:
@@ -357,10 +371,89 @@ def normalize_voice_options(options: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_bgm_options(
+    store: AutoVideoStore,
+    options: dict[str, Any],
+) -> dict[str, Any]:
+    if not bool(options.get("bgm_enabled")):
+        return _disabled_bgm_options()
+
+    track_id = _optional_text(options.get("bgm_track_id"))
+    category_id = _optional_text(options.get("bgm_category_id"))
+    if not track_id and not category_id:
+        return _disabled_bgm_options()
+
+    service = BgmLibraryService(store.settings)
+    try:
+        if category_id:
+            category_ids = {
+                str(category.get("id") or "")
+                for category in service.library()["categories"]
+                if isinstance(category, dict)
+            }
+            if category_id not in category_ids:
+                raise BgmCategoryNotFoundError(category_id)
+        track = (
+            service.get_track(track_id)
+            if track_id
+            else service.select_track_for_category(category_id)
+        )
+        if category_id and track.get("category_id") != category_id:
+            raise BgmCategoryNotFoundError(category_id)
+        snapshot = service.track_snapshot(str(track["id"]))
+    except BgmTrackNotFoundError as exc:
+        raise BgmOptionInvalidError("BGM_TRACK_NOT_FOUND") from exc
+    except BgmCategoryNotFoundError as exc:
+        raise BgmOptionInvalidError("BGM_CATEGORY_NOT_FOUND") from exc
+    except BgmCategoryEmptyError as exc:
+        raise BgmOptionInvalidError("BGM_CATEGORY_EMPTY") from exc
+    except BgmLibraryCorruptError as exc:
+        raise BgmOptionInvalidError("BGM_LIBRARY_CORRUPT") from exc
+
+    volume = _optional_float(options.get("bgm_volume"))
+    if volume is None:
+        volume = 0.12
+    volume = min(1.0, max(0.0, volume))
+
+    return {
+        "bgm_enabled": True,
+        "bgm_track_id": str(track["id"]),
+        "bgm_display_name": track.get("display_name"),
+        "bgm_category_id": track.get("category_id"),
+        "bgm_category_name": track.get("category_name"),
+        "bgm_volume": volume,
+        "bgm_snapshot": snapshot,
+        "bgm_mix_status": "selected_not_mixed",
+    }
+
+
+def _disabled_bgm_options() -> dict[str, Any]:
+    return {
+        "bgm_enabled": False,
+        "bgm_track_id": None,
+        "bgm_display_name": None,
+        "bgm_category_id": None,
+        "bgm_category_name": None,
+        "bgm_volume": None,
+        "bgm_snapshot": None,
+        "bgm_mix_status": "not_requested",
+    }
+
+
 def _optional_text(value: Any) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _required_template_text(template_set: dict[str, Any], field: str) -> str:
@@ -615,6 +708,7 @@ def create_online_mix_task(
     )
     subtitle_options = normalize_subtitle_options(store, options)
     voice_options = normalize_voice_options(options)
+    bgm_options = normalize_bgm_options(store, options)
 
     for item in shot_assets:
         assert token_service is not None
@@ -763,7 +857,7 @@ def create_online_mix_task(
         raise OnlineMixNoMaterialMatchError()
 
     sanitized_options = sanitized_online_mix_options(
-        {**options, **subtitle_options, **voice_options}
+        {**options, **subtitle_options, **voice_options, **bgm_options}
     )
 
     return create_task(
@@ -789,6 +883,14 @@ def create_online_mix_task(
             "voice_provider": voice_options["voice_provider"],
             "voice_locale": voice_options["voice_locale"],
             "voice_gender": voice_options["voice_gender"],
+            "bgm_enabled": bgm_options["bgm_enabled"],
+            "bgm_track_id": bgm_options["bgm_track_id"],
+            "bgm_display_name": bgm_options["bgm_display_name"],
+            "bgm_category_id": bgm_options["bgm_category_id"],
+            "bgm_category_name": bgm_options["bgm_category_name"],
+            "bgm_volume": bgm_options["bgm_volume"],
+            "bgm_snapshot": bgm_options["bgm_snapshot"],
+            "bgm_mix_status": bgm_options["bgm_mix_status"],
             "provider_status_snapshot": provider_status_snapshot,
         },
         output_builder=_render_online_mix_output_builder(

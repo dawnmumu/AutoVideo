@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from autovideo.api.routes.bgm import router as bgm_router
 from autovideo.api.routes.health import router as health_router
 from autovideo.api.routes.materials import router as materials_router
 from autovideo.api.routes.online_materials import router as online_materials_router
@@ -87,6 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         error_code = "REQUEST_TOO_LARGE"
         if request.method == "POST" and request.url.path == "/api/materials":
             max_request_bytes = active_settings.max_material_request_bytes
+        elif request.method == "POST" and request.url.path == "/api/bgm/tracks":
+            max_request_bytes = active_settings.max_material_request_bytes
         elif request.method == "POST" and request.url.path == "/api/tasks":
             max_request_bytes = active_settings.max_task_request_bytes
         elif request.method == "POST" and request.url.path == "/api/scripts/generate":
@@ -112,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await call_next(request)
 
     app.include_router(health_router)
+    app.include_router(bgm_router)
     app.include_router(materials_router)
     app.include_router(online_materials_router)
     app.include_router(online_mix_router)

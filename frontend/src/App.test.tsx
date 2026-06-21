@@ -6,6 +6,16 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import {
+  createBgmCategory,
+  deleteBgmCategory,
+  deleteBgmTrack,
+  fetchBgmLibrary,
+  updateBgmCategory,
+  updateBgmTrack,
+  uploadBgmTrack,
+} from "./api/bgm";
+import type { BgmLibrary } from "./api/bgm";
 import { fetchHealth } from "./api/health";
 import {
   createOnlineMixTask,
@@ -75,6 +85,20 @@ vi.mock("./api/voices", async (importOriginal) => {
   };
 });
 
+vi.mock("./api/bgm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api/bgm")>();
+  return {
+    ...actual,
+    fetchBgmLibrary: vi.fn(),
+    uploadBgmTrack: vi.fn(),
+    updateBgmTrack: vi.fn(),
+    deleteBgmTrack: vi.fn(),
+    createBgmCategory: vi.fn(),
+    updateBgmCategory: vi.fn(),
+    deleteBgmCategory: vi.fn(),
+  };
+});
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
@@ -95,6 +119,13 @@ const mockedPreviewSubtitleTimeline = vi.mocked(previewSubtitleTimeline);
 const mockedFetchVoiceStatus = vi.mocked(fetchVoiceStatus);
 const mockedFetchVoices = vi.mocked(fetchVoices);
 const mockedCreateVoicePreview = vi.mocked(createVoicePreview);
+const mockedFetchBgmLibrary = vi.mocked(fetchBgmLibrary);
+const mockedUploadBgmTrack = vi.mocked(uploadBgmTrack);
+const mockedUpdateBgmTrack = vi.mocked(updateBgmTrack);
+const mockedDeleteBgmTrack = vi.mocked(deleteBgmTrack);
+const mockedCreateBgmCategory = vi.mocked(createBgmCategory);
+const mockedUpdateBgmCategory = vi.mocked(updateBgmCategory);
+const mockedDeleteBgmCategory = vi.mocked(deleteBgmCategory);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -184,6 +215,100 @@ function templateFixture(overrides: Partial<SubtitleTemplateSet>): SubtitleTempl
   };
 }
 
+function bgmLibraryFixture(): BgmLibrary {
+  return {
+    items: [
+      {
+        id: "bgm_calm_late",
+        filename: "bgm_calm_late.mp3",
+        original_filename: "late-calm.mp3",
+        display_name: "静谧长夜",
+        category_id: "cat_calm",
+        category_name: "舒缓",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 1536,
+        duration_seconds: 15,
+        audio_url: "/api/bgm/tracks/bgm_calm_late/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "bgm_calm",
+        filename: "bgm_calm.mp3",
+        original_filename: "calm.mp3",
+        display_name: "舒缓钢琴",
+        category_id: "cat_calm",
+        category_name: "舒缓",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 1024,
+        duration_seconds: 12.5,
+        audio_url: "/api/bgm/tracks/bgm_calm/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "bgm_upbeat",
+        filename: "bgm_upbeat.mp3",
+        original_filename: "upbeat.mp3",
+        display_name: "轻快鼓点",
+        category_id: "cat_upbeat",
+        category_name: "欢快",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 2048,
+        duration_seconds: 10,
+        audio_url: "/api/bgm/tracks/bgm_upbeat/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+    ],
+    categories: [
+      {
+        id: "cat_calm",
+        name: "舒缓",
+        sort_order: 10,
+        track_count: 2,
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "cat_upbeat",
+        name: "欢快",
+        sort_order: 20,
+        track_count: 1,
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+    ],
+    storage_status: "ready",
+    total_tracks: 3,
+    supported_extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac"],
+  };
+}
+
+function unclassifiedBgmLibraryFixture(): BgmLibrary {
+  const base = bgmLibraryFixture();
+  return {
+    ...base,
+    items: [
+      {
+        ...base.items[1],
+        id: "bgm_unclassified",
+        filename: "unclassified.mp3",
+        original_filename: "unclassified.mp3",
+        display_name: "无分类鼓组",
+        category_id: null,
+        category_name: "未分类",
+        audio_url: "/api/bgm/tracks/bgm_unclassified/file",
+      },
+    ],
+    categories: [],
+    total_tracks: 1,
+  };
+}
+
 function assertSubtitleEditorTypeContract(template: SubtitleTemplateSet) {
   const block = template.blocks[0];
   const role = block.role;
@@ -205,11 +330,14 @@ function renderApp() {
     },
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 function renderVoiceSelectorHarness({
@@ -363,6 +491,20 @@ describe("AutoVideo shell", () => {
       media_type: "audio/mpeg",
       created_at: "2026-06-20T08:00:00+08:00",
     });
+    const bgmLibrary = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue(bgmLibrary);
+    mockedUploadBgmTrack.mockImplementation(async ({ file, category_id }) => ({
+      ...bgmLibrary.items[0],
+      original_filename: file.name,
+      display_name: file.name.replace(/\.[^.]+$/, ""),
+      category_id: category_id ?? null,
+      category_name: category_id ? "舒缓" : "未分类",
+    }));
+    mockedUpdateBgmTrack.mockResolvedValue(bgmLibrary.items[0]);
+    mockedDeleteBgmTrack.mockResolvedValue({ id: "bgm_calm", deleted: true });
+    mockedCreateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
+    mockedUpdateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
+    mockedDeleteBgmCategory.mockResolvedValue({ id: "cat_calm", deleted: true });
   });
 
   it("renders the Chinese product navigation", async () => {
@@ -479,7 +621,7 @@ describe("AutoVideo shell", () => {
       /\.voice-selector input,\s*\.voice-selector select,\s*\.voice-dropdown select,\s*\.voice-dropdown button,\s*\.voice-selector button \{[\s\S]*?min-height:\s*44px;/,
     );
     expect(stylesCss).toMatch(
-      /\.voice-dropdown,\s*\.voice-selector \{[\s\S]*?grid-column:\s*1 \/ -1;/,
+      /\.voice-dropdown,\s*\.voice-selector,\s*\.bgm-selector \{[\s\S]*?grid-column:\s*1 \/ -1;/,
     );
     expect(stylesCss).toMatch(
       /\.voice-dropdown select \{[\s\S]*?min-width:\s*0;[\s\S]*?text-overflow:\s*ellipsis;/,
@@ -579,6 +721,111 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "Microsoft Jenny Online (Natural) - English (United States)" })).toBeInTheDocument();
     expect(mockedFetchVoiceStatus).toHaveBeenCalled();
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("opens BGM management from navigation and renders library controls", async () => {
+    renderApp();
+
+    await userEvent.click(screen.getByRole("link", { name: "BGM 管理" }));
+
+    expect(window.location.hash).toBe("#bgm");
+    expect(await screen.findByRole("article", { name: "BGM 管理" })).toBeInTheDocument();
+    expect(screen.getByLabelText("BGM 音频文件")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上传 BGM" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增分类" })).toBeInTheDocument();
+    expect(screen.getAllByText("舒缓钢琴").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("article", { name: "舒缓钢琴" })).getByText(/更新 2026/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("试听 舒缓钢琴")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+  });
+
+  it("clears the BGM file input after a successful upload", async () => {
+    renderApp();
+
+    await userEvent.click(screen.getByRole("link", { name: "BGM 管理" }));
+    const fileInput = (await screen.findByLabelText("BGM 音频文件")) as HTMLInputElement;
+    const file = new File(["fake audio bytes"], "new-track.mp3", { type: "audio/mpeg" });
+
+    await userEvent.upload(fileInput, file);
+    expect(fileInput.files?.[0]).toBe(file);
+    await userEvent.click(screen.getByRole("button", { name: "上传 BGM" }));
+
+    await waitFor(() =>
+      expect(mockedUploadBgmTrack).toHaveBeenCalledWith({
+        file,
+        category_id: null,
+      }),
+    );
+    await waitFor(() => expect(fileInput.value).toBe(""));
+    expect(fileInput.files).toHaveLength(0);
+  });
+
+  it("uses the latest BGM draft name when category changes after editing", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(screen.getByRole("link", { name: "BGM 管理" }));
+    const trackCard = await screen.findByRole("article", { name: "舒缓钢琴" });
+    const nameInput = within(trackCard).getByLabelText("BGM 名称");
+    const categorySelect = within(trackCard).getByLabelText("分类");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "晨间钢琴");
+    await user.selectOptions(categorySelect, "cat_upbeat");
+
+    await waitFor(() =>
+      expect(mockedUpdateBgmTrack.mock.calls.map(([input]) => input)).toContainEqual({
+        id: "bgm_calm",
+        display_name: "晨间钢琴",
+        category_id: "cat_upbeat",
+      }),
+    );
+    expect(mockedUpdateBgmTrack.mock.calls.map(([input]) => input)).not.toContainEqual({
+      id: "bgm_calm",
+      display_name: "舒缓钢琴",
+      category_id: "cat_upbeat",
+    });
+  });
+
+  it("clears a deleted upload category before uploading a BGM file", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      renderApp();
+
+      await user.click(screen.getByRole("link", { name: "BGM 管理" }));
+      await user.selectOptions(await screen.findByLabelText("上传分类"), "cat_calm");
+      await user.click(
+        within(screen.getByRole("region", { name: "BGM 分类" })).getByRole("button", {
+          name: "删除分类 舒缓",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(mockedDeleteBgmCategory.mock.calls.map(([categoryId]) => categoryId)).toContain(
+          "cat_calm",
+        ),
+      );
+      const fileInput = screen.getByLabelText("BGM 音频文件") as HTMLInputElement;
+      const file = new File(["fake audio bytes"], "after-delete.mp3", { type: "audio/mpeg" });
+
+      await user.upload(fileInput, file);
+      await user.click(screen.getByRole("button", { name: "上传 BGM" }));
+
+      await waitFor(() =>
+        expect(mockedUploadBgmTrack).toHaveBeenCalledWith({
+          file,
+          category_id: null,
+        }),
+      );
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it("creates a Microsoft Edge TTS preview from the selected voice", async () => {
@@ -962,16 +1209,33 @@ describe("AutoVideo shell", () => {
     });
   });
 
-  it("keeps enabled mobile navigation entries before disabled placeholders", async () => {
+  it("keeps enabled mobile navigation entries including BGM before future disabled entries", async () => {
     renderApp();
-
-    await screen.findByRole("heading", { name: "混剪工作台" });
 
     const mobileNav = screen.getByRole("navigation", { name: "移动端导航" });
     const labels = Array.from(mobileNav.querySelectorAll("a, span")).map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels.slice(0, 4)).toEqual(["混剪", "字幕", "音色", "任务"]);
+
+    expect(labels.slice(0, 5)).toEqual(["混剪", "字幕", "BGM", "音色", "任务"]);
+  });
+
+  it("declares responsive BGM workbench styles without hover-only dependencies", () => {
+    expect(stylesCss).toMatch(/\.bgm-workbench-grid \{[\s\S]*?grid-template-columns:/);
+    expect(stylesCss).toMatch(/\.bgm-list-panel \{[\s\S]*?grid-column:\s*1 \/ -1;/);
+    expect(stylesCss).not.toMatch(
+      /\.bgm-track-row \{[\s\S]*?grid-template-columns:\s*minmax\(180px,\s*1fr\) minmax\(220px,\s*1fr\) minmax\(150px,\s*0\.7fr\) minmax\(130px,\s*0\.55fr\) max-content;/,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 760px\) \{[\s\S]*?\.bgm-workbench-grid \{[\s\S]*?grid-template-columns: 1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-management-panel input,\s*\.bgm-management-panel select,\s*\.bgm-management-panel button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-audio-player \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
+    );
+    expect(stylesCss).not.toMatch(/\.bgm-management-panel[^{,]*:hover/);
   });
 
   it("opens the task output list and links rendered videos for download", async () => {
@@ -2859,13 +3123,502 @@ describe("AutoVideo shell", () => {
     );
   });
 
+  it("previews the sorted automatic BGM for category-only selection", async () => {
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("启用 BGM")).toBeChecked();
+    expect(within(bgmSelector).getByLabelText("BGM 分类")).toHaveValue("cat_calm");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByText("BGM 音量 12%")).toBeInTheDocument();
+    expect(
+      within(bgmSelector).getByRole("option", { name: "从当前分类自动选择" }),
+    ).toBeInTheDocument();
+    expect(within(bgmSelector).getByRole("option", { name: "静谧长夜" })).toBeInTheDocument();
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+  });
+
+  it("previews category-only BGM using the backend auto selection key", async () => {
+    const base = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...base,
+      categories: [
+        {
+          id: "cat_sort",
+          name: "排序校验",
+          sort_order: 1,
+          track_count: 2,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      items: [
+        {
+          ...base.items[0],
+          id: "bgm_alpha_z",
+          filename: "zeta.mp3",
+          original_filename: "zeta.mp3",
+          display_name: "Alpha",
+          category_id: "cat_sort",
+          category_name: "排序校验",
+          audio_url: "/api/bgm/tracks/bgm_alpha_z/file",
+        },
+        {
+          ...base.items[1],
+          id: "bgm_alpha_a",
+          filename: "alpha.mp3",
+          original_filename: "alpha.mp3",
+          display_name: "alpha",
+          category_id: "cat_sort",
+          category_name: "排序校验",
+          audio_url: "/api/bgm/tracks/bgm_alpha_a/file",
+        },
+      ],
+      total_tracks: 2,
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue("cat_sort");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_alpha_a/file",
+    );
+  });
+
+  it("previews category-only BGM using Python casefold-compatible ordering", async () => {
+    const base = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...base,
+      categories: [
+        {
+          id: "cat_casefold",
+          name: "Casefold 校验",
+          sort_order: 1,
+          track_count: 2,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      items: [
+        {
+          ...base.items[0],
+          id: "bgm_fzz",
+          filename: "fzz.mp3",
+          original_filename: "fzz.mp3",
+          display_name: "fzz",
+          category_id: "cat_casefold",
+          category_name: "Casefold 校验",
+          audio_url: "/api/bgm/tracks/bgm_fzz/file",
+        },
+        {
+          ...base.items[1],
+          id: "bgm_ligature_ff",
+          filename: "ligature.mp3",
+          original_filename: "ligature.mp3",
+          display_name: "\uFB00oo",
+          category_id: "cat_casefold",
+          category_name: "Casefold 校验",
+          audio_url: "/api/bgm/tracks/bgm_ligature_ff/file",
+        },
+      ],
+      total_tracks: 2,
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue("cat_casefold");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_ligature_ff/file",
+    );
+  });
+
+  it("previews category-only BGM using Python 3.12 casefold over JS lower changes", async () => {
+    const base = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...base,
+      categories: [
+        {
+          id: "cat_unicode_version",
+          name: "Unicode 版本校验",
+          sort_order: 1,
+          track_count: 2,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z",
+        },
+      ],
+      items: [
+        {
+          ...base.items[0],
+          id: "bgm_a7cb",
+          filename: "a7cb.mp3",
+          original_filename: "a7cb.mp3",
+          display_name: "\uA7CBaa",
+          category_id: "cat_unicode_version",
+          category_name: "Unicode 版本校验",
+          audio_url: "/api/bgm/tracks/bgm_a7cb/file",
+        },
+        {
+          ...base.items[1],
+          id: "bgm_0264",
+          filename: "0264.mp3",
+          original_filename: "0264.mp3",
+          display_name: "\u0264zz",
+          category_id: "cat_unicode_version",
+          category_name: "Unicode 版本校验",
+          audio_url: "/api/bgm/tracks/bgm_0264/file",
+        },
+      ],
+      total_tracks: 2,
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue(
+      "cat_unicode_version",
+    );
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_0264/file",
+    );
+  });
+
+  it("keeps category-only automatic BGM selection scoped to the current category", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    await user.selectOptions(await within(bgmSelector).findByLabelText("BGM 分类"), "cat_upbeat");
+
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_upbeat/file",
+    );
+  });
+
+  it("sends category-only BGM when creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "AI 办公",
+      topic: "AI 办公",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "office",
+          keywords: ["office"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "AI 办公",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "AI 办公");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: "cat_calm",
+          bgm_track_id: null,
+          bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("sends an explicit unclassified BGM track when no categories exist", async () => {
+    const user = userEvent.setup();
+    mockedFetchBgmLibrary.mockResolvedValue(unclassifiedBgmLibraryFixture());
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "无分类 BGM 短视频",
+      topic: "无分类 BGM",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "无分类 BGM 短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveDisplayValue("未分类");
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("bgm_unclassified");
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_unclassified/file",
+    );
+
+    await user.type(await screen.findByLabelText("视频主题"), "无分类 BGM");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: null,
+          bgm_track_id: "bgm_unclassified",
+          bgm_volume: 0.12,
+        }),
+      }),
+    );
+  });
+
+  it("sends disabled BGM options when the BGM library is empty", async () => {
+    const user = userEvent.setup();
+    mockedFetchBgmLibrary.mockResolvedValue({
+      ...bgmLibraryFixture(),
+      categories: [],
+      items: [],
+      total_tracks: 0,
+    });
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "空 BGM 库短视频",
+      topic: "空 BGM 库",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "空 BGM 库短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByText("暂无可试听 BGM")).toBeInTheDocument();
+    expect(within(bgmSelector).getByRole("button", { name: "去 BGM 管理页" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("启用 BGM")).not.toBeChecked();
+    });
+
+    await user.type(await screen.findByLabelText("视频主题"), "空 BGM 库");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: false,
+          bgm_category_id: null,
+          bgm_track_id: null,
+          bgm_volume: null,
+        }),
+      }),
+    );
+  });
+
+  it("clears a stale explicit BGM track before creating an online remix task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "旧曲目清理短视频",
+      topic: "旧曲目清理",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "旧曲目清理短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    const { queryClient } = renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    await user.selectOptions(await within(bgmSelector).findByLabelText("具体 BGM"), "bgm_calm_late");
+
+    act(() => {
+      queryClient.setQueryData<BgmLibrary>(["bgm-library"], {
+        ...bgmLibraryFixture(),
+        items: bgmLibraryFixture().items.filter((track) => track.id !== "bgm_calm_late"),
+        total_tracks: 2,
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("");
+    });
+    expect(within(bgmSelector).getByLabelText("BGM 试听音频")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+
+    await user.type(await screen.findByLabelText("视频主题"), "旧曲目清理");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: "cat_calm",
+          bgm_track_id: null,
+        }),
+      }),
+    );
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_track_id: "bgm_calm_late",
+        }),
+      }),
+    );
+  });
+
+  it("clears a stale BGM category when the library returns no categories", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue({
+      id: "script-1",
+      title: "分类删除短视频",
+      topic: "分类删除",
+      aspect_ratio: "9:16",
+      duration_seconds: 5,
+      provider: "heuristic",
+      created_at: "2026-06-14T00:00:00+00:00",
+      shots: [
+        {
+          index: 1,
+          duration: 5,
+          narration: "旁白",
+          subtitle: "字幕",
+          visual_description: "studio",
+          keywords: ["studio"],
+        },
+      ],
+    });
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task-1",
+      title: "分类删除短视频",
+      output: { download_url: "/api/tasks/task-1/output" },
+    });
+    const { queryClient } = renderApp();
+
+    const bgmSelector = await screen.findByRole("group", { name: "BGM 设置" });
+    expect(await within(bgmSelector).findByLabelText("BGM 分类")).toHaveValue("cat_calm");
+
+    act(() => {
+      queryClient.setQueryData<BgmLibrary>(["bgm-library"], unclassifiedBgmLibraryFixture());
+    });
+
+    await waitFor(() => {
+      expect(within(bgmSelector).getByLabelText("BGM 分类")).toHaveDisplayValue("未分类");
+    });
+    expect(within(bgmSelector).getByLabelText("具体 BGM")).toHaveValue("bgm_unclassified");
+
+    await user.type(await screen.findByLabelText("视频主题"), "分类删除");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByLabelText("脚本标题");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_enabled: true,
+          bgm_category_id: null,
+          bgm_track_id: "bgm_unclassified",
+        }),
+      }),
+    );
+    expect(mockedCreateOnlineMixTask).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          bgm_category_id: "cat_calm",
+        }),
+      }),
+    );
+  });
+
+  it("keeps BGM selector mobile controls touch friendly", () => {
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?grid-template-columns:/);
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?gap:\s*12px;/);
+    expect(stylesCss).toMatch(/\.bgm-selector \{[\s\S]*?min-width:\s*0;/);
+    expect(stylesCss).toMatch(
+      /\.bgm-selector input,\s*\.bgm-selector select,\s*\.bgm-selector button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-selector-preview \{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 760px\) \{[\s\S]*?\.bgm-selector-preview \{[\s\S]*?grid-template-columns:\s*1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-selector-audio \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
+    );
+  });
+
   it("shows workbench voice selection as a dropdown with the default Edge TTS voice", async () => {
     renderApp();
 
     const voiceDropdown = await screen.findByRole("combobox", { name: "旁白音色" });
     expect(voiceDropdown).toHaveDisplayValue("Xiaoxiao · zh-CN · Female");
     expect(
-      screen.getByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
+      await screen.findByText("Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("搜索音色")).toBeInTheDocument();
     expect(screen.getByLabelText("音色语言")).toHaveDisplayValue("中文");

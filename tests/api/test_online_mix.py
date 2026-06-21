@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
+from autovideo.services.bgm import AudioProbeResult
 
 
 def _script() -> dict:
@@ -357,6 +358,14 @@ def test_online_mix_sanitizes_sensitive_options_in_manifest(client) -> None:
         "voice_provider": None,
         "voice_locale": None,
         "voice_gender": None,
+        "bgm_enabled": False,
+        "bgm_track_id": None,
+        "bgm_display_name": None,
+        "bgm_category_id": None,
+        "bgm_category_name": None,
+        "bgm_volume": None,
+        "bgm_snapshot": None,
+        "bgm_mix_status": "not_requested",
     }
     serialized = json.dumps(output, ensure_ascii=False)
     assert "signed-token" not in serialized
@@ -2131,3 +2140,387 @@ def test_online_mix_candidate_provider_missing_returns_structured_error(
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "ONLINE_MATERIAL_PROVIDER_NOT_AVAILABLE"
     assert response.json()["detail"]["provider"] == "pixabay"
+
+
+def _create_bgm_track(client, name: str = "calm.mp3") -> dict:
+    category = client.post("/api/bgm/categories", json={"name": "舒缓"}).json()
+    track = client.post(
+        "/api/bgm/tracks",
+        data={"category_id": category["id"]},
+        files={"file": (name, b"fake audio bytes", "audio/mpeg")},
+    ).json()
+    return {"category": category, "track": track}
+
+
+def test_online_mix_persists_bgm_track_options_in_task_and_manifest(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=8.5,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "带 BGM 配置任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm["track"]["id"],
+                    "bgm_volume": 0.2,
+                },
+            },
+        )
+        task = response.json()
+
+    assert response.status_code == 201
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for payload in [task["options"], manifest]:
+        assert payload["bgm_enabled"] is True
+        assert payload["bgm_track_id"] == bgm["track"]["id"]
+        assert payload["bgm_display_name"] == "calm"
+        assert payload["bgm_category_id"] == bgm["category"]["id"]
+        assert payload["bgm_category_name"] == "舒缓"
+        assert payload["bgm_volume"] == 0.2
+        assert payload["bgm_snapshot"]["id"] == bgm["track"]["id"]
+        assert payload["bgm_snapshot"]["duration_seconds"] == 8.5
+        assert payload["bgm_mix_status"] == "selected_not_mixed"
+
+
+def test_online_mix_resolves_category_only_bgm_to_track_snapshot(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client, name="category-first.mp3")
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "分类 BGM 任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_category_id": bgm["category"]["id"],
+                },
+            },
+        )
+
+    assert response.status_code == 201
+    payload = response.json()["options"]
+    assert payload["bgm_track_id"] == bgm["track"]["id"]
+    assert payload["bgm_snapshot"]["id"] == bgm["track"]["id"]
+    assert payload["bgm_volume"] == 0.12
+    assert payload["bgm_mix_status"] == "selected_not_mixed"
+
+
+def test_online_mix_clamps_bgm_volume_in_task_options(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+
+        for requested_volume, expected_volume in [(-1, 0.0), (5, 1.0)]:
+            response = client.post(
+                "/api/online-mix/tasks",
+                json={
+                    "title": f"BGM 音量 {requested_volume}",
+                    "script": _single_shot_script(),
+                    "asset_strategy": "manual",
+                    "shot_materials": [
+                        {"shot_index": 1, "material_id": material["id"]}
+                    ],
+                    "options": {
+                        "aspect_ratio": "9:16",
+                        "subtitle_enabled": False,
+                        "bgm_enabled": True,
+                        "bgm_track_id": bgm["track"]["id"],
+                        "bgm_volume": requested_volume,
+                    },
+                },
+            )
+
+            assert response.status_code == 201
+            assert response.json()["options"]["bgm_volume"] == expected_volume
+
+
+def test_online_mix_returns_structured_not_found_for_missing_bgm_selection(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+
+        for options, expected_code in [
+            (
+                {"bgm_enabled": True, "bgm_track_id": "bgm_missing"},
+                "BGM_TRACK_NOT_FOUND",
+            ),
+            (
+                {"bgm_enabled": True, "bgm_category_id": "cat_missing"},
+                "BGM_CATEGORY_NOT_FOUND",
+            ),
+        ]:
+            response = client.post(
+                "/api/online-mix/tasks",
+                json={
+                    "title": expected_code,
+                    "script": _single_shot_script(),
+                    "asset_strategy": "manual",
+                    "shot_materials": [
+                        {"shot_index": 1, "material_id": material["id"]}
+                    ],
+                    "options": {
+                        "aspect_ratio": "9:16",
+                        "subtitle_enabled": False,
+                        **options,
+                    },
+                },
+            )
+
+            assert response.status_code == 404
+            assert response.json()["detail"]["code"] == expected_code
+
+
+def test_online_mix_rejects_track_with_missing_requested_bgm_category(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "失效 BGM 分类任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm["track"]["id"],
+                    "bgm_category_id": "cat_missing",
+                },
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_NOT_FOUND"
+
+
+def test_online_mix_rejects_track_when_requested_bgm_category_mismatches(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    app.state.bgm_audio_probe = lambda path: AudioProbeResult(
+        duration_seconds=5.0,
+        media_type="audio/mpeg",
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        bgm = _create_bgm_track(client)
+        other_category = client.post("/api/bgm/categories", json={"name": "欢快"}).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "不匹配 BGM 分类任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": bgm["track"]["id"],
+                    "bgm_category_id": other_category["id"],
+                },
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_NOT_FOUND"
+
+
+def test_online_mix_returns_structured_error_for_corrupt_bgm_library(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+    bgm_dir = tmp_path / "bgm"
+    bgm_dir.mkdir(exist_ok=True)
+    (bgm_dir / "bgm_library.json").write_text("{not-json", encoding="utf-8")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "损坏 BGM 库任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_track_id": "bgm_missing",
+                },
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"]["code"] == "BGM_LIBRARY_CORRUPT"
+
+
+def test_online_mix_rejects_empty_bgm_category(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        category = client.post("/api/bgm/categories", json={"name": "空分类"}).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "空 BGM 分类任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {
+                    "aspect_ratio": "9:16",
+                    "subtitle_enabled": False,
+                    "bgm_enabled": True,
+                    "bgm_category_id": category["id"],
+                },
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "BGM_CATEGORY_EMPTY"
+
+
+def test_online_mix_defaults_disabled_bgm_options_to_null(tmp_path):
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        )
+    )
+
+    with TestClient(app) as client:
+        material = client.post(
+            "/api/materials",
+            files={"file": ("clip.mp4", b"fake video bytes", "video/mp4")},
+        ).json()
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "无 BGM 任务",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "shot_materials": [{"shot_index": 1, "material_id": material["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+        task = response.json()
+
+    assert response.status_code == 201
+    manifest = json.loads(
+        (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for payload in [task["options"], manifest]:
+        assert payload["bgm_enabled"] is False
+        assert payload["bgm_track_id"] is None
+        assert payload["bgm_category_id"] is None
+        assert payload["bgm_volume"] is None
+        assert payload["bgm_snapshot"] is None
+        assert payload["bgm_mix_status"] == "not_requested"

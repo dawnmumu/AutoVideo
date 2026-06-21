@@ -878,7 +878,8 @@ button:disabled,
 .subtitle-editor-panel,
 .subtitle-settings,
 .voice-dropdown,
-.voice-selector {
+.voice-selector,
+.bgm-selector {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1127,7 +1128,8 @@ button:disabled,
 }
 
 .voice-dropdown,
-.voice-selector {
+.voice-selector,
+.bgm-selector {
   grid-column: 1 / -1;
 }
 
@@ -1136,17 +1138,98 @@ button:disabled,
   padding: 14px;
 }
 
-.voice-selector {
+.voice-selector,
+.bgm-selector {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-strong);
   padding: 14px;
 }
 
-.voice-selector legend {
+.voice-selector legend,
+.voice-dropdown legend,
+.bgm-selector legend {
   color: var(--text);
   font-weight: 700;
   padding: 0 4px;
+}
+
+.bgm-selector {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bgm-selector label,
+.bgm-selector-preview {
+  min-width: 0;
+}
+
+.bgm-selector .runtime-status,
+.bgm-selector .inline-error,
+.bgm-selector .switch-row,
+.bgm-selector-preview,
+.bgm-selector-audio {
+  grid-column: 1 / -1;
+}
+
+.bgm-selector input,
+.bgm-selector select,
+.bgm-selector button {
+  min-height: 44px;
+}
+
+.bgm-selector input,
+.bgm-selector select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.bgm-selector input[type="range"] {
+  padding: 0;
+}
+
+.bgm-selector button:focus-visible,
+.bgm-selector input:focus-visible,
+.bgm-selector select:focus-visible {
+  outline: 3px solid rgba(23, 107, 135, 0.25);
+  outline-offset: 2px;
+}
+
+.bgm-selector-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.bgm-selector-preview div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.bgm-selector-preview strong {
+  overflow-wrap: anywhere;
+}
+
+.bgm-selector-preview span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.bgm-selector-audio {
+  width: 100%;
+  max-width: 100%;
 }
 
 .subtitle-settings {
@@ -1182,6 +1265,138 @@ button:disabled,
   padding: 0;
 }
 
+.bgm-management-panel,
+.bgm-upload-panel,
+.bgm-category-panel,
+.bgm-list-panel,
+.bgm-inline-form,
+.bgm-track-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bgm-management-panel {
+  gap: 18px;
+}
+
+.bgm-workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.bgm-list-panel {
+  grid-column: 1 / -1;
+}
+
+.bgm-upload-panel,
+.bgm-category-panel,
+.bgm-list-panel,
+.bgm-track-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.bgm-upload-panel h3,
+.bgm-category-panel h3,
+.bgm-list-panel h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.bgm-management-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.bgm-management-panel input,
+.bgm-management-panel select,
+.bgm-management-panel button {
+  min-height: 44px;
+}
+
+.bgm-management-panel input,
+.bgm-management-panel select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.bgm-management-panel input:focus-visible,
+.bgm-management-panel select:focus-visible,
+.bgm-management-panel button:focus-visible {
+  outline: 3px solid rgba(23, 107, 135, 0.25);
+  outline-offset: 2px;
+}
+
+.bgm-inline-form {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: end;
+}
+
+.bgm-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(64px, max-content) max-content;
+  align-items: end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bgm-category-row span {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 10px 12px;
+}
+
+.bgm-track-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bgm-track-main {
+  align-self: center;
+  gap: 4px;
+}
+
+.bgm-track-main strong {
+  overflow-wrap: anywhere;
+}
+
+.bgm-track-main span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bgm-audio-player {
+  width: 100%;
+  max-width: 100%;
+}
+
 @media (max-width: 1160px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -1210,14 +1425,20 @@ button:disabled,
   .shot-fields,
   .voice-filter-row,
   .voice-selector-filters,
+  .bgm-selector,
   .voice-slider-grid,
   .voice-clone-panel,
+  .bgm-selector-preview,
   .shot-actions,
   .create-task-row,
   .candidate-row,
   .task-output-card,
   .inline-error,
   .local-material-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-selector-preview {
     grid-template-columns: 1fr;
   }
 
@@ -1234,6 +1455,19 @@ button:disabled,
     width: 100%;
     height: auto;
     aspect-ratio: 16 / 9;
+  }
+
+  .bgm-workbench-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .bgm-list-panel {
+    grid-column: 1 / -1;
+  }
+
+  .bgm-track-main,
+  .bgm-audio-player {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1318,14 +1552,20 @@ button:disabled,
   .shot-fields,
   .voice-filter-row,
   .voice-selector-filters,
+  .bgm-selector,
   .voice-slider-grid,
   .voice-clone-panel,
+  .bgm-selector-preview,
   .shot-actions,
   .create-task-row,
   .candidate-row,
   .task-output-card,
   .inline-error,
   .local-material-dialog {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-selector-preview {
     grid-template-columns: 1fr;
   }
 
@@ -1346,6 +1586,7 @@ button:disabled,
   .task-output-actions .disabled-action,
   .voice-preview-actions button,
   .voice-clone-panel button,
+  .bgm-selector-preview button,
   .task-delete-confirmation-actions button,
   .inline-error button,
   .shot-actions button,
@@ -1365,6 +1606,29 @@ button:disabled,
 
   .shot-row {
     padding: 10px;
+  }
+
+  .bgm-workbench-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-category-row,
+  .bgm-inline-form,
+  .bgm-track-row {
+    grid-template-columns: 1fr;
+  }
+
+  .bgm-list-panel {
+    grid-column: auto;
+  }
+
+  .bgm-category-row button,
+  .bgm-category-row input,
+  .bgm-track-row button,
+  .bgm-track-row input,
+  .bgm-track-row select,
+  .bgm-inline-form button {
+    width: 100%;
   }
 }
 

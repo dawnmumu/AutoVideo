@@ -73,6 +73,23 @@ def test_frontend_css_hides_inactive_content_grid_sections() -> None:
     assert "display: none" in hidden_section
 
 
+def test_frontend_source_enables_bgm_navigation() -> None:
+    app_source = (FRONTEND_ROOT / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert '{ id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: true }' in app_source
+    assert "BgmManagementWorkbench" in app_source
+
+
+def test_readme_documents_bgm_management_without_claiming_audio_mix() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "BGM 管理已支持上传、分类、试听、重命名和删除" in readme
+    assert "GET /api/bgm" in readme
+    assert "POST /api/bgm/tracks" in readme
+    assert "bgm_track_id" in readme
+    assert "当前最终视频还未混入 BGM 音轨" in readme
+
+
 def test_frontend_build_outputs_static_assets() -> None:
     index_file, assets_dir = require_frontend_build()
 

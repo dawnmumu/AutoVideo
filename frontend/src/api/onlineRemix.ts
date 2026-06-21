@@ -129,6 +129,10 @@ export interface CreateOnlineMixTaskInput {
     voice_provider?: "edge_tts" | null;
     voice_locale?: string | null;
     voice_gender?: string | null;
+    bgm_enabled?: boolean;
+    bgm_track_id?: string | null;
+    bgm_category_id?: string | null;
+    bgm_volume?: number | null;
   };
 }
 
