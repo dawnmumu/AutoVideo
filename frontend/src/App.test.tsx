@@ -6,6 +6,16 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import {
+  createBgmCategory,
+  deleteBgmCategory,
+  deleteBgmTrack,
+  fetchBgmLibrary,
+  updateBgmCategory,
+  updateBgmTrack,
+  uploadBgmTrack,
+} from "./api/bgm";
+import type { BgmLibrary } from "./api/bgm";
 import { fetchHealth } from "./api/health";
 import {
   createOnlineMixTask,
@@ -75,6 +85,20 @@ vi.mock("./api/voices", async (importOriginal) => {
   };
 });
 
+vi.mock("./api/bgm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api/bgm")>();
+  return {
+    ...actual,
+    fetchBgmLibrary: vi.fn(),
+    uploadBgmTrack: vi.fn(),
+    updateBgmTrack: vi.fn(),
+    deleteBgmTrack: vi.fn(),
+    createBgmCategory: vi.fn(),
+    updateBgmCategory: vi.fn(),
+    deleteBgmCategory: vi.fn(),
+  };
+});
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
@@ -95,6 +119,13 @@ const mockedPreviewSubtitleTimeline = vi.mocked(previewSubtitleTimeline);
 const mockedFetchVoiceStatus = vi.mocked(fetchVoiceStatus);
 const mockedFetchVoices = vi.mocked(fetchVoices);
 const mockedCreateVoicePreview = vi.mocked(createVoicePreview);
+const mockedFetchBgmLibrary = vi.mocked(fetchBgmLibrary);
+const mockedUploadBgmTrack = vi.mocked(uploadBgmTrack);
+const mockedUpdateBgmTrack = vi.mocked(updateBgmTrack);
+const mockedDeleteBgmTrack = vi.mocked(deleteBgmTrack);
+const mockedCreateBgmCategory = vi.mocked(createBgmCategory);
+const mockedUpdateBgmCategory = vi.mocked(updateBgmCategory);
+const mockedDeleteBgmCategory = vi.mocked(deleteBgmCategory);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -181,6 +212,79 @@ function templateFixture(overrides: Partial<SubtitleTemplateSet>): SubtitleTempl
       ...(overrides.templates ?? {}),
     },
     blocks: overrides.blocks ?? cleanBottomPreset.blocks,
+  };
+}
+
+function bgmLibraryFixture(): BgmLibrary {
+  return {
+    items: [
+      {
+        id: "bgm_calm_late",
+        filename: "bgm_calm_late.mp3",
+        original_filename: "late-calm.mp3",
+        display_name: "静谧长夜",
+        category_id: "cat_calm",
+        category_name: "舒缓",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 1536,
+        duration_seconds: 15,
+        audio_url: "/api/bgm/tracks/bgm_calm_late/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "bgm_calm",
+        filename: "bgm_calm.mp3",
+        original_filename: "calm.mp3",
+        display_name: "舒缓钢琴",
+        category_id: "cat_calm",
+        category_name: "舒缓",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 1024,
+        duration_seconds: 12.5,
+        audio_url: "/api/bgm/tracks/bgm_calm/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "bgm_upbeat",
+        filename: "bgm_upbeat.mp3",
+        original_filename: "upbeat.mp3",
+        display_name: "轻快鼓点",
+        category_id: "cat_upbeat",
+        category_name: "欢快",
+        media_type: "audio/mpeg",
+        extension: "mp3",
+        size_bytes: 2048,
+        duration_seconds: 10,
+        audio_url: "/api/bgm/tracks/bgm_upbeat/file",
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+    ],
+    categories: [
+      {
+        id: "cat_calm",
+        name: "舒缓",
+        sort_order: 10,
+        track_count: 2,
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+      {
+        id: "cat_upbeat",
+        name: "欢快",
+        sort_order: 20,
+        track_count: 1,
+        created_at: "2026-06-21T00:00:00Z",
+        updated_at: "2026-06-21T00:00:00Z",
+      },
+    ],
+    storage_status: "ready",
+    total_tracks: 3,
+    supported_extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac"],
   };
 }
 
@@ -355,6 +459,20 @@ describe("AutoVideo shell", () => {
       media_type: "audio/mpeg",
       created_at: "2026-06-20T08:00:00+08:00",
     });
+    const bgmLibrary = bgmLibraryFixture();
+    mockedFetchBgmLibrary.mockResolvedValue(bgmLibrary);
+    mockedUploadBgmTrack.mockImplementation(async ({ file, category_id }) => ({
+      ...bgmLibrary.items[0],
+      original_filename: file.name,
+      display_name: file.name.replace(/\.[^.]+$/, ""),
+      category_id: category_id ?? null,
+      category_name: category_id ? "舒缓" : "未分类",
+    }));
+    mockedUpdateBgmTrack.mockResolvedValue(bgmLibrary.items[0]);
+    mockedDeleteBgmTrack.mockResolvedValue({ id: "bgm_calm", deleted: true });
+    mockedCreateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
+    mockedUpdateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
+    mockedDeleteBgmCategory.mockResolvedValue({ id: "cat_calm", deleted: true });
   });
 
   it("renders the Chinese product navigation", async () => {
@@ -562,6 +680,44 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "Microsoft Jenny Online (Natural) - English (United States)" })).toBeInTheDocument();
     expect(mockedFetchVoiceStatus).toHaveBeenCalled();
     expect(mockedFetchVoices).toHaveBeenCalledWith({ locale: "zh-CN", q: "" });
+  });
+
+  it("opens BGM management from navigation and renders library controls", async () => {
+    renderApp();
+
+    await userEvent.click(screen.getByRole("link", { name: "BGM 管理" }));
+
+    expect(window.location.hash).toBe("#bgm");
+    expect(await screen.findByRole("article", { name: "BGM 管理" })).toBeInTheDocument();
+    expect(screen.getByLabelText("BGM 音频文件")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上传 BGM" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新增分类" })).toBeInTheDocument();
+    expect(screen.getByText("舒缓钢琴")).toBeInTheDocument();
+    expect(screen.getByLabelText("试听 舒缓钢琴")).toHaveAttribute(
+      "src",
+      "/api/bgm/tracks/bgm_calm/file",
+    );
+  });
+
+  it("clears the BGM file input after a successful upload", async () => {
+    renderApp();
+
+    await userEvent.click(screen.getByRole("link", { name: "BGM 管理" }));
+    const fileInput = (await screen.findByLabelText("BGM 音频文件")) as HTMLInputElement;
+    const file = new File(["fake audio bytes"], "new-track.mp3", { type: "audio/mpeg" });
+
+    await userEvent.upload(fileInput, file);
+    expect(fileInput.files?.[0]).toBe(file);
+    await userEvent.click(screen.getByRole("button", { name: "上传 BGM" }));
+
+    await waitFor(() =>
+      expect(mockedUploadBgmTrack).toHaveBeenCalledWith({
+        file,
+        category_id: null,
+      }),
+    );
+    await waitFor(() => expect(fileInput.value).toBe(""));
+    expect(fileInput.files).toHaveLength(0);
   });
 
   it("creates a Microsoft Edge TTS preview from the selected voice", async () => {
@@ -945,16 +1101,29 @@ describe("AutoVideo shell", () => {
     });
   });
 
-  it("keeps enabled mobile navigation entries before disabled placeholders", async () => {
+  it("keeps enabled mobile navigation entries including BGM before future disabled entries", async () => {
     renderApp();
-
-    await screen.findByRole("heading", { name: "混剪工作台" });
 
     const mobileNav = screen.getByRole("navigation", { name: "移动端导航" });
     const labels = Array.from(mobileNav.querySelectorAll("a, span")).map((item) =>
       item.textContent?.trim(),
     );
-    expect(labels.slice(0, 4)).toEqual(["混剪", "字幕", "音色", "任务"]);
+
+    expect(labels.slice(0, 5)).toEqual(["混剪", "字幕", "BGM", "音色", "任务"]);
+  });
+
+  it("declares responsive BGM workbench styles without hover-only dependencies", () => {
+    expect(stylesCss).toMatch(/\.bgm-workbench-grid \{[\s\S]*?grid-template-columns:/);
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 760px\) \{[\s\S]*?\.bgm-workbench-grid \{[\s\S]*?grid-template-columns: 1fr;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-management-panel input,\s*\.bgm-management-panel select,\s*\.bgm-management-panel button \{[\s\S]*?min-height:\s*44px;/,
+    );
+    expect(stylesCss).toMatch(
+      /\.bgm-audio-player \{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%;/,
+    );
+    expect(stylesCss).not.toMatch(/\.bgm-management-panel[^{,]*:hover/);
   });
 
   it("opens the task output list and links rendered videos for download", async () => {

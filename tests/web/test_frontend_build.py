@@ -73,6 +73,13 @@ def test_frontend_css_hides_inactive_content_grid_sections() -> None:
     assert "display: none" in hidden_section
 
 
+def test_frontend_source_enables_bgm_navigation() -> None:
+    app_source = (FRONTEND_ROOT / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert '{ id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: true }' in app_source
+    assert "BgmManagementWorkbench" in app_source
+
+
 def test_frontend_build_outputs_static_assets() -> None:
     index_file, assets_dir = require_frontend_build()
 

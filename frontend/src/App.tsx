@@ -13,12 +13,13 @@ import {
 import { useEffect, useState } from "react";
 
 import { fetchHealth } from "./api/health";
+import { BgmManagementWorkbench } from "./components/BgmManagementWorkbench";
 import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
 import { SubtitleTemplateWorkbench } from "./components/SubtitleTemplateWorkbench";
 import { TaskOutputList } from "./components/TaskOutputList";
 import { VoiceCenterWorkbench } from "./components/VoiceCenterWorkbench";
 
-type ActiveSection = "remix" | "subtitles" | "voices" | "tasks";
+type ActiveSection = "remix" | "subtitles" | "bgm" | "voices" | "tasks";
 type BaseNavItem = {
   label: string;
   shortLabel: string;
@@ -32,7 +33,7 @@ const navItems: NavItem[] = [
   { id: "remix", label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard, enabled: true },
   { id: "materials", label: "素材库", shortLabel: "素材", icon: FolderOpen, enabled: false },
   { id: "subtitles", label: "字幕模板", shortLabel: "字幕", icon: Captions, enabled: true },
-  { id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: false },
+  { id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: true },
   { id: "voices", label: "音色中心", shortLabel: "音色", icon: Volume2, enabled: true },
   { id: "extract", label: "功能提取处理", shortLabel: "提取", icon: Sparkles, enabled: false },
   { id: "tasks", label: "任务与输出", shortLabel: "任务", icon: SquarePlay, enabled: true },
@@ -53,6 +54,10 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
     title: "字幕模板",
     summary: "管理字幕样式与预览",
   },
+  bgm: {
+    title: "BGM 管理",
+    summary: "上传、分类、试听与管理背景音乐",
+  },
   voices: {
     title: "音色中心",
     summary: "微软 Edge TTS 音色试听",
@@ -65,7 +70,7 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
 
 function activeSectionFromHash(hash: string): ActiveSection {
   const hashId = hash.replace(/^#/, "");
-  if (hashId === "subtitles" || hashId === "voices" || hashId === "tasks") {
+  if (hashId === "subtitles" || hashId === "bgm" || hashId === "voices" || hashId === "tasks") {
     return hashId;
   }
   return "remix";
@@ -138,6 +143,7 @@ export default function App() {
     return {
       remix: initialSection === "remix",
       subtitles: initialSection === "subtitles",
+      bgm: initialSection === "bgm",
       voices: initialSection === "voices",
       tasks: initialSection === "tasks",
     };
@@ -255,6 +261,11 @@ export default function App() {
             id="subtitles"
           >
             <SubtitleTemplateWorkbench />
+          </section>
+        ) : null}
+        {openedSections.bgm ? (
+          <section className="content-grid single-column" hidden={activeSection !== "bgm"} id="bgm">
+            <BgmManagementWorkbench />
           </section>
         ) : null}
         {openedSections.voices ? (
