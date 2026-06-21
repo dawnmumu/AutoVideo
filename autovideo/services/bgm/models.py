@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 SUPPORTED_BGM_MEDIA_TYPES: dict[str, str] = {
     "mp3": "audio/mpeg",
@@ -18,6 +19,18 @@ UNCATEGORIZED_NAME = "未分类"
 class AudioProbeResult:
     duration_seconds: float
     media_type: str
+
+
+@dataclass(frozen=True)
+class BgmTrackFile:
+    path: Path
+    media_type: str
+    original_filename: str
+
+    def __iter__(self):
+        yield self.path
+        yield self.media_type
+        yield self.original_filename
 
 
 class BgmLibraryError(RuntimeError):
@@ -46,6 +59,10 @@ class BgmFileTooLargeError(BgmLibraryError):
 
 class BgmTrackNotFoundError(BgmLibraryError):
     code = "BGM_TRACK_NOT_FOUND"
+
+
+class BgmTrackFileDeleteError(BgmLibraryError):
+    code = "BGM_TRACK_FILE_DELETE_FAILED"
 
 
 class BgmCategoryNotFoundError(BgmLibraryError):

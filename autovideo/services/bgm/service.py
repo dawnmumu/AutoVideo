@@ -25,6 +25,8 @@ from autovideo.services.bgm.models import (
     BgmFileTooLargeError,
     BgmFileUnsupportedError,
     BgmLibraryCorruptError,
+    BgmTrackFile,
+    BgmTrackFileDeleteError,
     BgmTrackNameRequiredError,
     BgmTrackNotFoundError,
     UNCATEGORIZED_NAME,
@@ -120,7 +122,7 @@ class BgmLibraryService:
             }
             data["categories"].append(category)
             self._write(data)
-            return copy.deepcopy(category)
+            return self._public_category(category, _track_counts_by_category(data["tracks"]))
 
     def update_category(self, category_id: str, name: str) -> dict[str, Any]:
         normalized_name = self._normalize_category_name(name)
@@ -135,7 +137,7 @@ class BgmLibraryService:
             category["name"] = normalized_name
             category["updated_at"] = _utc_now()
             self._write(data)
-            return copy.deepcopy(category)
+            return self._public_category(category, _track_counts_by_category(data["tracks"]))
 
     def delete_category(self, category_id: str) -> dict[str, Any]:
         with self._mutation_lock():
@@ -190,6 +192,7 @@ class BgmLibraryService:
                 target_path = self._track_path(target_filename)
                 os.replace(temp_path, target_path)
                 temp_path = None
+                size_bytes = target_path.stat().st_size
 
                 now = _utc_now()
                 track = {
@@ -200,6 +203,7 @@ class BgmLibraryService:
                     "category_id": category_id,
                     "duration_seconds": float(metadata.duration_seconds),
                     "media_type": metadata.media_type,
+                    "size_bytes": size_bytes,
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -239,12 +243,14 @@ class BgmLibraryService:
             data = self._load()
             index = self._track_index(data, track_id)
             track = data["tracks"][index]
-            filename = str(track.get("filename") or "")
+            path = self._track_path(str(track.get("filename") or ""))
+            if path.exists():
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    raise BgmTrackFileDeleteError("Unable to delete BGM track file") from exc
             del data["tracks"][index]
             self._write(data)
-
-        if filename:
-            self._cleanup_file(self._track_path(filename))
         return {"id": track_id, "deleted": True}
 
     def get_track(self, track_id: str) -> dict[str, Any]:
@@ -253,14 +259,20 @@ class BgmLibraryService:
             track = self._find_track(data, track_id)
             return self._public_track(track, self._categories_by_id(data))
 
-    def track_file(self, track_id: str) -> Path:
+    def track_file(self, track_id: str) -> BgmTrackFile:
         with self._mutation_lock():
             data = self._load()
             track = self._find_track(data, track_id)
             path = self._track_path(str(track.get("filename") or ""))
+            media_type = str(track.get("media_type") or "")
+            original_filename = str(track.get("original_filename") or "")
         if not path.is_file():
             raise BgmTrackNotFoundError(track_id)
-        return path
+        return BgmTrackFile(
+            path=path,
+            media_type=media_type,
+            original_filename=original_filename,
+        )
 
     def track_snapshot(self, track_id: str) -> dict[str, Any]:
         return copy.deepcopy(self.get_track(track_id))
@@ -301,6 +313,7 @@ class BgmLibraryService:
         _require_unique_ids(normalized_categories, "category")
         normalized_tracks = [_validate_track_row(track) for track in tracks]
         _require_unique_ids(normalized_tracks, "track")
+        _validate_track_category_refs(normalized_tracks, normalized_categories)
         return {
             "tracks": normalized_tracks,
             "categories": normalized_categories,
@@ -395,13 +408,23 @@ class BgmLibraryService:
             "category_name": category_name,
             "duration_seconds": float(track.get("duration_seconds") or 0),
             "media_type": str(track.get("media_type") or ""),
+            "size_bytes": int(track.get("size_bytes") or 0),
             "audio_url": f"/api/bgm/tracks/{track_id}/file",
             "created_at": track.get("created_at"),
             "updated_at": track.get("updated_at"),
         }
 
     def _public_categories(self, data: dict[str, Any]) -> list[dict[str, Any]]:
-        return [copy.deepcopy(category) for category in sorted(data["categories"], key=_category_sort_key)]
+        track_counts = _track_counts_by_category(data["tracks"])
+        return [
+            self._public_category(category, track_counts)
+            for category in sorted(data["categories"], key=_category_sort_key)
+        ]
+
+    def _public_category(self, category: dict[str, Any], track_counts: dict[str, int]) -> dict[str, Any]:
+        public = copy.deepcopy(category)
+        public["track_count"] = track_counts.get(str(category.get("id") or ""), 0)
+        return public
 
     def _categories_by_id(self, data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         return {
@@ -501,6 +524,15 @@ def _category_sort_key(category: dict[str, Any]) -> tuple[str, str]:
     return (name.casefold(), category_id)
 
 
+def _track_counts_by_category(tracks: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for track in tracks:
+        category_id = track.get("category_id")
+        if isinstance(category_id, str):
+            counts[category_id] = counts.get(category_id, 0) + 1
+    return counts
+
+
 def _category_lookup_key(name: str) -> str:
     return name.strip().casefold()
 
@@ -561,6 +593,9 @@ def _validate_track_row(track: Any) -> dict[str, Any]:
     filename = _required_text(track, "filename", "track")
     if Path(filename).name != filename:
         raise _corrupt_library("track filename is invalid")
+    original_filename = _required_text(track, "original_filename", "track")
+    if Path(original_filename).name != original_filename:
+        raise _corrupt_library("track original_filename is invalid")
     media_type = _required_text(track, "media_type", "track")
     if media_type not in set(SUPPORTED_BGM_MEDIA_TYPES.values()):
         raise _corrupt_library("track media_type is unsupported")
@@ -570,11 +605,12 @@ def _validate_track_row(track: Any) -> dict[str, Any]:
     return {
         "id": _required_text(track, "id", "track"),
         "filename": filename,
-        "original_filename": _required_text(track, "original_filename", "track"),
+        "original_filename": original_filename,
         "display_name": _required_text(track, "display_name", "track"),
         "category_id": _optional_text(track, "category_id", "track"),
         "duration_seconds": _required_duration(track),
         "media_type": media_type,
+        "size_bytes": _required_positive_int(track, "size_bytes", "track"),
         "created_at": _required_text(track, "created_at", "track"),
         "updated_at": _required_text(track, "updated_at", "track"),
     }
@@ -606,6 +642,19 @@ def _required_duration(track: dict[str, Any]) -> float:
     return duration
 
 
+def _required_positive_int(row: dict[str, Any], key: str, row_name: str) -> int:
+    value = row.get(key)
+    if isinstance(value, bool):
+        raise _corrupt_library(f"{row_name}.{key} must be positive")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise _corrupt_library(f"{row_name}.{key} must be numeric") from exc
+    if number <= 0:
+        raise _corrupt_library(f"{row_name}.{key} must be positive")
+    return number
+
+
 def _require_unique_ids(rows: list[dict[str, Any]], row_name: str) -> None:
     seen: set[str] = set()
     for row in rows:
@@ -613,3 +662,14 @@ def _require_unique_ids(rows: list[dict[str, Any]], row_name: str) -> None:
         if row_id in seen:
             raise _corrupt_library(f"duplicate {row_name} id")
         seen.add(row_id)
+
+
+def _validate_track_category_refs(
+    tracks: list[dict[str, Any]],
+    categories: list[dict[str, Any]],
+) -> None:
+    category_ids = {str(category["id"]) for category in categories}
+    for track in tracks:
+        category_id = track.get("category_id")
+        if category_id is not None and category_id not in category_ids:
+            raise _corrupt_library("track category_id is unknown")

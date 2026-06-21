@@ -16,6 +16,7 @@ from autovideo.services.bgm import (
     BgmFileUnsupportedError,
     BgmLibraryCorruptError,
     BgmLibraryService,
+    BgmTrackFileDeleteError,
     BgmTrackNameRequiredError,
     BgmTrackNotFoundError,
     AudioProbeResult,
@@ -40,11 +41,12 @@ def _probe(duration_seconds: float = 12.5, media_type: str = "audio/mpeg"):
 
 
 def test_store_track_generates_stable_id_and_audio_metadata(tmp_path: Path) -> None:
+    content = b"fake mp3 bytes"
     service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe(184.32))
     category = service.create_category("舒缓")
 
     track = service.store_track(
-        content=b"fake mp3 bytes",
+        content=content,
         original_filename="春日疗愈.mp3",
         category_id=category["id"],
     )
@@ -58,9 +60,11 @@ def test_store_track_generates_stable_id_and_audio_metadata(tmp_path: Path) -> N
     assert track["category_name"] == "舒缓"
     assert track["duration_seconds"] == 184.32
     assert track["media_type"] == "audio/mpeg"
+    assert track["size_bytes"] == len(content)
     assert track["audio_url"] == f"/api/bgm/tracks/{track['id']}/file"
     assert "directory" not in library
     assert library["total_tracks"] == 1
+    assert library["categories"] == [{**category, "track_count": 1}]
     assert (tmp_path / "bgm" / "tracks" / track["filename"]).is_file()
 
 
@@ -117,7 +121,7 @@ def test_store_track_does_not_hold_metadata_lock_while_probe_runs(tmp_path: Path
         executor = ThreadPoolExecutor(max_workers=1)
         future = executor.submit(service.create_category, "Probe Side Category")
         try:
-            future.result(timeout=0.5)
+            future.result(timeout=2)
         except TimeoutError:
             future.cancel()
             raise
@@ -198,6 +202,7 @@ def test_select_track_for_category_is_deterministic_and_snapshotted(tmp_path: Pa
     assert selected["id"] == first["id"]
     assert snapshot["id"] == first["id"]
     assert snapshot["duration_seconds"] == first["duration_seconds"]
+    assert snapshot["size_bytes"] == len(b"first")
 
 
 def test_select_track_for_empty_category_raises(tmp_path: Path) -> None:
@@ -219,11 +224,87 @@ def test_missing_registered_file_is_cleaned_when_deleted(tmp_path: Path) -> None
     assert service.library()["items"] == []
 
 
+def test_delete_track_keeps_metadata_when_file_deletion_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    track = service.store_track(b"fake", "cannot-delete.mp3")
+
+    def failing_unlink(path: Path) -> None:
+        raise PermissionError(f"permission denied: {path}")
+
+    monkeypatch.setattr(Path, "unlink", failing_unlink)
+
+    with pytest.raises(BgmTrackFileDeleteError) as exc_info:
+        service.delete_track(track["id"])
+
+    assert str(tmp_path) not in str(exc_info.value)
+    assert service.library()["items"][0]["id"] == track["id"]
+
+
 def test_unknown_track_delete_raises_not_found(tmp_path: Path) -> None:
     service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
 
     with pytest.raises(BgmTrackNotFoundError):
         service.delete_track("bgm_missing")
+
+
+def test_track_file_returns_safe_file_metadata(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe(media_type="audio/wav"))
+    track = service.store_track(
+        content=b"fake-wav",
+        original_filename="../folder/safe-name.wav",
+    )
+
+    file_info = service.track_file(track["id"])
+
+    assert file_info.path == tmp_path / "bgm" / "tracks" / track["filename"]
+    assert file_info.media_type == "audio/wav"
+    assert file_info.original_filename == "safe-name.wav"
+    assert tuple(file_info) == (file_info.path, "audio/wav", "safe-name.wav")
+
+
+def test_track_file_missing_file_raises_not_found(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    track = service.store_track(b"fake", "missing-file.mp3")
+    (tmp_path / "bgm" / "tracks" / track["filename"]).unlink()
+
+    with pytest.raises(BgmTrackNotFoundError):
+        service.track_file(track["id"])
+
+
+def test_track_file_rejects_suspicious_metadata_without_path_leak(tmp_path: Path) -> None:
+    service = BgmLibraryService(_settings(tmp_path), audio_probe=_probe())
+    metadata_path = service.metadata_path()
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "categories": [],
+                "tracks": [
+                    {
+                        "id": "bgm_bad",
+                        "filename": "../escape.mp3",
+                        "original_filename": "escape.mp3",
+                        "display_name": "escape",
+                        "category_id": None,
+                        "duration_seconds": 12.5,
+                        "media_type": "audio/mpeg",
+                        "size_bytes": 4,
+                        "created_at": "2026-06-21T00:00:00+00:00",
+                        "updated_at": "2026-06-21T00:00:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BgmLibraryCorruptError) as exc_info:
+        service.track_file("bgm_bad")
+
+    assert str(tmp_path) not in str(exc_info.value)
 
 
 def test_corrupt_metadata_is_not_overwritten(tmp_path: Path) -> None:
@@ -266,6 +347,7 @@ def test_invalid_utf8_metadata_is_corrupt_and_not_overwritten(tmp_path: Path) ->
                     "category_id": None,
                     "duration_seconds": "not-a-number",
                     "media_type": "audio/mpeg",
+                    "size_bytes": 4,
                     "created_at": "2026-06-21T00:00:00+00:00",
                     "updated_at": "2026-06-21T00:00:00+00:00",
                 }

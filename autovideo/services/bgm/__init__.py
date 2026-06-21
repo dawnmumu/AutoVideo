@@ -9,6 +9,8 @@ from autovideo.services.bgm.models import (
     BgmFileUnsupportedError,
     BgmLibraryCorruptError,
     BgmLibraryError,
+    BgmTrackFile,
+    BgmTrackFileDeleteError,
     BgmTrackNameRequiredError,
     BgmTrackNotFoundError,
 )
@@ -26,6 +28,8 @@ __all__ = [
     "BgmLibraryCorruptError",
     "BgmLibraryError",
     "BgmLibraryService",
+    "BgmTrackFile",
+    "BgmTrackFileDeleteError",
     "BgmTrackNameRequiredError",
     "BgmTrackNotFoundError",
     "probe_audio_metadata",
