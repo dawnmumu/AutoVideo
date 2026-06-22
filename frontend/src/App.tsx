@@ -19,6 +19,8 @@ import { SubtitleTemplateWorkbench } from "./components/SubtitleTemplateWorkbenc
 import { TaskOutputList } from "./components/TaskOutputList";
 import { VoiceCenterWorkbench } from "./components/VoiceCenterWorkbench";
 
+const APP_TITLE = "AutoVideo";
+
 type ActiveSection = "remix" | "subtitles" | "bgm" | "voices" | "tasks";
 type BaseNavItem = {
   label: string;
@@ -78,6 +80,10 @@ function activeSectionFromHash(hash: string): ActiveSection {
 
 function currentHash(): string {
   return typeof window === "undefined" ? "" : window.location.hash;
+}
+
+function sectionDocumentTitle(section: ActiveSection): string {
+  return `${sectionHeadings[section].title} - ${APP_TITLE}`;
 }
 
 function normalizeActiveHash(): ActiveSection {
@@ -176,6 +182,10 @@ export default function App() {
     };
   }, []);
   const activeHeading = sectionHeadings[activeSection];
+
+  useEffect(() => {
+    document.title = sectionDocumentTitle(activeSection);
+  }, [activeSection]);
 
   return (
     <div className="app-shell">
