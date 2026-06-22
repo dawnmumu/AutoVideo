@@ -136,6 +136,7 @@ const removedCopyPattern = new RegExp(
   "i",
 );
 const stylesCss = readFileSync("src/styles.css", "utf-8");
+const indexHtml = readFileSync("index.html", "utf-8");
 const defaultSubtitlePreviewText = "这是字幕预览，支持多个位置和不同倾斜角度";
 
 const cleanBottomPreset: SubtitleTemplateSet = {
@@ -392,6 +393,7 @@ describe("AutoVideo shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.pushState(null, "", "/");
+    document.title = "AutoVideo";
     mockedFetchHealth.mockResolvedValue({
       app: "AutoVideo",
       status: "degraded",
@@ -505,6 +507,25 @@ describe("AutoVideo shell", () => {
     mockedCreateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
     mockedUpdateBgmCategory.mockResolvedValue(bgmLibrary.categories[0]);
     mockedDeleteBgmCategory.mockResolvedValue({ id: "cat_calm", deleted: true });
+  });
+
+  it.each([
+    ["/", "混剪工作台", "混剪工作台 - AutoVideo"],
+    ["/#subtitles", "字幕模板", "字幕模板 - AutoVideo"],
+    ["/#bgm", "BGM 管理", "BGM 管理 - AutoVideo"],
+    ["/#voices", "音色中心", "音色中心 - AutoVideo"],
+    ["/#tasks", "任务与输出", "任务与输出 - AutoVideo"],
+  ])("sets the browser title for %s", async (route, heading, title) => {
+    window.history.pushState(null, "", route);
+
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeInTheDocument();
+    expect(document.title).toBe(title);
+  });
+
+  it("uses the default remix page title before the app hydrates", () => {
+    expect(indexHtml).toMatch(/<title>混剪工作台 - AutoVideo<\/title>/);
   });
 
   it("renders the Chinese product navigation", async () => {
