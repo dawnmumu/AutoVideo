@@ -47,6 +47,17 @@ def test_status_reports_not_configured_without_throwing(tmp_path: Path) -> None:
     assert payload["error_summary"] == "material source roots are not configured"
 
 
+def test_status_skips_invalid_root_config_without_crashing(tmp_path: Path) -> None:
+    service = _service(tmp_path, "demo=bad\0root")
+
+    payload = service.status()
+
+    assert payload["configured"] is False
+    assert payload["allowed_roots"] == []
+    assert payload["current_source"] is None
+    assert payload["error_summary"] == "material source roots are not configured"
+
+
 def test_resolve_source_rejects_missing_roots(tmp_path: Path) -> None:
     service = _service(tmp_path, None)
 
@@ -137,6 +148,29 @@ def test_resolve_source_rejects_files_and_unreadable_directories(tmp_path: Path)
             service.resolve_source("demo", "locked")
     finally:
         locked.chmod(0o755)
+
+
+def test_resolve_source_maps_permission_error_from_resolve_to_domain_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    locked = root / "locked"
+    child = locked / "child"
+    root.mkdir()
+    locked.mkdir()
+    service = _service(tmp_path, f"demo={root}")
+    original_resolve = Path.resolve
+
+    def fake_resolve(self: Path, strict: bool = False) -> Path:
+        if self == child and strict:
+            raise PermissionError("permission denied")
+        return original_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+
+    with pytest.raises(MaterialSourceNotDirectoryError):
+        service.resolve_source("demo", "locked/child")
 
 
 def test_resolve_source_rejects_missing_child(tmp_path: Path) -> None:

@@ -90,7 +90,7 @@ def _parse_allowed_roots(raw: str | None) -> list[AllowedMaterialRoot]:
             continue
         try:
             resolved_path = Path(root_path).expanduser().resolve(strict=True)
-        except (FileNotFoundError, RuntimeError):
+        except (OSError, RuntimeError, ValueError):
             continue
         if not resolved_path.is_dir() or not os.access(resolved_path, os.R_OK | os.X_OK):
             continue
@@ -143,6 +143,8 @@ class MaterialSourceService:
             )
         except FileNotFoundError as exc:
             raise MaterialSourceNotFoundError() from exc
+        except PermissionError as exc:
+            raise MaterialSourceNotDirectoryError() from exc
         except ValueError as exc:
             raise MaterialSourceInvalidPathError() from exc
 
