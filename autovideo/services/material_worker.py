@@ -146,3 +146,13 @@ class MaterialWorkerService:
 
     def latest_job(self, source_config_id: str | None = None) -> dict[str, Any] | None:
         return self.store.latest_material_index_job(source_config_id)
+
+    def latest_job_for_identity(
+        self,
+        allowed_root_id: str,
+        source_path_hash: str,
+    ) -> dict[str, Any] | None:
+        return self.store.latest_material_index_job_for_source_identity(
+            allowed_root_id,
+            source_path_hash,
+        )

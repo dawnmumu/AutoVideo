@@ -89,7 +89,10 @@ def _status_payload(store: AutoVideoStore) -> dict[str, Any]:
         )
     current_source = status_payload["current_source"]
     latest_job = (
-        MaterialWorkerService(store).latest_job(str(current_source["id"]))
+        MaterialWorkerService(store).latest_job_for_identity(
+            str(current_source["allowed_root_id"]),
+            str(current_source["source_path_hash"]),
+        )
         if current_source is not None
         else None
     )

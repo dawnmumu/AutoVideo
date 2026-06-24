@@ -131,6 +131,45 @@ def test_material_sources_status_latest_job_follows_current_source(tmp_path: Pat
     assert payload["latest_job"] is None
 
 
+def test_material_sources_status_keeps_latest_job_visible_after_a_b_a_switch(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+
+    with TestClient(app) as client:
+        first_a_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "a"},
+        )
+
+    assert first_a_response.status_code == 200
+    MaterialSourceService(store).save_current_source("demo", "b")
+
+    with TestClient(app) as client:
+        second_a_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "a"},
+        )
+        status_response = client.get("/api/material-sources")
+
+    assert second_a_response.status_code == 200
+    assert status_response.status_code == 200
+    second_a_payload = second_a_response.json()
+    status_payload = status_response.json()
+    assert status_payload["current_source"]["source_display_path"] == "demo/a"
+    assert status_payload["latest_job"] is not None
+    assert status_payload["latest_job"]["id"] == second_a_payload["job"]["id"]
+
+
 def test_save_source_rejects_out_of_scope_path(tmp_path: Path) -> None:
     root = tmp_path / "source"
     outside = tmp_path / "outside"

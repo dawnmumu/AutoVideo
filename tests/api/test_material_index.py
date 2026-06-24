@@ -199,6 +199,45 @@ def test_material_index_summary_latest_job_follows_current_source(tmp_path: Path
     assert payload["latest_job"] is None
 
 
+def test_material_index_summary_keeps_latest_job_visible_after_a_b_a_switch(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+
+    with TestClient(app) as client:
+        first_a_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "a"},
+        )
+
+    assert first_a_response.status_code == 200
+    MaterialSourceService(store).save_current_source("demo", "b")
+
+    with TestClient(app) as client:
+        second_a_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "a"},
+        )
+        summary_response = client.get("/api/material-index/summary")
+
+    assert second_a_response.status_code == 200
+    assert summary_response.status_code == 200
+    second_a_payload = second_a_response.json()
+    summary_payload = summary_response.json()
+    assert summary_payload["current_source"]["source_display_path"] == "demo/a"
+    assert summary_payload["latest_job"] is not None
+    assert summary_payload["latest_job"]["id"] == second_a_payload["job"]["id"]
+
+
 def test_delete_raw_file_removes_local_segment_material_records(tmp_path: Path) -> None:
     settings = Settings(_env_file=None, data_dir=tmp_path / "data")
     app = create_app(settings)

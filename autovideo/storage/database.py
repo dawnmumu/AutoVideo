@@ -339,6 +339,24 @@ class AutoVideoStore:
             row = connection.execute(query, params).fetchone()
         return self._material_index_job_from_row(row) if row else None
 
+    def latest_material_index_job_for_source_identity(
+        self,
+        allowed_root_id: str,
+        source_path_hash: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM material_index_jobs
+                WHERE allowed_root_id = ?
+                  AND source_path_hash = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (allowed_root_id, source_path_hash),
+            ).fetchone()
+        return self._material_index_job_from_row(row) if row else None
+
     def active_material_index_job(
         self,
         allowed_root_id: str,

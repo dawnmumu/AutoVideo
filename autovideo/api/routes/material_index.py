@@ -209,7 +209,10 @@ def get_material_index_summary(
         "totals": store.material_library_summary(),
         "current_source": _public_source_config(current_source),
         "latest_job": _public_job(
-            MaterialWorkerService(store).latest_job(str(current_source["id"]))
+            MaterialWorkerService(store).latest_job_for_identity(
+                str(current_source["allowed_root_id"]),
+                str(current_source["source_path_hash"]),
+            )
             if current_source is not None
             else None
         ),
