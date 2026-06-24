@@ -8,6 +8,15 @@ from autovideo.services.material_sources import MaterialSourceService
 from autovideo.storage.database import AutoVideoStore
 
 
+class _CountingProcessingService:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def process_source(self, source: dict[str, object]) -> dict[str, int]:
+        self.calls += 1
+        return {"raw_files_total": 0, "segments_total": 0, "failed_total": 0}
+
+
 def test_material_sources_requires_config(client) -> None:
     response = client.get("/api/material-sources")
 
@@ -50,6 +59,8 @@ def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> Non
     )
     app = create_app(settings)
     store = AutoVideoStore(settings)
+    processing = _CountingProcessingService()
+    app.state.material_processing_service = processing
     source = MaterialSourceService(store).save_current_source("demo", "clips")
     active_job = store.insert_material_index_job(
         {
@@ -79,12 +90,18 @@ def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> Non
             "/api/material-sources/current",
             json={"allowed_root_id": "demo", "source_relative_path": "clips"},
         )
+        job_response = client.get(f"/api/material-index/jobs/{active_job['id']}")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["current_source"]["id"] == source["id"]
     assert payload["job"]["id"] == active_job["id"]
     assert payload["job"]["status"] == "queued"
+    assert processing.calls == 0
+    job_payload = job_response.json()
+    assert job_payload["status"] == "queued"
+    assert job_payload["attempt_count"] == 0
+    assert job_payload["started_at"] is None
 
 
 def test_material_sources_status_includes_latest_job_without_absolute_paths(

@@ -10,8 +10,10 @@ from autovideo.storage.database import AutoVideoStore
 class FakeMaterialProcessingService:
     def __init__(self, store: AutoVideoStore) -> None:
         self.store = store
+        self.calls = 0
 
     def process_source(self, source: dict[str, object]) -> dict[str, int]:
+        self.calls += 1
         segment_path = self.store.paths.material_segments / "raw_1" / "seg_1.mp4"
         segment_path.parent.mkdir(parents=True, exist_ok=True)
         segment_path.write_bytes(b"segment")
@@ -127,3 +129,46 @@ def test_manual_refresh_runs_index_job_in_background(tmp_path: Path) -> None:
     assert job_payload["attempt_count"] == 1
     assert job_payload["started_at"]
     assert job_payload["heartbeat_at"]
+
+
+def test_save_source_reuses_completed_job_for_same_directory_without_rerun(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+    processing = FakeMaterialProcessingService(store)
+    app.state.material_processing_service = processing
+
+    with TestClient(app) as client:
+        first_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
+        )
+        second_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
+        )
+        first_job_response = client.get(
+            f"/api/material-index/jobs/{first_response.json()['job']['id']}"
+        )
+        job_response = client.get(
+            f"/api/material-index/jobs/{second_response.json()['job']['id']}"
+        )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+    assert first_job_response.json()["status"] == "succeeded"
+    assert second_payload["job"]["id"] == first_payload["job"]["id"]
+    assert second_payload["job"]["status"] == "succeeded"
+    assert processing.calls == 1
+    assert job_response.json()["id"] == first_payload["job"]["id"]
+    assert job_response.json()["attempt_count"] == 1

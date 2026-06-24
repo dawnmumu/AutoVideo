@@ -190,6 +190,15 @@ def save_material_source(
             "current_source": _public_source_config(current_source),
             "job": _public_job(active_job),
         }
+    latest_job = worker.latest_job_for_identity(
+        str(current_source["allowed_root_id"]),
+        str(current_source["source_path_hash"]),
+    )
+    if latest_job is not None:
+        return {
+            "current_source": _public_source_config(current_source),
+            "job": _public_job(latest_job),
+        }
     try:
         job = worker.create_index_job(str(current_source["id"]))
     except MaterialIndexAlreadyRunningError as exc:
