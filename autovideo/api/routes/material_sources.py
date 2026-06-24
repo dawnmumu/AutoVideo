@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from pydantic import BaseModel, Field
 
 from autovideo.api.dependencies import get_store
@@ -18,6 +18,7 @@ from autovideo.services.material_sources import (
 )
 from autovideo.services.material_worker import (
     MaterialIndexAlreadyRunningError,
+    MaterialIndexRunner,
     MaterialWorkerService,
 )
 from autovideo.storage.database import AutoVideoStore
@@ -147,6 +148,23 @@ def _save_source_config(
     )
 
 
+def _enqueue_material_index(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    store: AutoVideoStore,
+    job_id: str,
+) -> None:
+    runner = MaterialIndexRunner(
+        store,
+        processing_service=getattr(
+            request.app.state,
+            "material_processing_service",
+            None,
+        ),
+    )
+    background_tasks.add_task(runner.run, job_id)
+
+
 @router.get("")
 def get_material_sources(
     store: AutoVideoStore = Depends(get_store),
@@ -157,6 +175,8 @@ def get_material_sources(
 @router.put("/current")
 def save_material_source(
     payload: SaveMaterialSourceRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
     store: AutoVideoStore = Depends(get_store),
 ) -> dict[str, Any]:
     current_source = _save_source_config(store, payload)
@@ -177,6 +197,7 @@ def save_material_source(
             status.HTTP_409_CONFLICT,
             "MATERIAL_INDEX_ALREADY_RUNNING",
         ) from exc
+    _enqueue_material_index(request, background_tasks, store, str(job["id"]))
 
     return {
         "current_source": _public_source_config(current_source),

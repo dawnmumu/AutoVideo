@@ -43,31 +43,48 @@ def test_save_source_redacts_absolute_paths_and_queues_job(tmp_path: Path) -> No
 def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> None:
     root = tmp_path / "source"
     (root / "clips").mkdir(parents=True)
-    app = create_app(
-        Settings(
-            _env_file=None,
-            data_dir=tmp_path / "data",
-            material_allowed_roots=f"demo={root}",
-        )
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+    active_job = store.insert_material_index_job(
+        {
+            "id": "queued-job",
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": source["source_relative_path"],
+            "source_path_hash": source["source_path_hash"],
+            "status": "queued",
+            "stage": "scanning",
+            "progress_current": 0,
+            "progress_total": 0,
+            "raw_files_total": 0,
+            "segments_total": 0,
+            "failed_total": 0,
+            "heartbeat_at": None,
+            "attempt_count": 0,
+            "error_summary": None,
+            "created_at": "2026-06-24T00:00:00+00:00",
+            "started_at": None,
+            "finished_at": None,
+        }
     )
 
     with TestClient(app) as client:
-        first_response = client.put(
-            "/api/material-sources/current",
-            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
-        )
-        second_response = client.put(
+        response = client.put(
             "/api/material-sources/current",
             json={"allowed_root_id": "demo", "source_relative_path": "clips"},
         )
 
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
-    first_payload = first_response.json()
-    second_payload = second_response.json()
-    assert second_payload["current_source"]["id"] == first_payload["current_source"]["id"]
-    assert second_payload["job"]["id"] == first_payload["job"]["id"]
-    assert second_payload["job"]["status"] == "queued"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_source"]["id"] == source["id"]
+    assert payload["job"]["id"] == active_job["id"]
+    assert payload["job"]["status"] == "queued"
 
 
 def test_material_sources_status_includes_latest_job_without_absolute_paths(

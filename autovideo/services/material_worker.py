@@ -156,3 +156,20 @@ class MaterialWorkerService:
             allowed_root_id,
             source_path_hash,
         )
+
+
+class MaterialIndexRunner:
+    def __init__(
+        self,
+        store: AutoVideoStore,
+        processing_service: Any | None = None,
+    ) -> None:
+        self.store = store
+        self.processing_service = processing_service
+
+    def run(self, job_id: str) -> dict[str, Any]:
+        service = MaterialWorkerService(
+            self.store,
+            processing_service=self.processing_service,
+        )
+        return service.run_job(job_id)

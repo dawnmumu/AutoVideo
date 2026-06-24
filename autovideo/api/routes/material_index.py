@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
 from pydantic import BaseModel
 
 from autovideo.api.dependencies import get_store
@@ -11,6 +11,7 @@ from autovideo.services.material_processing import MaterialProcessingService
 from autovideo.services.material_worker import (
     MaterialIndexAlreadyRunningError,
     MaterialIndexJobNotFoundError,
+    MaterialIndexRunner,
     MaterialWorkerService,
 )
 from autovideo.storage.database import AutoVideoStore
@@ -153,9 +154,28 @@ def _raw_file_or_404(store: AutoVideoStore, raw_file_id: str) -> dict[str, Any]:
     return raw_file
 
 
+def _enqueue_material_index(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    store: AutoVideoStore,
+    job_id: str,
+) -> None:
+    runner = MaterialIndexRunner(
+        store,
+        processing_service=getattr(
+            request.app.state,
+            "material_processing_service",
+            None,
+        ),
+    )
+    background_tasks.add_task(runner.run, job_id)
+
+
 @router.post("/jobs")
 def create_material_index_job(
     payload: StartMaterialIndexRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
     store: AutoVideoStore = Depends(get_store),
 ) -> dict[str, Any]:
     source = (
@@ -180,6 +200,7 @@ def create_material_index_job(
             status.HTTP_404_NOT_FOUND,
             "MATERIAL_INDEX_JOB_NOT_FOUND",
         ) from exc
+    _enqueue_material_index(request, background_tasks, store, str(job["id"]))
     return {
         "job_id": job["id"],
         "status": job["status"],
