@@ -93,6 +93,65 @@ class AutoVideoStore:
             ).fetchone()
         return self._material_from_row(row) if row else None
 
+    def insert_material_source_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        with self.connect() as connection:
+            if config["status"] == "active":
+                connection.execute(
+                    """
+                    UPDATE material_source_configs
+                    SET status = 'inactive', updated_at = ?
+                    WHERE status = 'active'
+                    """,
+                    (config["updated_at"],),
+                )
+            connection.execute(
+                """
+                INSERT INTO material_source_configs (
+                    id, allowed_root_id, allowed_root_alias,
+                    source_relative_path, source_display_path, source_path_hash,
+                    status, error_summary, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    config["id"],
+                    config["allowed_root_id"],
+                    config["allowed_root_alias"],
+                    config["source_relative_path"],
+                    config["source_display_path"],
+                    config["source_path_hash"],
+                    config["status"],
+                    config.get("error_summary"),
+                    config["created_at"],
+                    config["updated_at"],
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM material_source_configs WHERE id = ?",
+                (config["id"],),
+            ).fetchone()
+        return self._material_source_config_from_row(row) if row else config
+
+    def get_material_source_config(self, config_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM material_source_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+        return self._material_source_config_from_row(row) if row else None
+
+    def current_material_source_config(self) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM material_source_configs
+                WHERE status = 'active'
+                ORDER BY updated_at DESC, rowid DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return self._material_source_config_from_row(row) if row else None
+
     def insert_task(self, task: dict[str, Any]) -> dict[str, Any]:
         with self.connect() as connection:
             connection.execute(
@@ -195,6 +254,22 @@ class AutoVideoStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS material_source_configs (
+                    id TEXT PRIMARY KEY,
+                    allowed_root_id TEXT NOT NULL,
+                    allowed_root_alias TEXT NOT NULL,
+                    source_relative_path TEXT NOT NULL,
+                    source_display_path TEXT NOT NULL,
+                    source_path_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error_summary TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
     @staticmethod
     def _ensure_columns(
@@ -242,6 +317,21 @@ class AutoVideoStore:
                 "path": row["output_path"],
                 "download_url": f"/api/tasks/{task_id}/output",
             },
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _material_source_config_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "allowed_root_id": row["allowed_root_id"],
+            "allowed_root_alias": row["allowed_root_alias"],
+            "source_relative_path": row["source_relative_path"],
+            "source_display_path": row["source_display_path"],
+            "source_path_hash": row["source_path_hash"],
+            "status": row["status"],
+            "error_summary": row["error_summary"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

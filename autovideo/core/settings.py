@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     candidate_token_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
     max_script_payload_bytes: int = Field(default=65536, ge=1)
     max_online_mix_request_bytes: int = Field(default=2 * 1024 * 1024, ge=1)
+    material_allowed_roots: str | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="AUTOVIDEO_",
@@ -55,6 +56,7 @@ class Settings(BaseSettings):
         "pexels_api_key",
         "pixabay_api_key",
         "candidate_token_secret",
+        "material_allowed_roots",
         mode="before",
     )
     @classmethod
