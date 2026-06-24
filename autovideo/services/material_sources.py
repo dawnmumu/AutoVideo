@@ -26,6 +26,14 @@ class MaterialSourceNotFoundError(Exception):
     pass
 
 
+class MaterialSourceInvalidPathError(Exception):
+    pass
+
+
+class MaterialSourceNotDirectoryError(Exception):
+    pass
+
+
 class MaterialSourcePathOutOfScopeError(Exception):
     pass
 
@@ -57,6 +65,14 @@ def _relative_to_root(path: Path, root: Path) -> str:
 
 def _hash_source_identity(source_relative_path: str) -> str:
     return hashlib.sha256(source_relative_path.encode("utf-8")).hexdigest()
+
+
+def _public_allowed_root(root: AllowedMaterialRoot) -> dict[str, str]:
+    return {
+        "id": root.id,
+        "alias": root.alias,
+        "display_name": root.display_name,
+    }
 
 
 def _parse_allowed_roots(raw: str | None) -> list[AllowedMaterialRoot]:
@@ -112,16 +128,27 @@ class MaterialSourceService:
         if allowed_root is None:
             raise MaterialSourceRootNotFoundError()
 
-        requested_path = Path(source_path or ".")
+        if source_path == "":
+            raise MaterialSourceInvalidPathError()
+        try:
+            requested_path = Path(source_path)
+        except ValueError as exc:
+            raise MaterialSourceInvalidPathError() from exc
         if requested_path.is_absolute():
             raise MaterialSourcePathOutOfScopeError()
 
         try:
-            resolved_path = (allowed_root.resolved_path / requested_path).resolve(strict=True)
+            resolved_path = (allowed_root.resolved_path / requested_path).resolve(
+                strict=True
+            )
         except FileNotFoundError as exc:
             raise MaterialSourceNotFoundError() from exc
+        except ValueError as exc:
+            raise MaterialSourceInvalidPathError() from exc
 
         source_relative_path = _relative_to_root(resolved_path, allowed_root.resolved_path)
+        if not resolved_path.is_dir() or not os.access(resolved_path, os.R_OK | os.X_OK):
+            raise MaterialSourceNotDirectoryError()
         source_display_path = allowed_root.id
         if source_relative_path != ".":
             source_display_path = f"{allowed_root.id}/{source_relative_path}"
@@ -157,14 +184,19 @@ class MaterialSourceService:
         )
 
     def status(self) -> dict[str, Any]:
+        current_source = self.store.current_material_source_config()
+        try:
+            allowed_roots = self.allowed_roots()
+        except MaterialSourceRootNotConfiguredError:
+            return {
+                "configured": False,
+                "allowed_roots": [],
+                "current_source": current_source,
+                "error_summary": "material source roots are not configured",
+            }
         return {
-            "allowed_roots": [
-                {
-                    "id": root.id,
-                    "alias": root.alias,
-                    "display_name": root.display_name,
-                }
-                for root in self.allowed_roots()
-            ],
-            "current_source": self.store.current_material_source_config(),
+            "configured": True,
+            "allowed_roots": [_public_allowed_root(root) for root in allowed_roots],
+            "current_source": current_source,
+            "error_summary": None,
         }
