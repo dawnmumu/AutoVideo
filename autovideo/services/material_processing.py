@@ -109,34 +109,17 @@ class MaterialProcessingService:
                 "deleted": False,
                 "error_code": "MATERIAL_LIBRARY_CLEAR_FAILED",
             }
-        segment_rows = self._segment_rows_for_raw(raw_file_id)
-        raw_path = self._guarded_managed_path(
-            self.store.paths.material_raw, str(raw["managed_raw_relative_path"])
-        )
-        if raw_path is None:
+        planned = self._plan_raw_cleanup(raw_file_id, raw, self._segment_rows_for_raw(raw_file_id))
+        if planned is None:
             return self._clear_failed(raw_file_id)
-        segment_paths: list[Path] = []
-        for row in segment_rows:
-            segment_path = self._guarded_managed_path(
-                self.store.paths.material_segments,
-                str(row["managed_segment_relative_path"]),
-            )
-            if segment_path is None:
-                return self._clear_failed(raw_file_id)
-            segment_paths.append(segment_path)
 
-        for path in segment_paths:
+        for path in planned["segment_paths"]:
             path.unlink(missing_ok=True)
-        segment_root = self._guarded_managed_path(
-            self.store.paths.material_segments, raw_file_id
-        )
-        if segment_root is None:
-            return self._clear_failed(raw_file_id)
-        if segment_root.exists():
-            shutil.rmtree(segment_root, ignore_errors=True)
-        raw_path.unlink(missing_ok=True)
+        if planned["segment_dir"].exists():
+            shutil.rmtree(planned["segment_dir"], ignore_errors=True)
+        planned["raw_path"].unlink(missing_ok=True)
         deleted_at = self._now_isoformat()
-        segment_ids = [str(row["id"]) for row in segment_rows]
+        segment_ids = planned["segment_ids"]
         self.store.delete_local_segment_materials(segment_ids)
         self.store.mark_material_segments_deleted(raw_file_id, deleted_at)
         self.store.mark_material_raw_file_deleted(raw_file_id, deleted_at)
@@ -154,41 +137,29 @@ class MaterialProcessingService:
                 "error_code": "MATERIAL_LIBRARY_CLEAR_CONFIRMATION_REQUIRED",
             }
         raw_rows = self._all_raw_rows()
-        planned: list[tuple[str, Path, list[dict[str, Any]], list[Path]]] = []
+        planned: list[dict[str, Any]] = []
         for raw in raw_rows:
             raw_id = str(raw["id"])
-            raw_path = self._guarded_managed_path(
-                self.store.paths.material_raw, str(raw["managed_raw_relative_path"])
+            raw_plan = self._plan_raw_cleanup(
+                raw_id,
+                raw,
+                self._segment_rows_for_raw(raw_id),
             )
-            if raw_path is None:
+            if raw_plan is None:
                 return self._clear_failed(raw_id)
-            segment_rows = self._segment_rows_for_raw(raw_id)
-            segment_paths: list[Path] = []
-            for row in segment_rows:
-                segment_path = self._guarded_managed_path(
-                    self.store.paths.material_segments,
-                    str(row["managed_segment_relative_path"]),
-                )
-                if segment_path is None:
-                    return self._clear_failed(raw_id)
-                segment_paths.append(segment_path)
-            planned.append((raw_id, raw_path, segment_rows, segment_paths))
+            planned.append(raw_plan)
 
         deleted_raw = 0
         deleted_segments = 0
         deleted_at = self._now_isoformat()
-        for raw_id, raw_path, segment_rows, segment_paths in planned:
-            for path in segment_paths:
+        for raw_plan in planned:
+            raw_id = str(raw_plan["raw_id"])
+            for path in raw_plan["segment_paths"]:
                 path.unlink(missing_ok=True)
-            segment_dir = self._guarded_managed_path(
-                self.store.paths.material_segments, raw_id
-            )
-            if segment_dir is None:
-                return self._clear_failed(raw_id)
-            if segment_dir.exists():
-                shutil.rmtree(segment_dir, ignore_errors=True)
-            raw_path.unlink(missing_ok=True)
-            segment_ids = [str(row["id"]) for row in segment_rows]
+            if raw_plan["segment_dir"].exists():
+                shutil.rmtree(raw_plan["segment_dir"], ignore_errors=True)
+            raw_plan["raw_path"].unlink(missing_ok=True)
+            segment_ids = raw_plan["segment_ids"]
             self.store.delete_local_segment_materials(segment_ids)
             deleted_segments += self.store.mark_material_segments_deleted(
                 raw_id, deleted_at
@@ -426,6 +397,43 @@ class MaterialProcessingService:
         except ValueError:
             return None
         return candidate
+
+    def _plan_raw_cleanup(
+        self,
+        raw_file_id: str,
+        raw: dict[str, Any],
+        segment_rows: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        raw_path = self._guarded_managed_path(
+            self.store.paths.material_raw,
+            str(raw["managed_raw_relative_path"]),
+        )
+        if raw_path is None:
+            return None
+        segment_dir = self._guarded_managed_path(
+            self.store.paths.material_segments,
+            raw_file_id,
+        )
+        if segment_dir is None:
+            return None
+        segment_paths: list[Path] = []
+        segment_ids: list[str] = []
+        for row in segment_rows:
+            segment_path = self._guarded_managed_path(
+                self.store.paths.material_segments,
+                str(row["managed_segment_relative_path"]),
+            )
+            if segment_path is None:
+                return None
+            segment_paths.append(segment_path)
+            segment_ids.append(str(row["id"]))
+        return {
+            "raw_id": raw_file_id,
+            "raw_path": raw_path,
+            "segment_dir": segment_dir,
+            "segment_paths": segment_paths,
+            "segment_ids": segment_ids,
+        }
 
     def _clear_failed(self, raw_file_id: str) -> dict[str, Any]:
         return {

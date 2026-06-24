@@ -119,7 +119,7 @@ class MaterialWorkerService:
         raw_files_total = int(counts.get("raw_files_total", 0))
         segments_total = int(counts.get("segments_total", 0))
         failed_total = int(counts.get("failed_total", 0))
-        total = raw_files_total + failed_total
+        total = raw_files_total
         status = "succeeded" if segments_total > 0 else "failed"
         error_summary = None if status == "succeeded" else "MATERIAL_INDEX_JOB_FAILED"
         stage = "ready" if status == "succeeded" else "segmenting"

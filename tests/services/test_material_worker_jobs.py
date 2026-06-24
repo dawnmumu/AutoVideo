@@ -265,6 +265,8 @@ def test_run_job_fails_when_no_segments_were_produced(tmp_path: Path) -> None:
     assert finished["raw_files_total"] == 1
     assert finished["segments_total"] == 0
     assert finished["failed_total"] == 1
+    assert finished["progress_current"] == 1
+    assert finished["progress_total"] == 1
     assert finished["finished_at"] is not None
 
 
