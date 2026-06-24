@@ -204,10 +204,15 @@ def get_material_index_job(
 def get_material_index_summary(
     store: AutoVideoStore = Depends(get_store),
 ) -> dict[str, Any]:
+    current_source = store.current_material_source_config()
     return {
         "totals": store.material_library_summary(),
-        "current_source": _public_source_config(store.current_material_source_config()),
-        "latest_job": _public_job(MaterialWorkerService(store).latest_job()),
+        "current_source": _public_source_config(current_source),
+        "latest_job": _public_job(
+            MaterialWorkerService(store).latest_job(str(current_source["id"]))
+            if current_source is not None
+            else None
+        ),
     }
 
 

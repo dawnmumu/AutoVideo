@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
+from autovideo.services.material_sources import MaterialSourceService
+from autovideo.storage.database import AutoVideoStore
 
 
 def test_material_sources_requires_config(client) -> None:
@@ -38,6 +40,36 @@ def test_save_source_redacts_absolute_paths_and_queues_job(tmp_path: Path) -> No
     assert str(root) not in str(payload)
 
 
+def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    app = create_app(
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path / "data",
+            material_allowed_roots=f"demo={root}",
+        )
+    )
+
+    with TestClient(app) as client:
+        first_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
+        )
+        second_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
+        )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+    assert second_payload["current_source"]["id"] == first_payload["current_source"]["id"]
+    assert second_payload["job"]["id"] == first_payload["job"]["id"]
+    assert second_payload["job"]["status"] == "queued"
+
+
 def test_material_sources_status_includes_latest_job_without_absolute_paths(
     tmp_path: Path,
 ) -> None:
@@ -67,6 +99,36 @@ def test_material_sources_status_includes_latest_job_without_absolute_paths(
     assert payload["current_source"]["source_display_path"] == "demo/clips"
     assert payload["latest_job"]["id"] == save_response.json()["job"]["id"]
     assert str(root) not in str(payload)
+
+
+def test_material_sources_status_latest_job_follows_current_source(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+
+    with TestClient(app) as client:
+        source_a_response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "a"},
+        )
+
+    assert source_a_response.status_code == 200
+    MaterialSourceService(store).save_current_source("demo", "b")
+
+    with TestClient(app) as client:
+        response = client.get("/api/material-sources")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_source"]["source_display_path"] == "demo/b"
+    assert payload["latest_job"] is None
 
 
 def test_save_source_rejects_out_of_scope_path(tmp_path: Path) -> None:

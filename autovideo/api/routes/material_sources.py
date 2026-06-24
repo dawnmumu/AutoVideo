@@ -87,10 +87,15 @@ def _status_payload(store: AutoVideoStore) -> dict[str, Any]:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "MATERIAL_SOURCE_ROOT_NOT_CONFIGURED",
         )
-    latest_job = MaterialWorkerService(store).latest_job()
+    current_source = status_payload["current_source"]
+    latest_job = (
+        MaterialWorkerService(store).latest_job(str(current_source["id"]))
+        if current_source is not None
+        else None
+    )
     return {
         "allowed_roots": status_payload["allowed_roots"],
-        "current_source": _public_source_config(status_payload["current_source"]),
+        "current_source": _public_source_config(current_source),
         "latest_job": _public_job(latest_job),
     }
 
@@ -99,8 +104,9 @@ def _save_source_config(
     store: AutoVideoStore,
     payload: SaveMaterialSourceRequest,
 ) -> dict[str, Any]:
+    service = MaterialSourceService(store)
     try:
-        return MaterialSourceService(store).save_current_source(
+        resolved = service.resolve_source(
             payload.allowed_root_id,
             payload.source_relative_path,
         )
@@ -124,6 +130,19 @@ def _save_source_config(
             "MATERIAL_SOURCE_NOT_FOUND",
         ) from exc
 
+    current_source = store.current_material_source_config()
+    if (
+        current_source is not None
+        and str(current_source["allowed_root_id"]) == resolved.allowed_root.id
+        and str(current_source["source_relative_path"]) == resolved.source_relative_path
+    ):
+        return current_source
+
+    return service.save_current_source(
+        payload.allowed_root_id,
+        payload.source_relative_path,
+    )
+
 
 @router.get("")
 def get_material_sources(
@@ -139,6 +158,15 @@ def save_material_source(
 ) -> dict[str, Any]:
     current_source = _save_source_config(store, payload)
     worker = MaterialWorkerService(store)
+    active_job = store.active_material_index_job(
+        str(current_source["allowed_root_id"]),
+        str(current_source["source_path_hash"]),
+    )
+    if active_job is not None:
+        return {
+            "current_source": _public_source_config(current_source),
+            "job": _public_job(active_job),
+        }
     try:
         job = worker.create_index_job(str(current_source["id"]))
     except MaterialIndexAlreadyRunningError as exc:
