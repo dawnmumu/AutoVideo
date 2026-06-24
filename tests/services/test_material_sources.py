@@ -58,6 +58,20 @@ def test_status_skips_invalid_root_config_without_crashing(tmp_path: Path) -> No
     assert payload["error_summary"] == "material source roots are not configured"
 
 
+def test_empty_root_path_is_skipped_and_does_not_use_cwd(tmp_path: Path) -> None:
+    service = _service(tmp_path, "demo=")
+
+    payload = service.status()
+
+    assert payload["configured"] is False
+    assert payload["allowed_roots"] == []
+    assert payload["current_source"] is None
+    assert payload["error_summary"] == "material source roots are not configured"
+
+    with pytest.raises(MaterialSourceRootNotConfiguredError):
+        service.allowed_roots()
+
+
 def test_resolve_source_rejects_missing_roots(tmp_path: Path) -> None:
     service = _service(tmp_path, None)
 

@@ -86,7 +86,11 @@ def _parse_allowed_roots(raw: str | None) -> list[AllowedMaterialRoot]:
         if not candidate or "=" not in candidate:
             continue
         root_id, root_path = (part.strip() for part in candidate.split("=", 1))
-        if not ROOT_ID_RE.fullmatch(root_id) or root_id in seen_ids:
+        if (
+            not ROOT_ID_RE.fullmatch(root_id)
+            or root_id in seen_ids
+            or root_path == ""
+        ):
             continue
         try:
             resolved_path = Path(root_path).expanduser().resolve(strict=True)
