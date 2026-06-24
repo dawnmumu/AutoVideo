@@ -4,6 +4,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from autovideo.services.material_processing import (
+    MaterialFfmpegUnavailableError,
+    MaterialProcessingService,
+)
 from autovideo.storage.database import AutoVideoStore
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "stale", "canceled"}
@@ -23,8 +27,13 @@ class MaterialIndexJobNotRunnableError(Exception):
 
 
 class MaterialWorkerService:
-    def __init__(self, store: AutoVideoStore) -> None:
+    def __init__(
+        self,
+        store: AutoVideoStore,
+        processing_service: Any | None = None,
+    ) -> None:
         self.store = store
+        self.processing_service = processing_service
 
     def create_index_job(
         self,
@@ -76,8 +85,59 @@ class MaterialWorkerService:
     def run_job(self, job_id: str) -> dict[str, Any]:
         claimed = self.claim_job(job_id)
         if claimed is None:
+            existing = self.store.get_material_index_job(job_id)
+            if existing is None:
+                raise MaterialIndexJobNotFoundError()
             raise MaterialIndexJobNotRunnableError()
-        return claimed
+        now = datetime.now(UTC).isoformat()
+        claimed = self.store.update_material_index_job(
+            claimed["id"],
+            {"stage": "segmenting", "heartbeat_at": now},
+        )
+        source_config = self.store.get_material_source_config(claimed["source_config_id"])
+        if source_config is None:
+            raise MaterialIndexJobNotFoundError()
+        processing_service = self.processing_service or MaterialProcessingService(
+            self.store
+        )
+        try:
+            counts = processing_service.process_source(source_config)
+        except MaterialFfmpegUnavailableError:
+            finished_at = datetime.now(UTC).isoformat()
+            return self.store.update_material_index_job(
+                claimed["id"],
+                {
+                    "status": "failed",
+                    "stage": "segmenting",
+                    "error_summary": "MATERIAL_FFMPEG_UNAVAILABLE",
+                    "heartbeat_at": finished_at,
+                    "finished_at": finished_at,
+                },
+            )
+
+        finished_at = datetime.now(UTC).isoformat()
+        raw_files_total = int(counts.get("raw_files_total", 0))
+        segments_total = int(counts.get("segments_total", 0))
+        failed_total = int(counts.get("failed_total", 0))
+        total = raw_files_total + failed_total
+        status = "succeeded" if segments_total > 0 else "failed"
+        error_summary = None if status == "succeeded" else "MATERIAL_INDEX_JOB_FAILED"
+        stage = "ready" if status == "succeeded" else "segmenting"
+        return self.store.update_material_index_job(
+            claimed["id"],
+            {
+                "status": status,
+                "stage": stage,
+                "progress_current": total,
+                "progress_total": total,
+                "raw_files_total": raw_files_total,
+                "segments_total": segments_total,
+                "failed_total": failed_total,
+                "error_summary": error_summary,
+                "heartbeat_at": finished_at,
+                "finished_at": finished_at,
+            },
+        )
 
     def mark_stale_jobs(self, stale_after_seconds: int = 900) -> int:
         now = datetime.now(UTC)

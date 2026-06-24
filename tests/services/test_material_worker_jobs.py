@@ -5,9 +5,12 @@ from pathlib import Path
 import pytest
 
 from autovideo.core.settings import Settings
+from autovideo.services.material_processing import MaterialFfmpegUnavailableError
 from autovideo.services.material_sources import MaterialSourceService
 from autovideo.services.material_worker import (
     MaterialIndexAlreadyRunningError,
+    MaterialIndexJobNotFoundError,
+    MaterialIndexJobNotRunnableError,
     MaterialWorkerService,
 )
 from autovideo.storage.database import AutoVideoStore
@@ -198,3 +201,108 @@ def test_latest_job_filters_by_source_and_excludes_absolute_paths(tmp_path: Path
     assert "resolved_path" not in latest
     assert str(tmp_path / "source") not in str(latest)
 
+
+class _FakeProcessingService:
+    def __init__(self, result=None, error: Exception | None = None) -> None:
+        self.result = result or {
+            "raw_files_total": 0,
+            "segments_total": 0,
+            "failed_total": 0,
+        }
+        self.error = error
+        self.calls: list[dict[str, str]] = []
+
+    def process_source(self, source: dict[str, str]) -> dict[str, int]:
+        self.calls.append(source)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+def test_run_job_claims_specific_job_and_marks_succeeded(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService(
+        {
+            "raw_files_total": 1,
+            "segments_total": 2,
+            "failed_total": 0,
+        }
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    finished = service.run_job(created["id"])
+
+    assert finished["id"] == created["id"]
+    assert finished["status"] == "succeeded"
+    assert finished["stage"] == "ready"
+    assert finished["attempt_count"] == 1
+    assert finished["raw_files_total"] == 1
+    assert finished["segments_total"] == 2
+    assert finished["failed_total"] == 0
+    assert finished["started_at"] is not None
+    assert finished["heartbeat_at"] is not None
+    assert finished["finished_at"] is not None
+    assert processing.calls == [source]
+
+
+def test_run_job_fails_when_no_segments_were_produced(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService(
+        {
+            "raw_files_total": 1,
+            "segments_total": 0,
+            "failed_total": 1,
+        }
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    finished = service.run_job(created["id"])
+
+    assert finished["status"] == "failed"
+    assert finished["stage"] == "segmenting"
+    assert finished["raw_files_total"] == 1
+    assert finished["segments_total"] == 0
+    assert finished["failed_total"] == 1
+    assert finished["finished_at"] is not None
+
+
+def test_run_job_marks_ffmpeg_unavailable_failure(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService(
+        error=MaterialFfmpegUnavailableError("missing ffmpeg")
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    finished = service.run_job(created["id"])
+
+    assert finished["status"] == "failed"
+    assert finished["error_summary"] == "MATERIAL_FFMPEG_UNAVAILABLE"
+    assert finished["finished_at"] is not None
+
+
+def test_run_job_requires_claimable_job(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService()
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    claimed = service.claim_job(created["id"])
+
+    assert claimed is not None
+    with pytest.raises(MaterialIndexJobNotRunnableError):
+        service.run_job(created["id"])
+    assert processing.calls == []
+
+
+def test_run_job_raises_not_found_for_missing_job(tmp_path: Path) -> None:
+    store, _source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService()
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    with pytest.raises(MaterialIndexJobNotFoundError):
+        service.run_job("missing-job")
+
+    assert processing.calls == []
