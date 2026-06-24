@@ -104,6 +104,64 @@ def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> Non
     assert job_payload["started_at"] is None
 
 
+def test_save_source_reuses_running_job_for_same_directory_without_rerun(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+    processing = _CountingProcessingService()
+    app.state.material_processing_service = processing
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+    running_job = store.insert_material_index_job(
+        {
+            "id": "running-job",
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": source["source_relative_path"],
+            "source_path_hash": source["source_path_hash"],
+            "status": "running",
+            "stage": "segmenting",
+            "progress_current": 1,
+            "progress_total": 3,
+            "raw_files_total": 1,
+            "segments_total": 0,
+            "failed_total": 0,
+            "heartbeat_at": "2026-06-24T00:01:00+00:00",
+            "attempt_count": 1,
+            "error_summary": None,
+            "created_at": "2026-06-24T00:00:00+00:00",
+            "started_at": "2026-06-24T00:00:30+00:00",
+            "finished_at": None,
+        }
+    )
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/material-sources/current",
+            json={"allowed_root_id": "demo", "source_relative_path": "clips"},
+        )
+        job_response = client.get(f"/api/material-index/jobs/{running_job['id']}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_source"]["id"] == source["id"]
+    assert payload["job"]["id"] == running_job["id"]
+    assert payload["job"]["status"] == "running"
+    assert processing.calls == 0
+    job_payload = job_response.json()
+    assert job_payload["status"] == "running"
+    assert job_payload["attempt_count"] == 1
+    assert job_payload["started_at"] == "2026-06-24T00:00:30+00:00"
+    assert job_payload["finished_at"] is None
+
+
 def test_material_sources_status_includes_latest_job_without_absolute_paths(
     tmp_path: Path,
 ) -> None:
