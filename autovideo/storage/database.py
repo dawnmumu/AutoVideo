@@ -165,9 +165,11 @@ class AutoVideoStore:
                       AND raw.deleted_at IS NULL
                       AND (
                           raw.source_config_id = ?
-                          OR (
-                              raw.allowed_root_id = ?
-                              AND raw.source_path_hash = ?
+                          OR raw.source_config_id IN (
+                              SELECT id
+                              FROM material_source_configs
+                              WHERE allowed_root_id = ?
+                                AND source_path_hash = ?
                           )
                       )
                 )

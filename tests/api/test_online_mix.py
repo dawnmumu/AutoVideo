@@ -253,6 +253,7 @@ def _store_ready_segment_material_for_source(
     raw_id: str,
     segment_id: str,
     material_id: str,
+    raw_source_path_hash: str | None = None,
 ) -> dict:
     relative_file = f"{source['source_relative_path']}/{raw_id}.mp4"
     segment_path = store.paths.material_segments / raw_id / f"{segment_id}.mp4"
@@ -264,7 +265,7 @@ def _store_ready_segment_material_for_source(
             "source_config_id": source["id"],
             "allowed_root_id": source["allowed_root_id"],
             "source_relative_path": relative_file,
-            "source_path_hash": source["source_path_hash"],
+            "source_path_hash": raw_source_path_hash or source["source_path_hash"],
             "source_display_path": f"{source['source_display_path']}/{raw_id}.mp4",
             "original_filename": f"{raw_id}.mp4",
             "managed_raw_relative_path": f"{raw_id}.mp4",
@@ -536,6 +537,51 @@ def test_online_mix_accepts_local_segment_manual_material_in_local_mode(
     )
     assert manifest["shot_materials"][0]["material_id"] == local_segment["id"]
     assert manifest["source_attribution"][0]["provider"] == "local_material_worker"
+
+
+@pytest.mark.parametrize("material_source_mode", ["local", "hybrid"])
+def test_online_mix_accepts_same_directory_local_segment_after_source_resave(
+    tmp_path,
+    material_source_mode,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_service = MaterialSourceService(store)
+    old_source = source_service.save_current_source("demo", "clips")
+    local_segment = _store_ready_segment_material_for_source(
+        store,
+        source=old_source,
+        raw_id="raw_same_dir_old",
+        segment_id="seg_same_dir_old",
+        material_id="local-segment-same-dir",
+        raw_source_path_hash="file-level-hash",
+    )
+    source_service.save_current_source("demo", "clips")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "同目录重新保存后本地素材覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": material_source_mode,
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": local_segment["id"]}
+                ],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
 
 
 def test_online_mix_hybrid_uses_local_without_provider_when_local_covers_all(

@@ -28,6 +28,7 @@ def _store_local_segment_material(
     raw_id: str,
     segment_id: str,
     material_id: str,
+    raw_source_path_hash: str | None = None,
 ) -> dict[str, object]:
     segment_path = store.paths.material_segments / raw_id / f"{segment_id}.mp4"
     segment_path.parent.mkdir(parents=True)
@@ -38,7 +39,7 @@ def _store_local_segment_material(
             "source_config_id": source["id"],
             "allowed_root_id": source["allowed_root_id"],
             "source_relative_path": f"{source['source_relative_path']}/{raw_id}.mp4",
-            "source_path_hash": source["source_path_hash"],
+            "source_path_hash": raw_source_path_hash or source["source_path_hash"],
             "source_display_path": f"{source['source_display_path']}/{raw_id}.mp4",
             "original_filename": f"{raw_id}.mp4",
             "managed_raw_relative_path": f"{raw_id}.mp4",
@@ -194,6 +195,42 @@ def test_list_materials_filters_local_segments_to_current_source(
         old_material["id"],
         current_material["id"],
     }
+
+
+def test_list_materials_includes_same_directory_segments_after_source_resave(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_service = MaterialSourceService(store)
+    old_source = source_service.save_current_source("demo", "clips")
+    old_material = _store_local_segment_material(
+        store,
+        source=old_source,
+        raw_id="raw_same_dir_old",
+        segment_id="seg_same_dir_old",
+        material_id="mat_same_dir_old",
+        raw_source_path_hash="file-level-hash",
+    )
+    source_service.save_current_source("demo", "clips")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/materials"
+            "?source_type=local_segment"
+            "&source_provider=local_material_worker"
+            "&current_material_source=true"
+        )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [old_material["id"]]
 
 
 def test_get_material_index_job_not_found(client) -> None:

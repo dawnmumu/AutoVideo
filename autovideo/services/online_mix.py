@@ -744,9 +744,12 @@ def _is_current_local_material_library_segment(
         return False
     if raw_file.get("source_config_id") == current_source["id"]:
         return True
+    raw_source = store.get_material_source_config(str(raw_file.get("source_config_id") or ""))
+    if raw_source is None:
+        return False
     return (
-        raw_file.get("allowed_root_id") == current_source["allowed_root_id"]
-        and raw_file.get("source_path_hash") == current_source["source_path_hash"]
+        raw_source.get("allowed_root_id") == current_source["allowed_root_id"]
+        and raw_source.get("source_path_hash") == current_source["source_path_hash"]
     )
 
 
