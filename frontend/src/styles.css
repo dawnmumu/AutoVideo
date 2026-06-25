@@ -1397,6 +1397,197 @@ button:disabled,
   max-width: 100%;
 }
 
+.material-library-panel,
+.material-source-section,
+.material-summary-section,
+.material-raw-list {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.material-source-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) max-content max-content;
+  align-items: end;
+  gap: 12px;
+}
+
+.material-source-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.material-source-form input,
+.material-source-form select,
+.material-source-form button,
+.material-raw-row button {
+  min-height: 44px;
+}
+
+.material-source-form input,
+.material-source-form select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.material-source-form input:focus-visible,
+.material-source-form select:focus-visible {
+  outline: 3px solid rgba(23, 107, 135, 0.25);
+  outline-offset: 2px;
+}
+
+.material-job-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 12px;
+}
+
+.material-job-status strong {
+  color: var(--accent-strong);
+}
+
+.material-job-status.running,
+.material-job-status.queued {
+  border-color: #b7d7e2;
+  background: #eff8fb;
+}
+
+.material-job-status.failed {
+  border-color: var(--danger-line);
+  background: var(--danger-surface);
+}
+
+.material-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.material-summary-grid div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.material-summary-grid span,
+.material-raw-row > span,
+.material-raw-details {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.material-summary-grid strong {
+  color: var(--text);
+  font-size: 22px;
+}
+
+.material-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.material-list-heading h3 {
+  margin: 0;
+}
+
+.material-raw-row {
+  display: grid;
+  grid-template-columns: minmax(128px, 180px) minmax(180px, 1fr) minmax(72px, max-content) minmax(74px, max-content) minmax(76px, max-content) minmax(82px, max-content) max-content;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+  min-width: 0;
+}
+
+.material-raw-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.material-raw-row svg {
+  transition: transform 160ms ease;
+}
+
+.material-raw-row svg.expanded {
+  transform: rotate(180deg);
+}
+
+.material-raw-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.material-path-text,
+.material-error-text {
+  overflow-wrap: anywhere;
+}
+
+.material-raw-details {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.material-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--danger-line);
+  border-radius: 8px;
+  background: var(--danger-surface);
+  padding: 12px;
+}
+
+.material-confirmation p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.material-confirmation-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.danger-action {
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+.danger-action:hover,
+.danger-action:focus-visible {
+  border-color: var(--danger);
+}
+
 @media (max-width: 1160px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -1632,9 +1823,33 @@ button:disabled,
   }
 }
 
+@media (max-width: 720px) {
+  .material-source-form,
+  .material-summary-grid,
+  .material-raw-row {
+    grid-template-columns: 1fr;
+  }
+
+  .material-source-form button,
+  .material-raw-row button,
+  .material-list-heading,
+  .material-confirmation,
+  .material-confirmation-actions {
+    width: 100%;
+  }
+
+  .material-list-heading,
+  .material-confirmation,
+  .material-confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .subtitle-template-workbench *,
-  .subtitle-settings * {
+  .subtitle-settings *,
+  .material-raw-row svg {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
   }

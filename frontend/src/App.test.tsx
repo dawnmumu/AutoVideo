@@ -18,6 +18,11 @@ import {
 import type { BgmLibrary } from "./api/bgm";
 import { fetchHealth } from "./api/health";
 import {
+  fetchMaterialLibrarySummary,
+  fetchMaterialRawFiles,
+  fetchMaterialSourceStatus,
+} from "./api/materials";
+import {
   createOnlineMixTask,
   fetchMaterials,
   fetchOnlineMaterialStatus,
@@ -140,6 +145,9 @@ const mockedDeleteBgmTrack = vi.mocked(deleteBgmTrack);
 const mockedCreateBgmCategory = vi.mocked(createBgmCategory);
 const mockedUpdateBgmCategory = vi.mocked(updateBgmCategory);
 const mockedDeleteBgmCategory = vi.mocked(deleteBgmCategory);
+const mockedFetchMaterialSourceStatus = vi.mocked(fetchMaterialSourceStatus);
+const mockedFetchMaterialLibrarySummary = vi.mocked(fetchMaterialLibrarySummary);
+const mockedFetchMaterialRawFiles = vi.mocked(fetchMaterialRawFiles);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -688,6 +696,126 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("article", { name: "素材库" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "主导航" })).toHaveTextContent("素材库");
     expect(document.title).toBe("素材库 - AutoVideo");
+  });
+
+  it("renders material source config, job status, stats, and raw files", async () => {
+    mockedFetchMaterialSourceStatus.mockResolvedValue({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialLibrarySummary.mockResolvedValue({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 0, square: 0, unknown: 0, failed: 0 },
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialRawFiles.mockResolvedValue({
+      items: [
+        {
+          id: "raw_1",
+          allowed_root_id: "demo",
+          source_relative_path: "clips/clip.mp4",
+          filename: "clip.mp4",
+          source_display_path: "demo/clips/clip.mp4",
+          size_bytes: 1024,
+          duration_seconds: 12,
+          orientation: "portrait",
+          segments: 2,
+          status: "ready",
+          error_summary: null,
+          created_at: "2026-06-25T00:00:00Z",
+          updated_at: "2026-06-25T00:00:00Z",
+        },
+      ],
+      limit: 50,
+      offset: 0,
+      total: 1,
+    });
+    window.location.hash = "#materials";
+    renderApp();
+
+    expect(await screen.findByLabelText("允许根目录")).toBeInTheDocument();
+    expect(screen.getByLabelText("子目录")).toBeInTheDocument();
+    expect(screen.getByText("clip.mp4")).toBeInTheDocument();
+    expect(screen.getByText("2 个切片")).toBeInTheDocument();
+  });
+
+  it("material workbench uses accessible expandable rows and clear confirmation", async () => {
+    mockedFetchMaterialSourceStatus.mockResolvedValue({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+      current_source: {
+        id: "source_1",
+        allowed_root_id: "demo",
+        allowed_root_alias: "demo",
+        source_display_path: "demo/clips",
+        source_relative_path: "clips",
+        status: "active",
+        created_at: "2026-06-25T00:00:00Z",
+        updated_at: "2026-06-25T00:00:00Z",
+      },
+      latest_job: {
+        id: "job_1",
+        source_config_id: "source_1",
+        allowed_root_id: "demo",
+        source_relative_path: "clips",
+        status: "running",
+        stage: "segmenting",
+        progress_current: 1,
+        progress_total: 2,
+        progress: { current: 1, total: 2 },
+        raw_files_total: 1,
+        segments_total: 1,
+        failed_total: 0,
+        counts: { raw: 1, segments: 1, failed: 0 },
+        attempt_count: 1,
+        error_summary: null,
+        created_at: "2026-06-25T00:00:00Z",
+      },
+    });
+    mockedFetchMaterialLibrarySummary.mockResolvedValue({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 0, square: 0, unknown: 0, failed: 0 },
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialRawFiles.mockResolvedValue({
+      items: [
+        {
+          id: "raw_1",
+          allowed_root_id: "demo",
+          source_relative_path: "clips/clip.mp4",
+          filename: "clip.mp4",
+          source_display_path: "demo/clips/clip.mp4",
+          size_bytes: 1024,
+          duration_seconds: 12,
+          orientation: "portrait",
+          segments: 2,
+          status: "ready",
+          error_summary: null,
+          created_at: "2026-06-25T00:00:00Z",
+          updated_at: "2026-06-25T00:00:00Z",
+        },
+      ],
+      limit: 50,
+      offset: 0,
+      total: 1,
+    });
+    window.location.hash = "#materials";
+    renderApp();
+    expect(await screen.findByRole("status", { name: "素材索引状态" })).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    const rowButton = await screen.findByRole("button", { name: /展开 clip.mp4/ });
+    expect(rowButton).toHaveAttribute("aria-expanded", "false");
+    rowButton.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(rowButton).toHaveAttribute("aria-expanded", "true");
+    const clearButton = screen.getByRole("button", { name: "清空素材库" });
+    clearButton.focus();
+    await userEvent.click(clearButton);
+    expect(await screen.findByRole("dialog", { name: "清空素材库确认" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "取消清空" }));
+    expect(clearButton).toHaveFocus();
   });
 
   it("marks the active desktop and mobile navigation items", async () => {
