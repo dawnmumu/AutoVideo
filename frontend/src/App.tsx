@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 
 import { fetchHealth } from "./api/health";
 import { BgmManagementWorkbench } from "./components/BgmManagementWorkbench";
+import { MaterialLibraryWorkbench } from "./components/MaterialLibraryWorkbench";
 import { OnlineRemixWorkbench } from "./components/OnlineRemixWorkbench";
 import { SubtitleTemplateWorkbench } from "./components/SubtitleTemplateWorkbench";
 import { TaskOutputList } from "./components/TaskOutputList";
@@ -21,7 +22,7 @@ import { VoiceCenterWorkbench } from "./components/VoiceCenterWorkbench";
 
 const APP_TITLE = "AutoVideo";
 
-type ActiveSection = "remix" | "subtitles" | "bgm" | "voices" | "tasks";
+type ActiveSection = "remix" | "materials" | "subtitles" | "bgm" | "voices" | "tasks";
 type BaseNavItem = {
   label: string;
   shortLabel: string;
@@ -33,7 +34,7 @@ type NavItem =
 
 const navItems: NavItem[] = [
   { id: "remix", label: "混剪工作台", shortLabel: "混剪", icon: Clapperboard, enabled: true },
-  { id: "materials", label: "素材库", shortLabel: "素材", icon: FolderOpen, enabled: false },
+  { id: "materials", label: "素材库", shortLabel: "素材", icon: FolderOpen, enabled: true },
   { id: "subtitles", label: "字幕模板", shortLabel: "字幕", icon: Captions, enabled: true },
   { id: "bgm", label: "BGM 管理", shortLabel: "BGM", icon: Music, enabled: true },
   { id: "voices", label: "音色中心", shortLabel: "音色", icon: Volume2, enabled: true },
@@ -51,6 +52,10 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
   remix: {
     title: "混剪工作台",
     summary: "线上素材脚本生成与视频混剪",
+  },
+  materials: {
+    title: "素材库",
+    summary: "本地目录素材索引与运维",
   },
   subtitles: {
     title: "字幕模板",
@@ -72,7 +77,13 @@ const sectionHeadings: Record<ActiveSection, { title: string; summary: string }>
 
 function activeSectionFromHash(hash: string): ActiveSection {
   const hashId = hash.replace(/^#/, "");
-  if (hashId === "subtitles" || hashId === "bgm" || hashId === "voices" || hashId === "tasks") {
+  if (
+    hashId === "materials" ||
+    hashId === "subtitles" ||
+    hashId === "bgm" ||
+    hashId === "voices" ||
+    hashId === "tasks"
+  ) {
     return hashId;
   }
   return "remix";
@@ -148,6 +159,7 @@ export default function App() {
     const initialSection = activeSectionFromHash(currentHash());
     return {
       remix: initialSection === "remix",
+      materials: initialSection === "materials",
       subtitles: initialSection === "subtitles",
       bgm: initialSection === "bgm",
       voices: initialSection === "voices",
@@ -197,7 +209,7 @@ export default function App() {
             <small>视频混剪工作台</small>
           </div>
         </div>
-        <nav className="nav-list">
+        <nav className="nav-list" aria-label="主导航">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === activeSection;
@@ -265,6 +277,15 @@ export default function App() {
               onOpenBgmManagement={() => openSection("bgm")}
             />
             <RuntimeStatus />
+          </section>
+        ) : null}
+        {openedSections.materials ? (
+          <section
+            className="content-grid single-column"
+            hidden={activeSection !== "materials"}
+            id="materials"
+          >
+            <MaterialLibraryWorkbench />
           </section>
         ) : null}
         {openedSections.subtitles ? (

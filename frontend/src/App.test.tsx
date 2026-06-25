@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import {
@@ -99,6 +99,20 @@ vi.mock("./api/bgm", async (importOriginal) => {
   };
 });
 
+vi.mock("./api/materials", () => ({
+  fetchMaterialSourceStatus: vi.fn(),
+  saveMaterialSource: vi.fn(),
+  startMaterialIndex: vi.fn(),
+  fetchMaterialIndexJob: vi.fn(),
+  fetchMaterialLibrarySummary: vi.fn(),
+  fetchMaterialRawFiles: vi.fn(),
+  deleteMaterialRawFile: vi.fn(),
+  clearMaterialLibrary: vi.fn(),
+  readableMaterialError: vi.fn((error: unknown) =>
+    error instanceof Error ? error.message : "MATERIAL_ERROR",
+  ),
+}));
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
@@ -138,6 +152,10 @@ const removedCopyPattern = new RegExp(
 const stylesCss = readFileSync("src/styles.css", "utf-8");
 const indexHtml = readFileSync("index.html", "utf-8");
 const defaultSubtitlePreviewText = "这是字幕预览，支持多个位置和不同倾斜角度";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
@@ -389,6 +407,127 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+describe("material API client", () => {
+  async function actualMaterialApi() {
+    return vi.importActual<typeof import("./api/materials")>("./api/materials");
+  }
+
+  function jsonResponse(payload: unknown, init: ResponseInit = {}) {
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  }
+
+  it("calls material source and index endpoints with the backend DTO shape", async () => {
+    const api = await actualMaterialApi();
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl === "/api/material-sources") {
+        return jsonResponse({
+          allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+          current_source: null,
+          latest_job: null,
+        });
+      }
+      if (requestUrl === "/api/material-sources/current") {
+        return jsonResponse({ current_source: { id: "source_1" }, job: null });
+      }
+      if (requestUrl === "/api/material-index/jobs") {
+        return jsonResponse({ job_id: "job_1", status: "queued" });
+      }
+      if (requestUrl === "/api/material-index/jobs/job_1") {
+        return jsonResponse({ id: "job_1", status: "queued" });
+      }
+      if (requestUrl === "/api/material-index/summary") {
+        return jsonResponse({
+          totals: { raw: 1, segments: 2, portrait: 1, landscape: 1, square: 0, unknown: 0, failed: 0 },
+          current_source: null,
+          latest_job: null,
+        });
+      }
+      if (requestUrl === "/api/material-index/raw-files?limit=25&offset=50&status=failed") {
+        return jsonResponse({ items: [], limit: 25, offset: 50, total: 0 });
+      }
+      if (requestUrl === "/api/material-index/raw-files/raw_1") {
+        return jsonResponse({ id: "raw_1", deleted: true, deleted_segments: 1 });
+      }
+      if (requestUrl === "/api/material-index/library/clear") {
+        return jsonResponse({ deleted_raw: 1, deleted_segments: 2 });
+      }
+      throw new Error(`Unexpected request: ${requestUrl} ${init?.method ?? "GET"}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.fetchMaterialSourceStatus()).resolves.toMatchObject({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+    });
+    await expect(
+      api.saveMaterialSource({ allowed_root_id: "demo", source_relative_path: "clips" }),
+    ).resolves.toMatchObject({ current_source: { id: "source_1" } });
+    await expect(api.startMaterialIndex({ source_config_id: "source_1", force: true })).resolves.toEqual({
+      job_id: "job_1",
+      status: "queued",
+    });
+    await expect(api.fetchMaterialIndexJob("job_1")).resolves.toMatchObject({ id: "job_1" });
+    await expect(api.fetchMaterialLibrarySummary()).resolves.toMatchObject({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 1, failed: 0 },
+    });
+    await expect(
+      api.fetchMaterialRawFiles({ limit: 25, offset: 50, status: "failed" }),
+    ).resolves.toMatchObject({ limit: 25, offset: 50, total: 0 });
+    await expect(api.deleteMaterialRawFile("raw_1")).resolves.toEqual({
+      id: "raw_1",
+      deleted: true,
+      deleted_segments: 1,
+    });
+    await expect(api.clearMaterialLibrary()).resolves.toEqual({
+      deleted_raw: 1,
+      deleted_segments: 2,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/material-sources");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-sources/current",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ allowed_root_id: "demo", source_relative_path: "clips" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-index/jobs",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ source_config_id: "source_1", force: true }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-index/library/clear",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm: "CLEAR_MATERIAL_LIBRARY" }),
+      }),
+    );
+  });
+
+  it("maps material API errors to readable messages", async () => {
+    const api = await actualMaterialApi();
+
+    expect(
+      api.readableMaterialError(new api.MaterialApiError("MATERIAL_SCAN_NO_SUPPORTED_FILES", 400)),
+    ).toBe("素材目录里没有支持的视频文件");
+    expect(api.readableMaterialError(new api.MaterialApiError("MATERIAL_SEGMENT_FAILED", 500))).toBe(
+      "素材切片失败，请检查文件格式后重试",
+    );
+    expect(
+      api.readableMaterialError(
+        new api.MaterialApiError("MATERIAL_LIBRARY_CLEAR_CONFIRMATION_REQUIRED", 400),
+      ),
+    ).toBe("清空素材库需要输入确认文案");
+  });
+});
+
 describe("AutoVideo shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -539,6 +678,16 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("功能提取处理")).toBeInTheDocument();
     expect(screen.getByText("任务与输出")).toBeInTheDocument();
     expect(screen.getByText("系统设置")).toBeInTheDocument();
+  });
+
+  it("enables material library navigation", async () => {
+    window.location.hash = "#materials";
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "素材库", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "素材库" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "主导航" })).toHaveTextContent("素材库");
+    expect(document.title).toBe("素材库 - AutoVideo");
   });
 
   it("marks the active desktop and mobile navigation items", async () => {
@@ -1312,7 +1461,7 @@ describe("AutoVideo shell", () => {
       item.textContent?.trim(),
     );
 
-    expect(labels.slice(0, 5)).toEqual(["混剪", "字幕", "BGM", "音色", "任务"]);
+    expect(labels.slice(0, 6)).toEqual(["混剪", "素材", "字幕", "BGM", "音色", "任务"]);
   });
 
   it("declares responsive BGM workbench styles without hover-only dependencies", () => {
