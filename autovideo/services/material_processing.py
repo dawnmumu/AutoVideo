@@ -419,6 +419,12 @@ class MaterialProcessingService:
             return None
         if not _is_safe_managed_child_name(raw_file_id):
             return None
+        expected_segment_dir = self._guarded_managed_path(
+            self.store.paths.material_segments,
+            raw_file_id,
+        )
+        if expected_segment_dir is None:
+            return None
         segment_paths: list[Path] = []
         segment_ids: list[str] = []
         for row in segment_rows:
@@ -428,23 +434,14 @@ class MaterialProcessingService:
             )
             if segment_path is None:
                 return None
+            if segment_path.parent != expected_segment_dir:
+                return None
             segment_paths.append(segment_path)
             segment_ids.append(str(row["id"]))
-        if segment_paths:
-            segment_dir = segment_paths[0].parent
-            if any(path.parent != segment_dir for path in segment_paths):
-                return None
-        else:
-            segment_dir = self._guarded_managed_path(
-                self.store.paths.material_segments,
-                raw_file_id,
-            )
-            if segment_dir is None:
-                return None
         return {
             "raw_id": raw_file_id,
             "raw_path": raw_path,
-            "segment_dir": segment_dir,
+            "segment_dir": expected_segment_dir,
             "segment_paths": segment_paths,
             "segment_ids": segment_ids,
         }

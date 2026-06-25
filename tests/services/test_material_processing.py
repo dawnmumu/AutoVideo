@@ -270,6 +270,133 @@ def test_delete_raw_file_rejects_absolute_managed_raw_path_inside_root(
     assert store.get_material_raw_file("raw_absolute")["deleted_at"] is None
 
 
+def test_delete_raw_file_rejects_single_part_segment_path_before_deleting_root(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    raw_path = store.paths.material_raw / "raw_1.mp4"
+    segment_path = store.paths.material_segments / "seg_1.mp4"
+    unrelated = store.paths.material_segments / "other_raw" / "keep.mp4"
+    raw_path.write_bytes(b"raw")
+    segment_path.write_bytes(b"segment")
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_bytes(b"keep")
+    store.upsert_material_raw_file(
+        {
+            "id": "raw_1",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "abc",
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": "raw_1.mp4",
+            "content_hash": "content",
+            "size_bytes": 5,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": "seg_1",
+            "raw_file_id": "raw_1",
+            "managed_segment_relative_path": "seg_1.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "clip",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+    deleted = MaterialProcessingService(store).delete_raw_file("raw_1")
+
+    assert deleted == {
+        "id": "raw_1",
+        "deleted": False,
+        "error_code": "MATERIAL_LIBRARY_CLEAR_FAILED",
+    }
+    assert store.paths.material_segments.exists()
+    assert raw_path.exists()
+    assert segment_path.exists()
+    assert unrelated.exists()
+    assert store.get_material_raw_file("raw_1")["deleted_at"] is None
+
+
+def test_delete_raw_file_rejects_cross_raw_segment_path_before_deleting_other_raw(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    raw_path = store.paths.material_raw / "raw_1.mp4"
+    other_segment_path = store.paths.material_segments / "other_raw" / "seg_1.mp4"
+    other_keep = store.paths.material_segments / "other_raw" / "keep.mp4"
+    expected_segment = store.paths.material_segments / "raw_1" / "expected.mp4"
+    raw_path.write_bytes(b"raw")
+    other_segment_path.parent.mkdir(parents=True)
+    other_segment_path.write_bytes(b"segment")
+    other_keep.write_bytes(b"keep")
+    expected_segment.parent.mkdir(parents=True)
+    expected_segment.write_bytes(b"expected")
+    store.upsert_material_raw_file(
+        {
+            "id": "raw_1",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "abc",
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": "raw_1.mp4",
+            "content_hash": "content",
+            "size_bytes": 5,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": "seg_1",
+            "raw_file_id": "raw_1",
+            "managed_segment_relative_path": "other_raw/seg_1.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "clip",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+    deleted = MaterialProcessingService(store).delete_raw_file("raw_1")
+
+    assert deleted == {
+        "id": "raw_1",
+        "deleted": False,
+        "error_code": "MATERIAL_LIBRARY_CLEAR_FAILED",
+    }
+    assert raw_path.exists()
+    assert other_segment_path.exists()
+    assert other_keep.exists()
+    assert expected_segment.exists()
+    assert store.get_material_raw_file("raw_1")["deleted_at"] is None
+
+
 def test_clear_library_rejects_empty_managed_raw_path_before_deleting_anything(
     tmp_path: Path,
 ) -> None:
