@@ -29,6 +29,12 @@ from autovideo.services.online_materials import (
     public_candidate,
     rank_candidates,
 )
+from autovideo.services.material_matcher import (
+    MaterialLibraryEmptyError,
+    MaterialLibraryNotReadyError,
+    MaterialMatcherService,
+    MaterialSourceMode,
+)
 from autovideo.services.rendering import (
     FfmpegRenderFailedError,
     build_render_timeline,
@@ -83,6 +89,14 @@ class OnlineMaterialProviderNotAvailableError(Exception):
     def __init__(self, provider: str) -> None:
         self.provider = provider
         super().__init__(provider)
+
+
+class OnlineMaterialProviderNotConfiguredError(Exception):
+    pass
+
+
+class OnlineMaterialTokenSecretNotConfiguredError(Exception):
+    pass
 
 
 class SubtitleTemplateInvalidError(ValueError):
@@ -247,6 +261,16 @@ def _material_manifest_item(
         "selection_reason": selection.get("selection_reason")
         or reasons.get(mode, "用户选择已有本地素材"),
     }
+    for field in (
+        "material_segment_id",
+        "raw_file_id",
+        "orientation",
+        "duration_seconds",
+        "source_display_path",
+    ):
+        value = selection.get(field)
+        if value is not None:
+            item[field] = value
     if material.get("source_provider") and material.get("source_url"):
         item.update(
             {
@@ -261,6 +285,15 @@ def _material_manifest_item(
 
 
 def _source_attribution(material: dict[str, Any]) -> dict[str, Any] | None:
+    if (
+        material.get("source_type") == "local_segment"
+        and material.get("source_provider") == "local_material_worker"
+    ):
+        return {
+            "provider": "local_material_worker",
+            "source_asset_id": material.get("source_asset_id"),
+            "license_note": "local material library segment",
+        }
     if not material.get("source_provider") or not material.get("source_url"):
         return None
     return {
@@ -700,10 +733,15 @@ def create_online_mix_task(
     results_per_query: int,
     options: dict[str, Any],
     provider_status_snapshot: dict[str, Any],
+    material_source_mode: MaterialSourceMode = "online_free",
     voice_provider: Any | None = None,
 ) -> dict[str, Any]:
     validate_shot_selection(script, shot_assets, shot_materials)
-    if (shot_assets or asset_strategy == "auto") and token_service is None:
+    if (
+        material_source_mode == "online_free"
+        and (shot_assets or asset_strategy == "auto")
+        and token_service is None
+    ):
         raise RuntimeError("candidate token service is required for online assets")
 
     user_materials: dict[str, dict[str, Any]] = {}
@@ -728,15 +766,64 @@ def create_online_mix_task(
         for item in shot_materials
     ]
 
-    validate_manual_shot_coverage(
-        script,
-        shot_assets,
-        shot_materials,
-        asset_strategy,
-    )
     subtitle_options = normalize_subtitle_options(store, options)
     voice_options = normalize_voice_options(options)
     bgm_options = normalize_bgm_options(store, options)
+    selected_indexes = {int(item["shot_index"]) for item in resolved_materials}
+    selected_indexes.update(int(item["shot_index"]) for item in shot_assets)
+    all_shot_indexes = _shot_indexes(script)
+    uncovered_indexes = all_shot_indexes - selected_indexes
+
+    if material_source_mode in {"local", "hybrid"} and uncovered_indexes:
+        try:
+            local_selections = MaterialMatcherService(store).prepare_for_script(
+                script,
+                material_source_mode,
+                only_shot_indexes=uncovered_indexes,
+            )
+        except MaterialLibraryNotReadyError:
+            raise
+        except MaterialLibraryEmptyError:
+            if material_source_mode == "local":
+                raise
+            local_selections = []
+        resolved_materials.extend(local_selections)
+        selected_indexes.update(int(item["shot_index"]) for item in local_selections)
+        uncovered_indexes = all_shot_indexes - selected_indexes
+
+    if material_source_mode == "local" and uncovered_indexes:
+        raise MaterialLibraryEmptyError()
+
+    validate_manual_shot_coverage(
+        script,
+        shot_assets,
+        resolved_materials,
+        asset_strategy,
+    )
+
+    needs_online_assets = bool(shot_assets) or (
+        asset_strategy == "auto"
+        and material_source_mode != "local"
+        and bool(uncovered_indexes)
+    )
+    if (
+        needs_online_assets
+        and asset_strategy == "auto"
+        and provider_name != "auto"
+        and uncovered_indexes
+    ):
+        provider = providers.get(provider_name)
+        if provider is None or not _provider_is_enabled(provider):
+            raise OnlineMaterialProviderNotAvailableError(provider_name)
+    elif (
+        needs_online_assets
+        and asset_strategy == "auto"
+        and uncovered_indexes
+        and not any(_provider_is_enabled(provider) for provider in providers.values())
+    ):
+        raise OnlineMaterialProviderNotConfiguredError()
+    if needs_online_assets and token_service is None:
+        raise OnlineMaterialTokenSecretNotConfiguredError()
 
     for item in shot_assets:
         assert token_service is not None
@@ -763,7 +850,7 @@ def create_online_mix_task(
             }
         )
 
-    if asset_strategy == "auto":
+    if asset_strategy == "auto" and material_source_mode != "local" and uncovered_indexes:
         assert token_service is not None
         if provider_name == "auto":
             selected_providers = [
@@ -779,7 +866,6 @@ def create_online_mix_task(
         if not selected_providers:
             raise OnlineMaterialProviderNotAvailableError(provider_name)
 
-        selected_indexes = {int(item["shot_index"]) for item in resolved_materials}
         for shot in script.get("shots", []):
             shot_index = int(shot["index"])
             if shot_index in selected_indexes:
@@ -877,7 +963,11 @@ def create_online_mix_task(
         if attribution is not None:
             source_key = (
                 str(attribution["provider"]),
-                str(attribution["source_url"]),
+                str(
+                    attribution.get("source_url")
+                    or attribution.get("source_asset_id")
+                    or ""
+                ),
             )
             source_attribution_by_key[source_key] = attribution
 

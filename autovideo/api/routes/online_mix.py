@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from autovideo.api.dependencies import get_settings, get_store
@@ -27,14 +28,17 @@ from autovideo.services.online_materials import (
 from autovideo.services.online_mix import (
     AudioMixFailedError,
     BgmOptionInvalidError,
+    MaterialLibraryEmptyError,
+    MaterialLibraryNotReadyError,
     OnlineMaterialProviderNotAvailableError,
+    OnlineMaterialProviderNotConfiguredError,
     OnlineMaterialSearchFailedError,
+    OnlineMaterialTokenSecretNotConfiguredError,
     OnlineMixNoMaterialMatchError,
     OnlineMixShotSelectionInvalidError,
     SubtitleTemplateInvalidError,
     VoiceProviderInvalidError,
     create_online_mix_task,
-    validate_manual_shot_coverage,
     validate_shot_selection,
 )
 from autovideo.services.rendering import FfmpegRenderFailedError
@@ -43,6 +47,7 @@ from autovideo.services.tasks import (
     TaskMaterialLimitExceededError,
     TaskOptionsTooLargeError,
 )
+from autovideo.services.material_worker import MaterialIndexRunner
 from autovideo.storage.database import AutoVideoStore
 
 router = APIRouter(prefix="/api/online-mix", tags=["online-mix"])
@@ -58,6 +63,9 @@ class ShotMaterialSelection(BaseModel):
     material_id: str
 
 
+MaterialSourceMode = Literal["local", "hybrid", "online_free"]
+
+
 class CreateOnlineMixTaskRequest(BaseModel):
     title: str = Field(default="未命名线上混剪任务", min_length=1, max_length=120)
     script: dict[str, Any]
@@ -66,6 +74,7 @@ class CreateOnlineMixTaskRequest(BaseModel):
     shot_assets: list[ShotAssetSelection] = Field(default_factory=list)
     shot_materials: list[ShotMaterialSelection] = Field(default_factory=list)
     options: dict[str, Any] = Field(default_factory=dict)
+    material_source_mode: MaterialSourceMode = "online_free"
 
 
 def _provider_registry(request: Request, settings: Settings) -> dict[str, Any]:
@@ -93,10 +102,51 @@ def _token_service(settings: Settings, request: Request) -> CandidateTokenServic
     )
 
 
+def _public_material_index_job(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": job.get("id"),
+        "status": job.get("status"),
+        "stage": job.get("stage"),
+        "progress": {
+            "current": job.get("progress_current"),
+            "total": job.get("progress_total"),
+        },
+        "counts": {
+            "raw_files_total": job.get("raw_files_total"),
+            "segments_total": job.get("segments_total"),
+            "failed_total": job.get("failed_total"),
+        },
+        "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
+        "heartbeat_at": job.get("heartbeat_at"),
+        "error_summary": job.get("error_summary"),
+    }
+
+
+def _enqueue_material_index(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    store: AutoVideoStore,
+    job: dict[str, Any],
+) -> None:
+    if job.get("status") != "queued":
+        return
+    runner = MaterialIndexRunner(
+        store,
+        processing_service=getattr(
+            request.app.state,
+            "material_processing_service",
+            None,
+        ),
+    )
+    background_tasks.add_task(runner.run, str(job["id"]))
+
+
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
 def create_online_mix_video_task(
     request_body: CreateOnlineMixTaskRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     store: AutoVideoStore = Depends(get_store),
 ) -> dict[str, Any]:
@@ -119,7 +169,10 @@ def create_online_mix_video_task(
                 material_id=material_id,
             )
 
-    needs_online_assets = bool(shot_assets) or request_body.asset_strategy == "auto"
+    needs_online_assets = (
+        request_body.material_source_mode == "online_free"
+        and (bool(shot_assets) or request_body.asset_strategy == "auto")
+    )
     providers = _provider_registry(request, settings)
     if needs_online_assets:
         if request_body.asset_strategy == "auto" and request_body.provider != "auto":
@@ -142,34 +195,6 @@ def create_online_mix_video_task(
             )
 
     token_service = _token_service(settings, request)
-    try:
-        validate_manual_shot_coverage(
-            request_body.script,
-            shot_assets,
-            shot_materials,
-            request_body.asset_strategy,
-        )
-    except OnlineMixNoMaterialMatchError as exc:
-        raise structured_error(
-            status.HTTP_409_CONFLICT,
-            "ONLINE_MIX_NO_MATERIAL_MATCH",
-        ) from exc
-
-    for item in shot_assets:
-        try:
-            assert token_service is not None
-            token_service.verify(str(item["candidate_token"]))
-        except CandidateTokenExpiredError as exc:
-            raise structured_error(
-                status.HTTP_400_BAD_REQUEST,
-                "ONLINE_MATERIAL_CANDIDATE_TOKEN_EXPIRED",
-            ) from exc
-        except CandidateTokenInvalidError as exc:
-            raise structured_error(
-                status.HTTP_400_BAD_REQUEST,
-                "ONLINE_MATERIAL_CANDIDATE_TOKEN_INVALID",
-            ) from exc
-
     injected_http_client = getattr(request.app.state, "online_download_http_client", None)
     should_close_http_client = injected_http_client is None
     http_client = injected_http_client or httpx.Client(
@@ -199,6 +224,7 @@ def create_online_mix_video_task(
             results_per_query=settings.online_material_results_per_query,
             options=request_body.options,
             provider_status_snapshot=provider_status(settings, providers),
+            material_source_mode=request_body.material_source_mode,
             voice_provider=getattr(request.app.state, "edge_tts_provider", None),
         )
         return public_task(task, store)
@@ -211,6 +237,33 @@ def create_online_mix_video_task(
         raise structured_error(
             status.HTTP_409_CONFLICT,
             "ONLINE_MIX_NO_MATERIAL_MATCH",
+        ) from exc
+    except MaterialLibraryEmptyError as exc:
+        raise structured_error(
+            status.HTTP_409_CONFLICT,
+            "MATERIAL_LIBRARY_EMPTY",
+        ) from exc
+    except MaterialLibraryNotReadyError as exc:
+        _enqueue_material_index(request, background_tasks, store, exc.job)
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": {
+                    "code": "MATERIAL_LIBRARY_NOT_READY",
+                    "job": _public_material_index_job(exc.job),
+                }
+            },
+            background=background_tasks,
+        )
+    except OnlineMaterialProviderNotConfiguredError as exc:
+        raise structured_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED",
+        ) from exc
+    except OnlineMaterialTokenSecretNotConfiguredError as exc:
+        raise structured_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "ONLINE_MATERIAL_TOKEN_SECRET_NOT_CONFIGURED",
         ) from exc
     except OnlineMaterialProviderNotAvailableError as exc:
         raise structured_error(
