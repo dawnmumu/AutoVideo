@@ -8,6 +8,7 @@ import type { VoiceItem } from "../api/voices";
 import {
   GeneratedScript,
   LocalMaterial,
+  MaterialSourceMode,
   OnlineMaterialCandidate,
   ScriptShot,
   createOnlineMixTask,
@@ -64,6 +65,8 @@ export function OnlineRemixWorkbench({
   const [targetAudience, setTargetAudience] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
   const [provider, setProvider] = useState("auto");
+  const [materialSourceMode, setMaterialSourceMode] =
+    useState<MaterialSourceMode>("hybrid");
   const [subtitleEnabled, setSubtitleEnabled] = useState(true);
   const [subtitleTemplateSetId, setSubtitleTemplateSetId] = useState("");
   const [subtitleFontFamily, setSubtitleFontFamily] = useState("");
@@ -184,6 +187,7 @@ export function OnlineRemixWorkbench({
           shot_index: Number(shotIndex),
           material_id: materialId,
         })),
+        material_source_mode: materialSourceMode,
         options: {
           aspect_ratio: script.aspect_ratio,
           resolution: "1080p",
@@ -347,10 +351,25 @@ export function OnlineRemixWorkbench({
         </label>
         <label>
           <span>素材源</span>
-          <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+          <select
+            disabled={materialSourceMode === "local"}
+            value={provider}
+            onChange={(event) => setProvider(event.target.value)}
+          >
             <option value="auto">Auto</option>
             <option value="pexels">Pexels 素材</option>
             <option value="pixabay">Pixabay 素材</option>
+          </select>
+        </label>
+        <label>
+          <span>素材来源模式</span>
+          <select
+            value={materialSourceMode}
+            onChange={(event) => setMaterialSourceMode(event.target.value as MaterialSourceMode)}
+          >
+            <option value="hybrid">本地优先，线上补足</option>
+            <option value="local">只用本地素材库</option>
+            <option value="online_free">只用线上免费素材</option>
           </select>
         </label>
         <fieldset className="subtitle-settings">
@@ -608,7 +627,7 @@ export function OnlineRemixWorkbench({
               type="button"
               onClick={() => selectLocalMaterial(localPickerShot, material.id)}
             >
-              选择 {material.original_filename}
+              选择 <span>{material.original_filename}</span>
             </button>
           ))}
           {materials.isLoading ? <span>正在加载本地素材</span> : null}

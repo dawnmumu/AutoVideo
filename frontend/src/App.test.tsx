@@ -315,6 +315,28 @@ function bgmLibraryFixture(): BgmLibrary {
   };
 }
 
+function scriptFixture() {
+  return {
+    id: "script-1",
+    title: "睡前精油短视频",
+    topic: "睡眠精油",
+    aspect_ratio: "9:16",
+    duration_seconds: 5,
+    provider: "heuristic",
+    created_at: "2026-06-24T00:00:00+00:00",
+    shots: [
+      {
+        index: 1,
+        duration: 5,
+        narration: "睡前点一滴精油，让卧室慢慢安静下来。",
+        subtitle: "睡前放松",
+        visual_description: "relaxing bedroom night",
+        keywords: ["relaxing bedroom night"],
+      },
+    ],
+  };
+}
+
 function unclassifiedBgmLibraryFixture(): BgmLibrary {
   const base = bgmLibraryFixture();
   return {
@@ -4367,6 +4389,70 @@ describe("AutoVideo shell", () => {
     await user.click(screen.getByRole("button", { name: "选择 oil-bottle.mp4" }));
 
     expect(screen.getByText("oil-bottle.mp4")).toBeInTheDocument();
+  });
+
+  it("submits local material source mode when creating a remix task", async () => {
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task_1",
+      title: "任务",
+      output: { download_url: "/api/tasks/task_1/output" },
+    });
+    renderApp();
+
+    await userEvent.type(screen.getByLabelText("视频主题"), "睡眠精油");
+    await userEvent.selectOptions(screen.getByLabelText("素材来源模式"), "local");
+    await userEvent.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByText("镜头 1");
+    await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({ material_source_mode: "local" }),
+      );
+    });
+  });
+
+  it("can select local segment material returned from fetchMaterials", async () => {
+    const user = userEvent.setup();
+    mockedFetchMaterials.mockResolvedValue([
+      {
+        id: "mat_seg_1",
+        original_filename: "local-segment-bedroom-portrait.mp4",
+        content_type: "video/mp4",
+        size_bytes: 2048,
+        created_at: "2026-06-24T00:00:00+00:00",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        license_note: "本地素材库",
+        download_url: "/api/materials/mat_seg_1/download",
+      },
+    ]);
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task_1",
+      title: "任务",
+      output: { download_url: "/api/tasks/task_1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "睡眠精油");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
+
+    expect(await screen.findByRole("dialog", { name: "选择本地素材" })).toBeInTheDocument();
+    expect(screen.getByText("local-segment-bedroom-portrait.mp4")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "选择 local-segment-bedroom-portrait.mp4" }));
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shot_materials: expect.arrayContaining([{ shot_index: 1, material_id: "mat_seg_1" }]),
+        }),
+      );
+    });
   });
 
   it("submits edited script fields and selected real material id", async () => {

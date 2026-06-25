@@ -71,13 +71,15 @@ export interface OnlineMaterialCandidate {
   license_note: string;
 }
 
+export type MaterialSourceMode = "local" | "hybrid" | "online_free";
+
 export interface LocalMaterial {
   id: string;
   original_filename: string;
   content_type: string | null;
   size_bytes: number;
   created_at: string;
-  source_type: "upload" | "online";
+  source_type: "upload" | "online" | "local_segment";
   download_url?: string;
   source_provider?: string | null;
   source_asset_id?: string | null;
@@ -134,6 +136,7 @@ export interface CreateOnlineMixTaskInput {
     bgm_category_id?: string | null;
     bgm_volume?: number | null;
   };
+  material_source_mode: MaterialSourceMode;
 }
 
 export interface CreateOnlineMixTaskResponse {
