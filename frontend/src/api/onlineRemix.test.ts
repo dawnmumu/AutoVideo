@@ -1,12 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createOnlineMixTask } from "./onlineRemix";
+import { createOnlineMixTask, fetchMaterials } from "./onlineRemix";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("online remix API", () => {
+  it("requests current-source local material worker segments for the picker", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchMaterials()).resolves.toEqual([]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/materials?limit=100&offset=0&source_type=local_segment&source_provider=local_material_worker&current_material_source=true",
+    );
+  });
+
   it("preserves structured error detail payloads", async () => {
     const detail = {
       code: "MATERIAL_LIBRARY_NOT_READY",

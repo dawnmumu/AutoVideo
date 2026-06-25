@@ -21,6 +21,71 @@ def _store_with_root(tmp_path: Path) -> tuple[Settings, AutoVideoStore]:
     return settings, AutoVideoStore(settings)
 
 
+def _store_local_segment_material(
+    store: AutoVideoStore,
+    *,
+    source: dict[str, object],
+    raw_id: str,
+    segment_id: str,
+    material_id: str,
+) -> dict[str, object]:
+    segment_path = store.paths.material_segments / raw_id / f"{segment_id}.mp4"
+    segment_path.parent.mkdir(parents=True)
+    segment_path.write_bytes(b"segment")
+    store.upsert_material_raw_file(
+        {
+            "id": raw_id,
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": f"{source['source_relative_path']}/{raw_id}.mp4",
+            "source_path_hash": source["source_path_hash"],
+            "source_display_path": f"{source['source_display_path']}/{raw_id}.mp4",
+            "original_filename": f"{raw_id}.mp4",
+            "managed_raw_relative_path": f"{raw_id}.mp4",
+            "content_hash": "b" * 64,
+            "size_bytes": 1024,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": segment_id,
+            "raw_file_id": raw_id,
+            "managed_segment_relative_path": f"{raw_id}/{segment_id}.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "clip",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+    return store.insert_material(
+        {
+            "id": material_id,
+            "original_filename": f"{material_id}.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": segment_path.stat().st_size,
+            "storage_path": str(segment_path),
+            "created_at": "2026-06-25T00:00:00+00:00",
+            "source_type": "local_segment",
+            "source_provider": "local_material_worker",
+            "source_asset_id": segment_id,
+            "source_url": None,
+            "license_note": None,
+            "query": None,
+        }
+    )
+
+
 def test_create_index_job_rejects_active_job(tmp_path: Path) -> None:
     settings, store = _store_with_root(tmp_path)
     source = MaterialSourceService(store).save_current_source("demo", "clips")
@@ -76,6 +141,59 @@ def test_create_index_job_recovers_stale_running_job(tmp_path: Path) -> None:
     assert payload["job_id"] != stale_job["id"]
     assert payload["status"] == "queued"
     assert store.get_material_index_job(stale_job["id"])["status"] == "stale"
+
+
+def test_list_materials_filters_local_segments_to_current_source(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "old").mkdir(parents=True)
+    (root / "current").mkdir()
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_service = MaterialSourceService(store)
+    old_source = source_service.save_current_source("demo", "old")
+    old_material = _store_local_segment_material(
+        store,
+        source=old_source,
+        raw_id="raw_old",
+        segment_id="seg_old",
+        material_id="mat_old",
+    )
+    current_source = source_service.save_current_source("demo", "current")
+    current_material = _store_local_segment_material(
+        store,
+        source=current_source,
+        raw_id="raw_current",
+        segment_id="seg_current",
+        material_id="mat_current",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        current_response = client.get(
+            "/api/materials"
+            "?source_type=local_segment"
+            "&source_provider=local_material_worker"
+            "&current_material_source=true"
+        )
+        general_response = client.get(
+            "/api/materials"
+            "?source_type=local_segment"
+            "&source_provider=local_material_worker"
+        )
+
+    assert current_response.status_code == 200
+    assert [item["id"] for item in current_response.json()] == [current_material["id"]]
+    assert general_response.status_code == 200
+    assert {item["id"] for item in general_response.json()} == {
+        old_material["id"],
+        current_material["id"],
+    }
 
 
 def test_get_material_index_job_not_found(client) -> None:

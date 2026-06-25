@@ -84,15 +84,13 @@ class MaterialMatcherService:
         aspect_ratio = str(script.get("aspect_ratio") or "9:16")
         orientation = _orientation_for_aspect_ratio(aspect_ratio)
         current_source = self.store.current_material_source_config()
-        segment_scope = (
-            {
-                "source_config_id": str(current_source["id"]),
-                "allowed_root_id": str(current_source["allowed_root_id"]),
-                "source_path_hash": str(current_source["source_path_hash"]),
-            }
-            if current_source is not None
-            else {}
-        )
+        if current_source is None:
+            raise MaterialLibraryEmptyError()
+        segment_scope = {
+            "source_config_id": str(current_source["id"]),
+            "allowed_root_id": str(current_source["allowed_root_id"]),
+            "source_path_hash": str(current_source["source_path_hash"]),
+        }
         segments = self.store.ready_material_segments(
             orientation=orientation,
             **segment_scope,

@@ -204,7 +204,14 @@ export async function fetchOnlineMaterialStatus(): Promise<OnlineMaterialStatus>
 }
 
 export async function fetchMaterials(): Promise<LocalMaterial[]> {
-  return readJson(await fetch("/api/materials?limit=100&offset=0"));
+  const params = new URLSearchParams({
+    limit: "100",
+    offset: "0",
+    source_type: "local_segment",
+    source_provider: "local_material_worker",
+    current_material_source: "true",
+  });
+  return readJson(await fetch(`/api/materials?${params.toString()}`));
 }
 
 export async function generateScript(input: GenerateScriptInput): Promise<GeneratedScript> {

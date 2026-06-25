@@ -724,6 +724,32 @@ def _is_local_material_library_segment(material: dict[str, Any]) -> bool:
     )
 
 
+def _is_current_local_material_library_segment(
+    store: AutoVideoStore,
+    material: dict[str, Any],
+) -> bool:
+    if not _is_local_material_library_segment(material):
+        return False
+    current_source = store.current_material_source_config()
+    if current_source is None:
+        return False
+    segment_id = material.get("source_asset_id")
+    if not isinstance(segment_id, str) or not segment_id:
+        return False
+    segment = store.get_material_segment(segment_id)
+    if segment is None:
+        return False
+    raw_file = store.get_material_raw_file(str(segment["raw_file_id"]))
+    if raw_file is None or raw_file.get("deleted_at") is not None:
+        return False
+    if raw_file.get("source_config_id") == current_source["id"]:
+        return True
+    return (
+        raw_file.get("allowed_root_id") == current_source["allowed_root_id"]
+        and raw_file.get("source_path_hash") == current_source["source_path_hash"]
+    )
+
+
 def _online_asset_key_from_candidate(candidate: Any) -> tuple[str, str]:
     return (str(candidate.provider), str(candidate.asset_id))
 
@@ -763,9 +789,10 @@ def create_online_mix_task(
         material = store.get_material(material_id)
         if material is None:
             raise MaterialNotFoundError(material_id)
-        if material_source_mode in {"local", "hybrid"} and not (
-            _is_local_material_library_segment(material)
-        ):
+        if material_source_mode in {
+            "local",
+            "hybrid",
+        } and not _is_current_local_material_library_segment(store, material):
             raise LocalMaterialRequiredError(material_id)
         user_materials[material_id] = material
 

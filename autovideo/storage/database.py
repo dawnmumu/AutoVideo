@@ -137,15 +137,60 @@ class AutoVideoStore:
         *,
         limit: int = 50,
         offset: int = 0,
+        source_type: str | None = None,
+        source_provider: str | None = None,
+        current_material_source: bool = False,
     ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_type is not None:
+            clauses.append("COALESCE(materials.source_type, 'upload') = ?")
+            params.append(source_type)
+        if source_provider is not None:
+            clauses.append("materials.source_provider = ?")
+            params.append(source_provider)
+        if current_material_source:
+            current_source = self.current_material_source_config()
+            if current_source is None:
+                return []
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM material_segments seg
+                    JOIN material_raw_files raw
+                      ON raw.id = seg.raw_file_id
+                    WHERE seg.id = materials.source_asset_id
+                      AND seg.deleted_at IS NULL
+                      AND raw.deleted_at IS NULL
+                      AND (
+                          raw.source_config_id = ?
+                          OR (
+                              raw.allowed_root_id = ?
+                              AND raw.source_path_hash = ?
+                          )
+                      )
+                )
+                """
+            )
+            params.extend(
+                [
+                    str(current_source["id"]),
+                    str(current_source["allowed_root_id"]),
+                    str(current_source["source_path_hash"]),
+                ]
+            )
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([limit, offset])
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT * FROM materials
+                {where_clause}
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                tuple(params),
             ).fetchall()
         return [self._material_from_row(row) for row in rows]
 
@@ -730,6 +775,19 @@ class AutoVideoStore:
                 (raw_file_id, limit, offset),
             ).fetchall()
         return [self._material_segment_from_row(row) for row in rows]
+
+    def get_material_segment(self, segment_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM material_segments
+                WHERE id = ?
+                  AND deleted_at IS NULL
+                """,
+                (segment_id,),
+            ).fetchone()
+        return self._material_segment_from_row(row) if row else None
 
     def ready_material_segments(
         self,
