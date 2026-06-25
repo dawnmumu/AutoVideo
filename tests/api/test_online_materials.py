@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -76,6 +77,13 @@ class DisabledProvider:
         limit: int,
     ):
         raise AssertionError("disabled provider must not be searched")
+
+
+def _material_files(root: Path) -> list[Path]:
+    materials_dir = root / "materials"
+    if not materials_dir.exists():
+        return []
+    return [path for path in materials_dir.rglob("*") if path.is_file()]
 
 
 def test_online_material_status_reports_secret_without_leaking_value(tmp_path) -> None:
@@ -928,7 +936,7 @@ def test_download_rejects_oversized_content_length_before_streaming(tmp_path) ->
 
     assert response.status_code == 413
     assert response.json()["detail"]["code"] == "ONLINE_MATERIAL_TOO_LARGE"
-    assert list((tmp_path / "materials").iterdir()) == []
+    assert _material_files(tmp_path) == []
 
 
 def test_download_stream_read_error_returns_structured_failure_and_cleans_files(
