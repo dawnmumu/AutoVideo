@@ -150,13 +150,26 @@ export interface CreateOnlineMixTaskResponse {
 export class OnlineRemixApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly detail: unknown;
 
-  constructor(code: string, status: number) {
+  constructor(code: string, status: number, detail?: unknown) {
     super(code);
     this.name = "OnlineRemixApiError";
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
+}
+
+function responseErrorDetail(payload: unknown): unknown {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload
+  ) {
+    return payload.detail;
+  }
+  return undefined;
 }
 
 function responseErrorCode(payload: unknown, status: number): string {
@@ -177,7 +190,11 @@ function responseErrorCode(payload: unknown, status: number): string {
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new OnlineRemixApiError(responseErrorCode(payload, response.status), response.status);
+    throw new OnlineRemixApiError(
+      responseErrorCode(payload, response.status),
+      response.status,
+      responseErrorDetail(payload),
+    );
   }
   return response.json() as Promise<T>;
 }

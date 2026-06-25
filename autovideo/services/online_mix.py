@@ -81,6 +81,12 @@ class OnlineMixNoMaterialMatchError(Exception):
     """Raised when every script shot cannot be matched to a material."""
 
 
+class LocalMaterialRequiredError(Exception):
+    def __init__(self, material_id: str) -> None:
+        self.material_id = material_id
+        super().__init__(material_id)
+
+
 class OnlineMaterialSearchFailedError(RuntimeError):
     """Raised when an online material provider search fails."""
 
@@ -711,6 +717,13 @@ def _online_asset_key_from_material(
     return (provider, asset_id)
 
 
+def _is_local_material_library_segment(material: dict[str, Any]) -> bool:
+    return (
+        material.get("source_type") == "local_segment"
+        and material.get("source_provider") == "local_material_worker"
+    )
+
+
 def _online_asset_key_from_candidate(candidate: Any) -> tuple[str, str]:
     return (str(candidate.provider), str(candidate.asset_id))
 
@@ -750,6 +763,10 @@ def create_online_mix_task(
         material = store.get_material(material_id)
         if material is None:
             raise MaterialNotFoundError(material_id)
+        if material_source_mode in {"local", "hybrid"} and not (
+            _is_local_material_library_segment(material)
+        ):
+            raise LocalMaterialRequiredError(material_id)
         user_materials[material_id] = material
 
     used_online_assets: set[tuple[str, str]] = set()

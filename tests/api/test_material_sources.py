@@ -80,7 +80,7 @@ def test_save_source_reuses_active_job_for_same_directory(tmp_path: Path) -> Non
             "heartbeat_at": None,
             "attempt_count": 0,
             "error_summary": None,
-            "created_at": "2026-06-24T00:00:00+00:00",
+            "created_at": datetime.now(UTC).isoformat(),
             "started_at": None,
             "finished_at": None,
         }

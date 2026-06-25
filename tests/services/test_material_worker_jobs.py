@@ -188,6 +188,39 @@ def test_mark_stale_jobs_closes_old_running_jobs(tmp_path: Path) -> None:
     assert job["error_summary"] == "MATERIAL_INDEX_JOB_STALE"
 
 
+def test_mark_stale_jobs_closes_old_queued_jobs_and_allows_retry(
+    tmp_path: Path,
+) -> None:
+    store, source = _store_and_source(tmp_path)
+    service = MaterialWorkerService(store)
+    created = service.create_index_job(source["id"])
+    old = datetime.now(UTC) - timedelta(hours=2)
+    store.update_material_index_job(created["id"], {"created_at": old.isoformat()})
+
+    count = service.mark_stale_jobs(stale_after_seconds=60)
+    retry = service.create_index_job(source["id"])
+    job = store.get_material_index_job(created["id"])
+
+    assert count == 1
+    assert job is not None
+    assert job["status"] == "stale"
+    assert job["finished_at"] is not None
+    assert retry["status"] == "queued"
+
+
+def test_mark_stale_jobs_keeps_fresh_queued_jobs_active(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    service = MaterialWorkerService(store)
+    created = service.create_index_job(source["id"])
+
+    count = service.mark_stale_jobs(stale_after_seconds=60)
+
+    assert count == 0
+    assert store.get_material_index_job(created["id"])["status"] == "queued"
+    with pytest.raises(MaterialIndexAlreadyRunningError):
+        service.create_index_job(source["id"])
+
+
 def test_update_job_rejects_unknown_fields(tmp_path: Path) -> None:
     store, source = _store_and_source(tmp_path)
     service = MaterialWorkerService(store)

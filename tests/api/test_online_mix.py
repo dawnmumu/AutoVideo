@@ -230,6 +230,37 @@ def _store_ready_material_segment(store: AutoVideoStore) -> None:
     )
 
 
+def _insert_material(
+    store: AutoVideoStore,
+    tmp_path,
+    *,
+    material_id: str,
+    source_type: str,
+    source_provider: str | None = None,
+    source_asset_id: str | None = None,
+) -> dict:
+    storage_path = tmp_path / f"{material_id}.mp4"
+    storage_path.write_bytes(b"material video")
+    return store.insert_material(
+        {
+            "id": material_id,
+            "original_filename": f"{material_id}.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": storage_path.stat().st_size,
+            "storage_path": str(storage_path),
+            "created_at": "2026-06-25T00:00:00+00:00",
+            "source_type": source_type,
+            "source_provider": source_provider,
+            "source_asset_id": source_asset_id,
+            "source_url": "https://example.com/video.mp4"
+            if source_type == "online"
+            else None,
+            "license_note": None,
+            "query": None,
+        }
+    )
+
+
 def test_online_mix_uses_local_material_library_mode(tmp_path) -> None:
     settings = Settings(
         _env_file=None,
@@ -261,6 +292,116 @@ def test_online_mix_uses_local_material_library_mode(tmp_path) -> None:
     assert manifest["shot_materials"][0]["material_segment_id"] == "seg_1"
     assert "managed_segment_relative_path" not in manifest_text
     assert str(tmp_path) not in manifest_text
+
+
+def test_online_mix_rejects_non_local_segment_manual_material_in_local_mode(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    upload = _insert_material(store, tmp_path, material_id="upload-1", source_type="upload")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地覆盖拒绝上传素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "shot_materials": [{"shot_index": 1, "material_id": upload["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "LOCAL_MATERIAL_REQUIRED"
+    assert response.json()["detail"]["material_id"] == upload["id"]
+
+
+def test_online_mix_rejects_online_manual_material_in_hybrid_mode(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    online = _insert_material(
+        store,
+        tmp_path,
+        material_id="online-1",
+        source_type="online",
+        source_provider="pexels",
+        source_asset_id="asset-1",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "混合覆盖拒绝线上素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "hybrid",
+                "shot_materials": [{"shot_index": 1, "material_id": online["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "LOCAL_MATERIAL_REQUIRED"
+    assert response.json()["detail"]["material_id"] == online["id"]
+
+
+def test_online_mix_accepts_local_segment_manual_material_in_local_mode(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    local_segment = _insert_material(
+        store,
+        tmp_path,
+        material_id="local-segment-1",
+        source_type="local_segment",
+        source_provider="local_material_worker",
+        source_asset_id="seg-1",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": local_segment["id"]}
+                ],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
+    task = response.json()
+    manifest = json.loads(
+        (settings.data_dir / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["shot_materials"][0]["material_id"] == local_segment["id"]
+    assert manifest["source_attribution"][0]["provider"] == "local_material_worker"
 
 
 def test_online_mix_hybrid_uses_local_without_provider_when_local_covers_all(

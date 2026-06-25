@@ -484,10 +484,16 @@ class AutoVideoStore:
                 SET status = 'stale',
                     finished_at = ?,
                     error_summary = 'MATERIAL_INDEX_JOB_STALE'
-                WHERE status = 'running'
-                  AND heartbeat_at < ?
+                WHERE (
+                    status = 'running'
+                    AND COALESCE(heartbeat_at, started_at, created_at) < ?
+                )
+                OR (
+                    status = 'queued'
+                    AND created_at < ?
+                )
                 """,
-                (now, stale_before),
+                (now, stale_before, stale_before),
             )
         return cursor.rowcount
 
@@ -729,8 +735,17 @@ class AutoVideoStore:
         self,
         *,
         orientation: str | None = None,
+        source_config_id: str | None = None,
+        allowed_root_id: str | None = None,
+        source_path_hash: str | None = None,
     ) -> list[dict[str, Any]]:
-        params: tuple[Any, ...] = ()
+        params: list[Any] = []
+        order_params: list[Any] = []
+        clauses = [
+            "seg.status = 'ready'",
+            "seg.deleted_at IS NULL",
+            "raw.deleted_at IS NULL",
+        ]
         order_by = "seg.created_at DESC, seg.rowid DESC"
         if orientation is not None:
             order_by = """
@@ -742,7 +757,28 @@ class AutoVideoStore:
                 seg.created_at DESC,
                 seg.rowid DESC
             """
-            params = (orientation,)
+            order_params.append(orientation)
+        if source_config_id is not None:
+            clauses.append(
+                """
+                (
+                    raw.source_config_id = ?
+                    OR raw.source_config_id IN (
+                        SELECT id
+                        FROM material_source_configs
+                        WHERE allowed_root_id = ?
+                          AND source_path_hash = ?
+                    )
+                )
+                """
+            )
+            params.extend(
+                [
+                    source_config_id,
+                    allowed_root_id or "",
+                    source_path_hash or "",
+                ]
+            )
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
@@ -750,12 +786,10 @@ class AutoVideoStore:
                 FROM material_segments seg
                 JOIN material_raw_files raw
                   ON raw.id = seg.raw_file_id
-                WHERE seg.status = 'ready'
-                  AND seg.deleted_at IS NULL
-                  AND raw.deleted_at IS NULL
+                WHERE {" AND ".join(clauses)}
                 ORDER BY {order_by}
                 """,
-                params,
+                tuple(params + order_params),
             ).fetchall()
         return [self._material_segment_from_row(row) for row in rows]
 

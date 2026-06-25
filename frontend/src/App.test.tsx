@@ -4347,17 +4347,19 @@ describe("AutoVideo shell", () => {
     expect(mockedSearchOnlineMaterials).toHaveBeenCalledTimes(2);
   });
 
-  it("can use existing local material for a shot", async () => {
+  it("can use existing local segment material for a shot", async () => {
     const user = userEvent.setup();
     mockedFetchMaterials.mockResolvedValue([
       {
-        id: "material-real-1",
-        original_filename: "oil-bottle.mp4",
+        id: "material-segment-1",
+        original_filename: "oil-bottle-segment.mp4",
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
-        download_url: "/api/materials/material-real-1/download",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        download_url: "/api/materials/material-segment-1/download",
       },
     ]);
     mockedGenerateScript.mockResolvedValue({
@@ -4386,9 +4388,60 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
 
     expect(await screen.findByRole("dialog", { name: "选择本地素材" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "选择 oil-bottle.mp4" }));
+    await user.click(screen.getByRole("button", { name: "选择 oil-bottle-segment.mp4" }));
 
-    expect(screen.getByText("oil-bottle.mp4")).toBeInTheDocument();
+    expect(screen.getByText("oil-bottle-segment.mp4")).toBeInTheDocument();
+  });
+
+  it("filters upload and online materials out of the local material picker", async () => {
+    const user = userEvent.setup();
+    mockedFetchMaterials.mockResolvedValue([
+      {
+        id: "material-upload-1",
+        original_filename: "uploaded-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "upload",
+        download_url: "/api/materials/material-upload-1/download",
+      },
+      {
+        id: "material-online-1",
+        original_filename: "pexels-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "online",
+        source_provider: "pexels",
+        source_asset_id: "123",
+        source_url: "https://www.pexels.com/video/123/",
+        download_url: "/api/materials/material-online-1/download",
+      },
+      {
+        id: "material-segment-1",
+        original_filename: "local-segment-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        download_url: "/api/materials/material-segment-1/download",
+      },
+    ]);
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "选择本地素材" });
+    expect(within(dialog).queryByText("uploaded-oil.mp4")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("pexels-oil.mp4")).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "选择 local-segment-oil.mp4" }),
+    ).toBeInTheDocument();
   });
 
   it("submits local material source mode when creating a remix task", async () => {
@@ -4464,7 +4517,9 @@ describe("AutoVideo shell", () => {
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
         download_url: "/api/materials/material-real-1/download",
       },
     ]);
@@ -4744,7 +4799,9 @@ describe("AutoVideo shell", () => {
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
         download_url: "/api/materials/material-real-1/download",
       },
     ]);
@@ -4780,6 +4837,37 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "重试创建" })).toBeInTheDocument();
     expect(screen.getByText("错误列表")).toBeInTheDocument();
     expect(screen.getByText("ONLINE_MATERIAL_DOWNLOAD_FAILED")).toBeInTheDocument();
+  });
+
+  it("shows material library indexing recovery details when creating a task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockRejectedValue(
+      Object.assign(new Error("MATERIAL_LIBRARY_NOT_READY"), {
+        code: "MATERIAL_LIBRARY_NOT_READY",
+        detail: {
+          code: "MATERIAL_LIBRARY_NOT_READY",
+          job: {
+            id: "job-1",
+            status: "queued",
+            stage: "scanning",
+            progress: { current: 1, total: 4 },
+          },
+        },
+      }),
+    );
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "睡眠精油");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByText("镜头 1");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(await screen.findByText("创建失败")).toBeInTheDocument();
+    expect(screen.getByText(/本地素材库正在建立索引/)).toBeInTheDocument();
+    expect(screen.getByText(/阶段：扫描素材/)).toBeInTheDocument();
+    expect(screen.getByText(/进度：1\/4/)).toBeInTheDocument();
+    expect(screen.queryByText("MATERIAL_LIBRARY_NOT_READY")).not.toBeInTheDocument();
   });
 
   it("renders mobile collapsible shots and vertical candidate cards", async () => {

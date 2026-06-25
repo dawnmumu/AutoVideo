@@ -83,9 +83,22 @@ class MaterialMatcherService:
     ) -> list[dict[str, Any]]:
         aspect_ratio = str(script.get("aspect_ratio") or "9:16")
         orientation = _orientation_for_aspect_ratio(aspect_ratio)
-        segments = self.store.ready_material_segments(orientation=orientation)
+        current_source = self.store.current_material_source_config()
+        segment_scope = (
+            {
+                "source_config_id": str(current_source["id"]),
+                "allowed_root_id": str(current_source["allowed_root_id"]),
+                "source_path_hash": str(current_source["source_path_hash"]),
+            }
+            if current_source is not None
+            else {}
+        )
+        segments = self.store.ready_material_segments(
+            orientation=orientation,
+            **segment_scope,
+        )
         if not segments:
-            self._raise_empty_or_not_ready()
+            self._raise_empty_or_not_ready(current_source)
 
         shots = [
             shot
@@ -132,8 +145,12 @@ class MaterialMatcherService:
             raise MaterialLibraryEmptyError()
         return selections
 
-    def _raise_empty_or_not_ready(self) -> None:
-        current_source = self.store.current_material_source_config()
+    def _raise_empty_or_not_ready(
+        self,
+        current_source: dict[str, Any] | None = None,
+    ) -> None:
+        if current_source is None:
+            current_source = self.store.current_material_source_config()
         if current_source is None:
             raise MaterialLibraryEmptyError()
 

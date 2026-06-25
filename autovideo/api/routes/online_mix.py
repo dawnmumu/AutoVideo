@@ -28,6 +28,7 @@ from autovideo.services.online_materials import (
 from autovideo.services.online_mix import (
     AudioMixFailedError,
     BgmOptionInvalidError,
+    LocalMaterialRequiredError,
     MaterialLibraryEmptyError,
     MaterialLibraryNotReadyError,
     OnlineMaterialProviderNotAvailableError,
@@ -312,6 +313,12 @@ def create_online_mix_video_task(
         raise structured_error(
             status.HTTP_404_NOT_FOUND,
             "MATERIAL_NOT_FOUND",
+            material_id=exc.material_id,
+        ) from exc
+    except LocalMaterialRequiredError as exc:
+        raise structured_error(
+            status.HTTP_400_BAD_REQUEST,
+            "LOCAL_MATERIAL_REQUIRED",
             material_id=exc.material_id,
         ) from exc
     except TaskMaterialLimitExceededError as exc:

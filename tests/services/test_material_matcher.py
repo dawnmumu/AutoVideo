@@ -27,6 +27,56 @@ def _store_with_current_source(tmp_path: Path) -> tuple[AutoVideoStore, dict[str
     return store, source
 
 
+def _store_ready_segment_for_source(
+    store: AutoVideoStore,
+    *,
+    source: dict[str, object],
+    raw_id: str,
+    segment_id: str,
+    relative_file: str,
+    match_text: str = "spa room clip",
+) -> None:
+    segment_path = store.paths.material_segments / raw_id / f"{segment_id}.mp4"
+    segment_path.parent.mkdir(parents=True)
+    segment_path.write_bytes(b"segment")
+    store.upsert_material_raw_file(
+        {
+            "id": raw_id,
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": relative_file,
+            "source_path_hash": "f" * 64,
+            "source_display_path": f"{source['source_display_path']}/{Path(relative_file).name}",
+            "original_filename": Path(relative_file).name,
+            "managed_raw_relative_path": f"{raw_id}.mp4",
+            "content_hash": "b" * 64,
+            "size_bytes": 7,
+            "duration_seconds": 12.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": segment_id,
+            "raw_file_id": raw_id,
+            "managed_segment_relative_path": f"{raw_id}/{segment_id}.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": match_text,
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+
 def test_prepare_for_script_creates_material_id_for_ready_segment(tmp_path: Path) -> None:
     store = AutoVideoStore(Settings(_env_file=None, data_dir=tmp_path))
     segment_path = store.paths.material_segments / "raw_1" / "seg_1.mp4"
@@ -89,6 +139,41 @@ def test_prepare_for_script_creates_material_id_for_ready_segment(tmp_path: Path
     assert material["source_type"] == "local_segment"
     assert material["source_provider"] == "local_material_worker"
     assert material["source_asset_id"] == "seg_1"
+
+
+def test_prepare_for_script_scopes_ready_segments_to_current_source(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "a").mkdir(parents=True)
+    (root / "b").mkdir()
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_a = MaterialSourceService(store).save_current_source("demo", "a")
+    _store_ready_segment_for_source(
+        store,
+        source=source_a,
+        raw_id="raw_a",
+        segment_id="seg_a",
+        relative_file="a/clip-a.mp4",
+    )
+    source_b = MaterialSourceService(store).save_current_source("demo", "b")
+    script = {
+        "aspect_ratio": "9:16",
+        "shots": [{"index": 1, "duration": 5, "keywords": ["spa"]}],
+    }
+
+    with pytest.raises(MaterialLibraryNotReadyError) as exc_info:
+        MaterialMatcherService(store).prepare_for_script(script, "local")
+
+    assert exc_info.value.job["source_config_id"] == source_b["id"]
+    assert exc_info.value.job["status"] == "queued"
+    assert store.latest_material_index_job(source_b["id"])["id"] == exc_info.value.job["id"]
+    assert store.get_material("seg_a") is None
 
 
 def test_prepare_for_script_raises_empty_when_no_ready_segments(tmp_path: Path) -> None:
