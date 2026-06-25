@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Captions, FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { fetchHealth } from "../api/health";
 import { fetchSubtitleTemplateSets } from "../api/subtitles";
@@ -317,7 +317,31 @@ export function OnlineRemixWorkbench({
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);
-  const localSegmentMaterials = (materials.data ?? []).filter(isLocalMaterialLibrarySegment);
+  const localSegmentMaterials = useMemo(
+    () => (materials.data ?? []).filter(isLocalMaterialLibrarySegment),
+    [materials.data],
+  );
+
+  useEffect(() => {
+    if (!materials.data) {
+      return;
+    }
+    const availableMaterialIds = new Set(localSegmentMaterials.map((material) => material.id));
+    setLocalMaterialByShot((current) => {
+      let removedStaleSelection = false;
+      const next: Record<number, string> = {};
+
+      Object.entries(current).forEach(([shotIndex, materialId]) => {
+        if (availableMaterialIds.has(materialId)) {
+          next[Number(shotIndex)] = materialId;
+        } else {
+          removedStaleSelection = true;
+        }
+      });
+
+      return removedStaleSelection ? next : current;
+    });
+  }, [localSegmentMaterials, materials.data]);
 
   const updateScript = (updater: (current: GeneratedScript) => GeneratedScript) => {
     setScript((current) => (current ? updater(current) : current));

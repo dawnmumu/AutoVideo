@@ -87,6 +87,7 @@ export function MaterialLibraryWorkbench() {
   });
 
   const invalidateMaterialQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ["materials"] });
     void queryClient.invalidateQueries({ queryKey: ["material-source-status"] });
     void queryClient.invalidateQueries({ queryKey: ["material-library-summary"] });
     void queryClient.invalidateQueries({ queryKey: ["material-raw-files"] });
