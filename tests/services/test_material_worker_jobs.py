@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from autovideo.core.settings import Settings
-from autovideo.services.material_processing import MaterialFfmpegUnavailableError
+from autovideo.services import material_processing as material_processing_module
+from autovideo.services.material_processing import (
+    MaterialFfmpegUnavailableError,
+    MaterialProcessingService,
+    VideoProbeResult,
+)
 from autovideo.services.material_sources import (
     MaterialSourceNotFoundError,
     MaterialSourceService,
@@ -345,6 +350,72 @@ def test_run_job_heartbeat_keeps_long_running_job_active(tmp_path: Path) -> None
     )
     assert processing.stale_count == 0
     assert processing.duplicate_created is False
+    assert finished["status"] == "succeeded"
+    assert latest is not None
+    assert latest["id"] == created["id"]
+
+
+def test_run_job_scan_heartbeat_keeps_directory_walk_active(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, source = _store_and_source(tmp_path)
+    source_root = tmp_path / "source" / "clips"
+    (source_root / "clip.mp4").write_bytes(b"video")
+    created = MaterialWorkerService(store).create_index_job(source["id"])
+    original_walk = material_processing_module.os.walk
+    scan_probe: dict[str, bool | int | None] = {
+        "stale_count": None,
+        "duplicate_created": None,
+    }
+
+    def recover_and_retry() -> None:
+        if scan_probe["stale_count"] is not None:
+            return
+        scan_probe["stale_count"] = MaterialWorkerService(store).recover_stale_jobs()
+        try:
+            MaterialWorkerService(store).create_index_job(source["id"], force=True)
+        except MaterialIndexAlreadyRunningError:
+            scan_probe["duplicate_created"] = False
+        else:
+            scan_probe["duplicate_created"] = True
+
+    def slow_walk(top: Path, followlinks: bool = False):
+        old = datetime.now(UTC) - timedelta(hours=2)
+        store.update_material_index_job(
+            created["id"],
+            {"heartbeat_at": old.isoformat()},
+        )
+        for item in original_walk(top, followlinks=followlinks):
+            yield item
+            recover_and_retry()
+
+    monkeypatch.setattr(material_processing_module.os, "walk", slow_walk)
+    processing = MaterialProcessingService(
+        store,
+        probe_video=lambda path: VideoProbeResult(
+            duration_seconds=8.0,
+            width=1080,
+            height=1920,
+            codec_name="h264",
+        ),
+        slice_video=lambda source_path, target_path, start, duration: target_path.write_bytes(
+            b"segment"
+        ),
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    finished = service.run_job(created["id"])
+    current = store.get_material_index_job(created["id"])
+    latest = store.latest_material_index_job_for_source_identity(
+        source["allowed_root_id"],
+        source["source_path_hash"],
+    )
+
+    assert scan_probe["stale_count"] == 0
+    assert scan_probe["duplicate_created"] is False
+    assert current is not None
+    assert current["status"] == "succeeded"
     assert finished["status"] == "succeeded"
     assert latest is not None
     assert latest["id"] == created["id"]

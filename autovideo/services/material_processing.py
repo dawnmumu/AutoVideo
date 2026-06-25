@@ -80,10 +80,7 @@ class MaterialProcessingService:
         raw_files_total = 0
         segments_total = 0
         failed_total = 0
-        source_files = self._iter_source_files(
-            resolved_source.resolved_path, resolved_source.allowed_root.resolved_path
-        )
-        progress_total = len(source_files)
+        progress_total = 0
 
         def emit_progress(current: int, stage: str = "segmenting") -> None:
             if progress_callback is None:
@@ -99,6 +96,13 @@ class MaterialProcessingService:
                 }
             )
 
+        emit_progress(0, "scanning")
+        source_files = self._iter_source_files(
+            resolved_source.resolved_path,
+            resolved_source.allowed_root.resolved_path,
+            heartbeat_callback=lambda: emit_progress(0, "scanning"),
+        )
+        progress_total = len(source_files)
         emit_progress(0, "scanning")
         for index, source_path in enumerate(source_files, start=1):
             heartbeat_current = index - 1
@@ -388,7 +392,13 @@ class MaterialProcessingService:
             )
             return {"raw_files_total": 1, "segments_total": 0, "failed_total": 1}
 
-    def _iter_source_files(self, source_root: Path, allowed_root: Path) -> list[Path]:
+    def _iter_source_files(
+        self,
+        source_root: Path,
+        allowed_root: Path,
+        *,
+        heartbeat_callback: HeartbeatCallback | None = None,
+    ) -> list[Path]:
         files: list[Path] = []
         for current_root, dirnames, filenames in os.walk(source_root, followlinks=False):
             current_path = Path(current_root)
@@ -406,6 +416,8 @@ class MaterialProcessingService:
                 except ValueError:
                     continue
                 files.append(candidate)
+            if heartbeat_callback is not None:
+                heartbeat_callback()
         return sorted(files)
 
     def _segment_rows_for_raw(self, raw_file_id: str) -> list[dict[str, Any]]:
