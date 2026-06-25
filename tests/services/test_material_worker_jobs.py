@@ -1,11 +1,15 @@
 import sqlite3
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from autovideo.core.settings import Settings
-from autovideo.services import material_processing as material_processing_module
+from autovideo.services import (
+    material_processing as material_processing_module,
+    material_worker as material_worker_module,
+)
 from autovideo.services.material_processing import (
     MaterialFfmpegUnavailableError,
     MaterialProcessingService,
@@ -274,6 +278,62 @@ class _LeaseProbeProcessingService:
         }
 
 
+class _BlocksBeforeProgressProcessingService:
+    def __init__(
+        self,
+        store: AutoVideoStore,
+        job_id: str,
+    ) -> None:
+        self.store = store
+        self.job_id = job_id
+        self.stale_count: int | None = None
+        self.duplicate_created = False
+        self.heartbeat_before_recover: str | None = None
+
+    def process_source(
+        self,
+        source: dict[str, str],
+        progress_callback=None,
+    ) -> dict[str, int]:
+        old = datetime.now(UTC) - timedelta(hours=2)
+        old_heartbeat = old.isoformat()
+        self.store.update_material_index_job(
+            self.job_id,
+            {"heartbeat_at": old_heartbeat},
+        )
+
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            current = self.store.get_material_index_job(self.job_id)
+            self.heartbeat_before_recover = (
+                None if current is None else str(current["heartbeat_at"])
+            )
+            if self.heartbeat_before_recover != old_heartbeat:
+                break
+            time.sleep(0.005)
+
+        self.stale_count = MaterialWorkerService(self.store).recover_stale_jobs()
+        try:
+            MaterialWorkerService(self.store).create_index_job(source["id"], force=True)
+        except MaterialIndexAlreadyRunningError:
+            self.duplicate_created = False
+        else:
+            self.duplicate_created = True
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "segmenting",
+                    "progress_current": 1,
+                    "progress_total": 1,
+                }
+            )
+        return {
+            "raw_files_total": 1,
+            "segments_total": 1,
+            "failed_total": 0,
+        }
+
+
 class _ExternallyStalesProcessingService:
     def __init__(
         self,
@@ -350,6 +410,38 @@ def test_run_job_heartbeat_keeps_long_running_job_active(tmp_path: Path) -> None
     )
     assert processing.stale_count == 0
     assert processing.duplicate_created is False
+    assert finished["status"] == "succeeded"
+    assert latest is not None
+    assert latest["id"] == created["id"]
+
+
+def test_run_job_background_lease_refreshes_before_processing_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        material_worker_module,
+        "MATERIAL_INDEX_JOB_LEASE_HEARTBEAT_INTERVAL_SECONDS",
+        0.01,
+        raising=False,
+    )
+    store, source = _store_and_source(tmp_path)
+    created = MaterialWorkerService(store).create_index_job(source["id"])
+    processing = _BlocksBeforeProgressProcessingService(store, created["id"])
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    finished = service.run_job(created["id"])
+    current = store.get_material_index_job(created["id"])
+    latest = store.latest_material_index_job_for_source_identity(
+        source["allowed_root_id"],
+        source["source_path_hash"],
+    )
+
+    assert processing.stale_count == 0
+    assert processing.duplicate_created is False
+    assert processing.heartbeat_before_recover is not None
+    assert current is not None
+    assert current["status"] == "succeeded"
     assert finished["status"] == "succeeded"
     assert latest is not None
     assert latest["id"] == created["id"]

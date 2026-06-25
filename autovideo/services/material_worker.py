@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,6 +23,7 @@ from autovideo.storage.database import AutoVideoStore
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "stale", "canceled"}
 ACTIVE_JOB_STATUSES = {"queued", "running"}
 MATERIAL_INDEX_JOB_STALE_AFTER_SECONDS = 900
+MATERIAL_INDEX_JOB_LEASE_HEARTBEAT_INTERVAL_SECONDS = 30.0
 MATERIAL_SOURCE_ERRORS = (
     MaterialSourceInvalidPathError,
     MaterialSourceNotDirectoryError,
@@ -143,11 +145,15 @@ class MaterialWorkerService:
             self.store.update_running_material_index_job(claimed["id"], patch)
 
         try:
-            counts = self._process_source_with_heartbeat(
-                processing_service,
-                source_config,
-                heartbeat,
-            )
+            lease_stop, lease_thread = self._start_lease_heartbeat(claimed["id"])
+            try:
+                counts = self._process_source_with_heartbeat(
+                    processing_service,
+                    source_config,
+                    heartbeat,
+                )
+            finally:
+                self._stop_lease_heartbeat(lease_stop, lease_thread)
         except MaterialFfmpegUnavailableError:
             return self._fail_claimed_job(
                 claimed["id"],
@@ -200,6 +206,39 @@ class MaterialWorkerService:
                 "finished_at": finished_at,
             },
         )
+
+    def _start_lease_heartbeat(self, job_id: str) -> tuple[threading.Event, threading.Thread]:
+        stop_event = threading.Event()
+
+        def refresh_loop() -> None:
+            while not stop_event.wait(
+                max(float(MATERIAL_INDEX_JOB_LEASE_HEARTBEAT_INTERVAL_SECONDS), 0.001)
+            ):
+                try:
+                    current = self.store.update_running_material_index_job(
+                        job_id,
+                        {"heartbeat_at": datetime.now(UTC).isoformat()},
+                    )
+                except Exception:
+                    break
+                if current["status"] != "running":
+                    break
+
+        thread = threading.Thread(
+            target=refresh_loop,
+            name=f"material-index-lease-{job_id[:8]}",
+            daemon=True,
+        )
+        thread.start()
+        return stop_event, thread
+
+    @staticmethod
+    def _stop_lease_heartbeat(
+        stop_event: threading.Event,
+        thread: threading.Thread,
+    ) -> None:
+        stop_event.set()
+        thread.join(timeout=1.0)
 
     @staticmethod
     def _process_source_with_heartbeat(
