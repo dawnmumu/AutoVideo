@@ -169,6 +169,49 @@ def test_raw_files_pagination_summary_and_segment_list(tmp_path: Path) -> None:
     assert "managed_raw_relative_path" not in str(summary_payload)
 
 
+def test_raw_file_api_does_not_expose_managed_paths_from_failed_error_summary(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data")
+    app = create_app(settings)
+    store = AutoVideoStore(settings)
+    raw_relative_path = "raw_failed.mp4"
+    segment_relative_path = "raw_failed/seg_failed.mp4"
+    leaked_summary = (
+        f"ffmpeg failed at {store.paths.root}/materials/raw/{raw_relative_path} "
+        f"and {store.paths.root}/materials/segments/{segment_relative_path}"
+    )
+    store.upsert_material_raw_file(
+        {
+            "id": "raw_failed",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "a" * 64,
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": raw_relative_path,
+            "content_hash": "b" * 64,
+            "size_bytes": 1024,
+            "duration_seconds": None,
+            "orientation": None,
+            "status": "failed",
+            "error_summary": leaked_summary,
+        }
+    )
+
+    with TestClient(app) as client:
+        raw_response = client.get("/api/material-index/raw-files")
+
+    assert raw_response.status_code == 200
+    payload = raw_response.json()
+    assert payload["items"][0]["error_summary"] == "MATERIAL_INDEX_FAILED"
+    payload_text = str(payload)
+    assert str(store.paths.root) not in payload_text
+    assert raw_relative_path not in payload_text
+    assert segment_relative_path not in payload_text
+
+
 def test_material_index_summary_latest_job_follows_current_source(tmp_path: Path) -> None:
     root = tmp_path / "source"
     (root / "a").mkdir(parents=True)

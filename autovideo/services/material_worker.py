@@ -8,10 +8,26 @@ from autovideo.services.material_processing import (
     MaterialFfmpegUnavailableError,
     MaterialProcessingService,
 )
+from autovideo.services.material_sources import (
+    MaterialSourceInvalidPathError,
+    MaterialSourceNotDirectoryError,
+    MaterialSourceNotFoundError,
+    MaterialSourcePathOutOfScopeError,
+    MaterialSourceRootNotConfiguredError,
+    MaterialSourceRootNotFoundError,
+)
 from autovideo.storage.database import AutoVideoStore
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "stale", "canceled"}
 ACTIVE_JOB_STATUSES = {"queued", "running"}
+MATERIAL_SOURCE_ERRORS = (
+    MaterialSourceInvalidPathError,
+    MaterialSourceNotDirectoryError,
+    MaterialSourceNotFoundError,
+    MaterialSourcePathOutOfScopeError,
+    MaterialSourceRootNotConfiguredError,
+    MaterialSourceRootNotFoundError,
+)
 
 
 class MaterialIndexAlreadyRunningError(Exception):
@@ -96,23 +112,29 @@ class MaterialWorkerService:
         )
         source_config = self.store.get_material_source_config(claimed["source_config_id"])
         if source_config is None:
-            raise MaterialIndexJobNotFoundError()
+            return self._fail_claimed_job(
+                claimed["id"],
+                error_summary="MATERIAL_SOURCE_NOT_FOUND",
+            )
         processing_service = self.processing_service or MaterialProcessingService(
             self.store
         )
         try:
             counts = processing_service.process_source(source_config)
         except MaterialFfmpegUnavailableError:
-            finished_at = datetime.now(UTC).isoformat()
-            return self.store.update_material_index_job(
+            return self._fail_claimed_job(
                 claimed["id"],
-                {
-                    "status": "failed",
-                    "stage": "segmenting",
-                    "error_summary": "MATERIAL_FFMPEG_UNAVAILABLE",
-                    "heartbeat_at": finished_at,
-                    "finished_at": finished_at,
-                },
+                error_summary="MATERIAL_FFMPEG_UNAVAILABLE",
+            )
+        except MATERIAL_SOURCE_ERRORS:
+            return self._fail_claimed_job(
+                claimed["id"],
+                error_summary="MATERIAL_SOURCE_NOT_FOUND",
+            )
+        except Exception:
+            return self._fail_claimed_job(
+                claimed["id"],
+                error_summary="MATERIAL_INDEX_JOB_FAILED",
             )
 
         finished_at = datetime.now(UTC).isoformat()
@@ -133,6 +155,19 @@ class MaterialWorkerService:
                 "raw_files_total": raw_files_total,
                 "segments_total": segments_total,
                 "failed_total": failed_total,
+                "error_summary": error_summary,
+                "heartbeat_at": finished_at,
+                "finished_at": finished_at,
+            },
+        )
+
+    def _fail_claimed_job(self, job_id: str, *, error_summary: str) -> dict[str, Any]:
+        finished_at = datetime.now(UTC).isoformat()
+        return self.store.update_material_index_job(
+            job_id,
+            {
+                "status": "failed",
+                "stage": "segmenting",
                 "error_summary": error_summary,
                 "heartbeat_at": finished_at,
                 "finished_at": finished_at,

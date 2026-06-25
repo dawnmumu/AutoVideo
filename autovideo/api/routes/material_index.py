@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
@@ -17,6 +18,7 @@ from autovideo.services.material_worker import (
 from autovideo.storage.database import AutoVideoStore
 
 router = APIRouter(prefix="/api/material-index", tags=["material-index"])
+SAFE_ERROR_SUMMARY_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,120}$")
 
 
 class StartMaterialIndexRequest(BaseModel):
@@ -90,7 +92,7 @@ def _public_raw_file(raw: dict[str, Any]) -> dict[str, Any]:
         "orientation": raw.get("orientation"),
         "segments": raw.get("segments", 0),
         "status": raw["status"],
-        "error_summary": raw.get("error_summary"),
+        "error_summary": _safe_error_summary(raw.get("error_summary")),
         "asr_status": raw.get("asr_status"),
         "ocr_status": raw.get("ocr_status"),
         "vision_status": raw.get("vision_status"),
@@ -114,7 +116,7 @@ def _public_segment(segment: dict[str, Any]) -> dict[str, Any]:
         "vision_description": segment.get("vision_description"),
         "content_label_status": segment.get("content_label_status"),
         "embedding_status": segment.get("embedding_status"),
-        "error_summary": segment.get("error_summary"),
+        "error_summary": _safe_error_summary(segment.get("error_summary")),
         "created_at": segment["created_at"],
         "updated_at": segment["updated_at"],
     }
@@ -132,6 +134,15 @@ def _segment_total(store: AutoVideoStore, raw_file_id: str) -> int:
             (raw_file_id,),
         ).fetchone()
     return int(row[0]) if row else 0
+
+
+def _safe_error_summary(value: Any) -> str | None:
+    if value is None:
+        return None
+    summary = str(value)
+    if SAFE_ERROR_SUMMARY_RE.fullmatch(summary):
+        return summary
+    return "MATERIAL_INDEX_FAILED"
 
 
 def _current_source_or_error(store: AutoVideoStore) -> dict[str, Any]:

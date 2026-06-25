@@ -112,6 +112,9 @@ def _public_material_index_job(job: dict[str, Any]) -> dict[str, Any]:
             "total": job.get("progress_total"),
         },
         "counts": {
+            "raw": job.get("raw_files_total"),
+            "segments": job.get("segments_total"),
+            "failed": job.get("failed_total"),
             "raw_files_total": job.get("raw_files_total"),
             "segments_total": job.get("segments_total"),
             "failed_total": job.get("failed_total"),

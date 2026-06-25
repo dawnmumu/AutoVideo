@@ -226,6 +226,7 @@ class MaterialProcessingService:
             self.store.delete_local_segment_materials(existing_segment_ids)
         deleted_at = self._now_isoformat()
         self.store.mark_material_segments_deleted(raw_id, deleted_at)
+        failure_error_summary = "MATERIAL_PROBE_FAILED"
         try:
             probe = self.probe_video(raw_path)
             ranges = _segment_ranges(probe.duration_seconds)
@@ -233,6 +234,7 @@ class MaterialProcessingService:
                 raise ValueError("video is too short to segment")
             created_segments: list[dict[str, Any]] = []
             for index, (start, duration) in enumerate(ranges, start=1):
+                failure_error_summary = "MATERIAL_SEGMENT_FAILED"
                 segment_id = f"{raw_id}_{index}"
                 segment_relative_path = f"{raw_id}/{segment_id}{ext}"
                 segment_path = self.store.paths.material_segments / segment_relative_path
@@ -328,7 +330,7 @@ class MaterialProcessingService:
                     "duration_seconds": None,
                     "orientation": None,
                     "status": "failed",
-                    "error_summary": str(exc),
+                    "error_summary": failure_error_summary,
                     "deleted_at": None,
                 }
             )
@@ -391,9 +393,14 @@ class MaterialProcessingService:
         return size_bytes, digest.hexdigest()
 
     def _guarded_managed_path(self, root: Path, relative_path: str) -> Path | None:
+        if not _is_safe_managed_relative_path(relative_path):
+            return None
+        root = root.resolve()
         candidate = (root / relative_path).resolve()
+        if candidate == root:
+            return None
         try:
-            candidate.relative_to(root.resolve())
+            candidate.relative_to(root)
         except ValueError:
             return None
         return candidate
@@ -410,11 +417,7 @@ class MaterialProcessingService:
         )
         if raw_path is None:
             return None
-        segment_dir = self._guarded_managed_path(
-            self.store.paths.material_segments,
-            raw_file_id,
-        )
-        if segment_dir is None:
+        if not _is_safe_managed_child_name(raw_file_id):
             return None
         segment_paths: list[Path] = []
         segment_ids: list[str] = []
@@ -427,6 +430,17 @@ class MaterialProcessingService:
                 return None
             segment_paths.append(segment_path)
             segment_ids.append(str(row["id"]))
+        if segment_paths:
+            segment_dir = segment_paths[0].parent
+            if any(path.parent != segment_dir for path in segment_paths):
+                return None
+        else:
+            segment_dir = self._guarded_managed_path(
+                self.store.paths.material_segments,
+                raw_file_id,
+            )
+            if segment_dir is None:
+                return None
         return {
             "raw_id": raw_file_id,
             "raw_path": raw_path,
@@ -581,6 +595,24 @@ def _orientation_for_size(width: int, height: int) -> str:
 def _match_text_for_path(relative_path: str) -> str:
     parts = [part.replace("_", " ").replace("-", " ") for part in Path(relative_path).parts]
     return " ".join(part for part in parts if part).strip()
+
+
+def _is_safe_managed_relative_path(relative_path: str) -> bool:
+    if relative_path == "" or relative_path.strip() == "":
+        return False
+    path = Path(relative_path)
+    if path.is_absolute():
+        return False
+    parts = [part for part in relative_path.replace("\\", "/").split("/") if part != ""]
+    if not parts:
+        return False
+    if any(part in {".", ".."} for part in parts):
+        return False
+    return True
+
+
+def _is_safe_managed_child_name(value: str) -> bool:
+    return _is_safe_managed_relative_path(value) and len(Path(value).parts) == 1
 
 
 def _ffmpeg_number(value: float) -> str:

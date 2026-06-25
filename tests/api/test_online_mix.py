@@ -370,6 +370,14 @@ def test_online_mix_returns_not_ready_when_current_source_has_no_ready_segments(
     assert local_response.status_code == 409
     assert local_response.json()["detail"]["code"] == "MATERIAL_LIBRARY_NOT_READY"
     assert local_response.json()["detail"]["job"]["status"] in {"queued", "running"}
+    assert local_response.json()["detail"]["job"]["counts"] == {
+        "raw": 0,
+        "segments": 0,
+        "failed": 0,
+        "raw_files_total": 0,
+        "segments_total": 0,
+        "failed_total": 0,
+    }
     assert hybrid_response.status_code == 409
     assert hybrid_response.json()["detail"]["code"] == "MATERIAL_LIBRARY_NOT_READY"
     assert hybrid_response.json()["detail"]["job"]["status"] in {"queued", "running"}

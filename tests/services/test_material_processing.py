@@ -85,6 +85,72 @@ def test_ffmpeg_unavailable_marks_job_failure(tmp_path: Path) -> None:
         service.process_source(source)
 
 
+def test_probe_failure_stores_safe_error_code_without_managed_paths(tmp_path: Path) -> None:
+    source_root = tmp_path / "source" / "clips"
+    source_root.mkdir(parents=True)
+    (source_root / "clip.mp4").write_bytes(b"video")
+    store = _store(tmp_path)
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+
+    def fail_probe(path: Path) -> VideoProbeResult:
+        raise RuntimeError(f"ffprobe failed for {path}")
+
+    service = MaterialProcessingService(
+        store,
+        probe_video=fail_probe,
+        slice_video=lambda source_path, target_path, start, duration: target_path.write_bytes(
+            b"segment"
+        ),
+    )
+
+    result = service.process_source(source)
+
+    raw = store.list_material_raw_files(limit=10, offset=0)[0]
+    assert result["failed_total"] == 1
+    assert raw["status"] == "failed"
+    assert raw["error_summary"] == "MATERIAL_PROBE_FAILED"
+    payload_text = str(raw)
+    assert str(store.paths.root) not in payload_text
+    assert str(raw["managed_raw_relative_path"]) not in raw["error_summary"]
+
+
+def test_slice_failure_stores_safe_error_code_without_managed_paths(tmp_path: Path) -> None:
+    source_root = tmp_path / "source" / "clips"
+    source_root.mkdir(parents=True)
+    (source_root / "clip.mp4").write_bytes(b"video")
+    store = _store(tmp_path)
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+
+    def fail_slice(
+        source_path: Path,
+        target_path: Path,
+        start: float,
+        duration: float,
+    ) -> None:
+        raise RuntimeError(f"ffmpeg failed for {source_path} -> {target_path}")
+
+    service = MaterialProcessingService(
+        store,
+        probe_video=lambda path: VideoProbeResult(
+            duration_seconds=8.0,
+            width=1080,
+            height=1920,
+            codec_name="h264",
+        ),
+        slice_video=fail_slice,
+    )
+
+    result = service.process_source(source)
+
+    raw = store.list_material_raw_files(limit=10, offset=0)[0]
+    assert result["failed_total"] == 1
+    assert raw["status"] == "failed"
+    assert raw["error_summary"] == "MATERIAL_SEGMENT_FAILED"
+    payload_text = str(raw)
+    assert str(store.paths.root) not in payload_text
+    assert str(raw["managed_raw_relative_path"]) not in raw["error_summary"]
+
+
 def test_delete_guard_rejects_corrupted_managed_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     raw = store.upsert_material_raw_file(
@@ -110,6 +176,178 @@ def test_delete_guard_rejects_corrupted_managed_path(tmp_path: Path) -> None:
 
     assert deleted["deleted"] is False
     assert store.get_material_raw_file(raw["id"])["deleted_at"] is None
+
+
+def test_delete_raw_file_rejects_root_segment_dir_for_dot_raw_id(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    raw_path = store.paths.material_raw / "dot.mp4"
+    unrelated = store.paths.material_segments / "other_raw" / "keep.mp4"
+    raw_path.write_bytes(b"raw")
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_bytes(b"keep")
+    store.upsert_material_raw_file(
+        {
+            "id": ".",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "abc",
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": "dot.mp4",
+            "content_hash": "content",
+            "size_bytes": 5,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+
+    deleted = MaterialProcessingService(store).delete_raw_file(".")
+
+    assert deleted == {
+        "id": ".",
+        "deleted": False,
+        "error_code": "MATERIAL_LIBRARY_CLEAR_FAILED",
+    }
+    assert raw_path.exists()
+    assert unrelated.exists()
+    assert store.get_material_raw_file(".")["deleted_at"] is None
+
+
+def test_delete_raw_file_rejects_absolute_managed_raw_path_inside_root(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    raw_path = store.paths.material_raw / "absolute.mp4"
+    segment_path = store.paths.material_segments / "raw_absolute" / "seg_1.mp4"
+    raw_path.write_bytes(b"raw")
+    segment_path.parent.mkdir(parents=True)
+    segment_path.write_bytes(b"segment")
+    store.upsert_material_raw_file(
+        {
+            "id": "raw_absolute",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "abc",
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": str(raw_path),
+            "content_hash": "content",
+            "size_bytes": 5,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": "seg_1",
+            "raw_file_id": "raw_absolute",
+            "managed_segment_relative_path": "raw_absolute/seg_1.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "clip",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+    deleted = MaterialProcessingService(store).delete_raw_file("raw_absolute")
+
+    assert deleted["deleted"] is False
+    assert raw_path.exists()
+    assert segment_path.exists()
+    assert store.get_material_raw_file("raw_absolute")["deleted_at"] is None
+
+
+def test_clear_library_rejects_empty_managed_raw_path_before_deleting_anything(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    safe_raw_path = store.paths.material_raw / "safe.mp4"
+    safe_segment_path = store.paths.material_segments / "safe_raw" / "seg_safe.mp4"
+    safe_raw_path.write_bytes(b"safe-raw")
+    safe_segment_path.parent.mkdir(parents=True)
+    safe_segment_path.write_bytes(b"safe-segment")
+    store.upsert_material_raw_file(
+        {
+            "id": "bad_empty_path",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/bad.mp4",
+            "source_path_hash": "bad",
+            "source_display_path": "demo/clips/bad.mp4",
+            "original_filename": "bad.mp4",
+            "managed_raw_relative_path": "",
+            "content_hash": "bad-content",
+            "size_bytes": 7,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+            "created_at": "2026-06-25T12:00:00+00:00",
+            "updated_at": "2026-06-25T12:00:00+00:00",
+        }
+    )
+    store.upsert_material_raw_file(
+        {
+            "id": "safe_raw",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/safe.mp4",
+            "source_path_hash": "safe",
+            "source_display_path": "demo/clips/safe.mp4",
+            "original_filename": "safe.mp4",
+            "managed_raw_relative_path": "safe.mp4",
+            "content_hash": "safe-content",
+            "size_bytes": 8,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+            "created_at": "2026-06-25T11:00:00+00:00",
+            "updated_at": "2026-06-25T11:00:00+00:00",
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": "seg_safe",
+            "raw_file_id": "safe_raw",
+            "managed_segment_relative_path": "safe_raw/seg_safe.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 5.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "safe",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+    cleared = MaterialProcessingService(store).clear_library("CLEAR_MATERIAL_LIBRARY")
+
+    assert cleared == {
+        "id": "bad_empty_path",
+        "deleted": False,
+        "error_code": "MATERIAL_LIBRARY_CLEAR_FAILED",
+    }
+    assert safe_raw_path.exists()
+    assert safe_segment_path.exists()
+    assert store.get_material_raw_file("safe_raw")["deleted_at"] is None
 
 
 def test_delete_raw_file_removes_local_segment_material_records(tmp_path: Path) -> None:

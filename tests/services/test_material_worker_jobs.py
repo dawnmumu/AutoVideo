@@ -6,7 +6,10 @@ import pytest
 
 from autovideo.core.settings import Settings
 from autovideo.services.material_processing import MaterialFfmpegUnavailableError
-from autovideo.services.material_sources import MaterialSourceService
+from autovideo.services.material_sources import (
+    MaterialSourceNotFoundError,
+    MaterialSourceService,
+)
 from autovideo.services.material_worker import (
     MaterialIndexAlreadyRunningError,
     MaterialIndexJobNotFoundError,
@@ -283,6 +286,43 @@ def test_run_job_marks_ffmpeg_unavailable_failure(tmp_path: Path) -> None:
     assert finished["status"] == "failed"
     assert finished["error_summary"] == "MATERIAL_FFMPEG_UNAVAILABLE"
     assert finished["finished_at"] is not None
+
+
+def test_run_job_marks_source_error_failed_after_claim(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService(error=MaterialSourceNotFoundError())
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    finished = service.run_job(created["id"])
+
+    assert finished["status"] == "failed"
+    assert finished["stage"] == "segmenting"
+    assert finished["error_summary"] == "MATERIAL_SOURCE_NOT_FOUND"
+    assert finished["heartbeat_at"] is not None
+    assert finished["finished_at"] is not None
+    assert store.get_material_index_job(created["id"])["status"] == "failed"
+
+
+def test_run_job_marks_unexpected_processing_error_failed_after_claim(
+    tmp_path: Path,
+) -> None:
+    store, source = _store_and_source(tmp_path)
+    processing = _FakeProcessingService(
+        error=RuntimeError(f"boom at {tmp_path / 'source' / 'clips'}")
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+    created = service.create_index_job(source["id"])
+
+    finished = service.run_job(created["id"])
+
+    assert finished["status"] == "failed"
+    assert finished["stage"] == "segmenting"
+    assert finished["error_summary"] == "MATERIAL_INDEX_JOB_FAILED"
+    assert str(tmp_path) not in str(finished)
+    assert finished["heartbeat_at"] is not None
+    assert finished["finished_at"] is not None
+    assert store.get_material_index_job(created["id"])["status"] == "failed"
 
 
 def test_run_job_requires_claimable_job(tmp_path: Path) -> None:
