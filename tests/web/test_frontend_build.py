@@ -93,6 +93,47 @@ def test_readme_documents_bgm_management_and_final_audio_mix() -> None:
     assert "当前最终视频还未混入 BGM 音轨" not in readme
 
 
+def test_readme_documents_local_material_library() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "本地素材库" in readme
+    assert "AUTOVIDEO_MATERIAL_ALLOWED_ROOTS" in readme
+    assert "GET /api/material-sources" in readme
+    assert "POST /api/material-index/library/clear" in readme
+    assert "不会删除外部原始目录" in readme
+    assert "material_source_mode" in readme
+
+
+def test_env_example_documents_material_allowed_roots_safely() -> None:
+    text = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "AUTOVIDEO_MATERIAL_ALLOWED_ROOTS" in text
+    assert "sample-materials" in text
+    assert "/Users/" not in text
+    assert "192.168." not in text
+    assert "token=" not in text.lower()
+
+
+def test_frontend_source_enables_material_navigation() -> None:
+    app_source = (FRONTEND_ROOT / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert '{ id: "materials", label: "素材库", shortLabel: "素材", icon: FolderOpen, enabled: true }' in app_source
+    assert "MaterialLibraryWorkbench" in app_source
+
+
+def test_material_library_css_has_mobile_and_accessibility_guards() -> None:
+    css = (FRONTEND_ROOT / "src" / "styles.css").read_text(encoding="utf-8")
+
+    assert ".material-library-panel" in css
+    assert "min-height: 44px" in css
+    assert "overflow-wrap: anywhere" in css
+    assert "@media (max-width: 720px)" in css
+    mobile_rules = css.split("@media (max-width: 720px)", 1)[1].split("@media", 1)[0]
+    assert ".material-source-form" in mobile_rules
+    assert ".material-summary-grid" in mobile_rules
+    assert ".material-raw-row" in mobile_rules
+
+
 def test_frontend_build_outputs_static_assets() -> None:
     index_file, assets_dir = require_frontend_build()
 

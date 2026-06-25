@@ -71,13 +71,15 @@ export interface OnlineMaterialCandidate {
   license_note: string;
 }
 
+export type MaterialSourceMode = "local" | "hybrid" | "online_free";
+
 export interface LocalMaterial {
   id: string;
   original_filename: string;
   content_type: string | null;
   size_bytes: number;
   created_at: string;
-  source_type: "upload" | "online";
+  source_type: "upload" | "online" | "local_segment";
   download_url?: string;
   source_provider?: string | null;
   source_asset_id?: string | null;
@@ -134,6 +136,7 @@ export interface CreateOnlineMixTaskInput {
     bgm_category_id?: string | null;
     bgm_volume?: number | null;
   };
+  material_source_mode: MaterialSourceMode;
 }
 
 export interface CreateOnlineMixTaskResponse {
@@ -147,13 +150,26 @@ export interface CreateOnlineMixTaskResponse {
 export class OnlineRemixApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly detail: unknown;
 
-  constructor(code: string, status: number) {
+  constructor(code: string, status: number, detail?: unknown) {
     super(code);
     this.name = "OnlineRemixApiError";
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
+}
+
+function responseErrorDetail(payload: unknown): unknown {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload
+  ) {
+    return payload.detail;
+  }
+  return undefined;
 }
 
 function responseErrorCode(payload: unknown, status: number): string {
@@ -174,7 +190,11 @@ function responseErrorCode(payload: unknown, status: number): string {
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new OnlineRemixApiError(responseErrorCode(payload, response.status), response.status);
+    throw new OnlineRemixApiError(
+      responseErrorCode(payload, response.status),
+      response.status,
+      responseErrorDetail(payload),
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -184,7 +204,14 @@ export async function fetchOnlineMaterialStatus(): Promise<OnlineMaterialStatus>
 }
 
 export async function fetchMaterials(): Promise<LocalMaterial[]> {
-  return readJson(await fetch("/api/materials?limit=100&offset=0"));
+  const params = new URLSearchParams({
+    limit: "100",
+    offset: "0",
+    source_type: "local_segment",
+    source_provider: "local_material_worker",
+    current_material_source: "true",
+  });
+  return readJson(await fetch(`/api/materials?${params.toString()}`));
 }
 
 export async function generateScript(input: GenerateScriptInput): Promise<GeneratedScript> {

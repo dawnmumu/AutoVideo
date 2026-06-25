@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Captions, FolderOpen, RefreshCw, Search, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { fetchHealth } from "../api/health";
 import { fetchSubtitleTemplateSets } from "../api/subtitles";
@@ -8,6 +8,7 @@ import type { VoiceItem } from "../api/voices";
 import {
   GeneratedScript,
   LocalMaterial,
+  MaterialSourceMode,
   OnlineMaterialCandidate,
   ScriptShot,
   createOnlineMixTask,
@@ -31,7 +32,67 @@ function splitList(value: string): string[] {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
+  const code = errorCode(error);
+  if (code === "MATERIAL_LIBRARY_NOT_READY") {
+    const job = materialIndexJob(error);
+    const details = [
+      "本地素材库正在建立索引，完成后可重试创建任务。",
+      job ? `阶段：${stageLabel(job.stage)}` : null,
+      job ? progressLabel(job.progress) : null,
+    ].filter((item): item is string => item !== null);
+    return details.join(" ");
+  }
   return error instanceof Error ? error.message : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function errorCode(error: unknown): string | null {
+  if (isRecord(error) && typeof error.code === "string") {
+    return error.code;
+  }
+  return null;
+}
+
+function materialIndexJob(error: unknown): Record<string, unknown> | null {
+  if (!isRecord(error) || !isRecord(error.detail) || !isRecord(error.detail.job)) {
+    return null;
+  }
+  return error.detail.job;
+}
+
+function stageLabel(stage: unknown): string {
+  if (stage === "scanning") {
+    return "扫描素材";
+  }
+  if (stage === "segmenting") {
+    return "切分素材";
+  }
+  if (stage === "ready") {
+    return "索引完成";
+  }
+  return typeof stage === "string" && stage ? stage : "等待处理";
+}
+
+function progressLabel(progress: unknown): string | null {
+  if (!isRecord(progress)) {
+    return null;
+  }
+  const current = Number(progress.current ?? 0);
+  const total = Number(progress.total ?? 0);
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
+    return null;
+  }
+  return `进度：${current}/${total}`;
+}
+
+function isLocalMaterialLibrarySegment(material: LocalMaterial): boolean {
+  return (
+    material.source_type === "local_segment" &&
+    material.source_provider === "local_material_worker"
+  );
 }
 
 function providerLabel(provider: string): string {
@@ -64,6 +125,8 @@ export function OnlineRemixWorkbench({
   const [targetAudience, setTargetAudience] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
   const [provider, setProvider] = useState("auto");
+  const [materialSourceMode, setMaterialSourceMode] =
+    useState<MaterialSourceMode>("hybrid");
   const [subtitleEnabled, setSubtitleEnabled] = useState(true);
   const [subtitleTemplateSetId, setSubtitleTemplateSetId] = useState("");
   const [subtitleFontFamily, setSubtitleFontFamily] = useState("");
@@ -184,6 +247,7 @@ export function OnlineRemixWorkbench({
           shot_index: Number(shotIndex),
           material_id: materialId,
         })),
+        material_source_mode: materialSourceMode,
         options: {
           aspect_ratio: script.aspect_ratio,
           resolution: "1080p",
@@ -253,6 +317,31 @@ export function OnlineRemixWorkbench({
 
   const findMaterial = (materialId: string): LocalMaterial | undefined =>
     materials.data?.find((material) => material.id === materialId);
+  const localSegmentMaterials = useMemo(
+    () => (materials.data ?? []).filter(isLocalMaterialLibrarySegment),
+    [materials.data],
+  );
+
+  useEffect(() => {
+    if (!materials.data) {
+      return;
+    }
+    const availableMaterialIds = new Set(localSegmentMaterials.map((material) => material.id));
+    setLocalMaterialByShot((current) => {
+      let removedStaleSelection = false;
+      const next: Record<number, string> = {};
+
+      Object.entries(current).forEach(([shotIndex, materialId]) => {
+        if (availableMaterialIds.has(materialId)) {
+          next[Number(shotIndex)] = materialId;
+        } else {
+          removedStaleSelection = true;
+        }
+      });
+
+      return removedStaleSelection ? next : current;
+    });
+  }, [localSegmentMaterials, materials.data]);
 
   const updateScript = (updater: (current: GeneratedScript) => GeneratedScript) => {
     setScript((current) => (current ? updater(current) : current));
@@ -347,10 +436,25 @@ export function OnlineRemixWorkbench({
         </label>
         <label>
           <span>素材源</span>
-          <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+          <select
+            disabled={materialSourceMode === "local"}
+            value={provider}
+            onChange={(event) => setProvider(event.target.value)}
+          >
             <option value="auto">Auto</option>
             <option value="pexels">Pexels 素材</option>
             <option value="pixabay">Pixabay 素材</option>
+          </select>
+        </label>
+        <label>
+          <span>素材来源模式</span>
+          <select
+            value={materialSourceMode}
+            onChange={(event) => setMaterialSourceMode(event.target.value as MaterialSourceMode)}
+          >
+            <option value="hybrid">本地优先，线上补足</option>
+            <option value="local">只用本地素材库</option>
+            <option value="online_free">只用线上免费素材</option>
           </select>
         </label>
         <fieldset className="subtitle-settings">
@@ -602,17 +706,19 @@ export function OnlineRemixWorkbench({
 
       {localPickerShot !== null ? (
         <div aria-label="选择本地素材" className="local-material-dialog" role="dialog">
-          {(materials.data ?? []).map((material) => (
+          {localSegmentMaterials.map((material) => (
             <button
               key={material.id}
               type="button"
               onClick={() => selectLocalMaterial(localPickerShot, material.id)}
             >
-              选择 {material.original_filename}
+              选择 <span>{material.original_filename}</span>
             </button>
           ))}
           {materials.isLoading ? <span>正在加载本地素材</span> : null}
-          {materials.data?.length === 0 ? <span>暂无本地素材</span> : null}
+          {localSegmentMaterials.length === 0 && !materials.isLoading ? (
+            <span>暂无本地素材库片段</span>
+          ) : null}
           <button type="button" onClick={() => setLocalPickerShot(null)}>
             关闭
           </button>

@@ -3,7 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import {
@@ -17,6 +17,14 @@ import {
 } from "./api/bgm";
 import type { BgmLibrary } from "./api/bgm";
 import { fetchHealth } from "./api/health";
+import {
+  clearMaterialLibrary,
+  fetchMaterialLibrarySummary,
+  fetchMaterialRawFiles,
+  fetchMaterialSourceStatus,
+  saveMaterialSource,
+  startMaterialIndex,
+} from "./api/materials";
 import {
   createOnlineMixTask,
   fetchMaterials,
@@ -99,6 +107,20 @@ vi.mock("./api/bgm", async (importOriginal) => {
   };
 });
 
+vi.mock("./api/materials", () => ({
+  fetchMaterialSourceStatus: vi.fn(),
+  saveMaterialSource: vi.fn(),
+  startMaterialIndex: vi.fn(),
+  fetchMaterialIndexJob: vi.fn(),
+  fetchMaterialLibrarySummary: vi.fn(),
+  fetchMaterialRawFiles: vi.fn(),
+  deleteMaterialRawFile: vi.fn(),
+  clearMaterialLibrary: vi.fn(),
+  readableMaterialError: vi.fn((error: unknown) =>
+    error instanceof Error ? error.message : "MATERIAL_ERROR",
+  ),
+}));
+
 const mockedFetchHealth = vi.mocked(fetchHealth);
 const mockedFetchOnlineMaterialStatus = vi.mocked(fetchOnlineMaterialStatus);
 const mockedFetchMaterials = vi.mocked(fetchMaterials);
@@ -126,6 +148,12 @@ const mockedDeleteBgmTrack = vi.mocked(deleteBgmTrack);
 const mockedCreateBgmCategory = vi.mocked(createBgmCategory);
 const mockedUpdateBgmCategory = vi.mocked(updateBgmCategory);
 const mockedDeleteBgmCategory = vi.mocked(deleteBgmCategory);
+const mockedFetchMaterialSourceStatus = vi.mocked(fetchMaterialSourceStatus);
+const mockedFetchMaterialLibrarySummary = vi.mocked(fetchMaterialLibrarySummary);
+const mockedFetchMaterialRawFiles = vi.mocked(fetchMaterialRawFiles);
+const mockedSaveMaterialSource = vi.mocked(saveMaterialSource);
+const mockedStartMaterialIndex = vi.mocked(startMaterialIndex);
+const mockedClearMaterialLibrary = vi.mocked(clearMaterialLibrary);
 const removedCopyPattern = new RegExp(
   [
     ["退出", "登录"].join(""),
@@ -138,6 +166,10 @@ const removedCopyPattern = new RegExp(
 const stylesCss = readFileSync("src/styles.css", "utf-8");
 const indexHtml = readFileSync("index.html", "utf-8");
 const defaultSubtitlePreviewText = "这是字幕预览，支持多个位置和不同倾斜角度";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const cleanBottomPreset: SubtitleTemplateSet = {
   id: "preset-clean-bottom",
@@ -289,6 +321,28 @@ function bgmLibraryFixture(): BgmLibrary {
   };
 }
 
+function scriptFixture() {
+  return {
+    id: "script-1",
+    title: "睡前精油短视频",
+    topic: "睡眠精油",
+    aspect_ratio: "9:16",
+    duration_seconds: 5,
+    provider: "heuristic",
+    created_at: "2026-06-24T00:00:00+00:00",
+    shots: [
+      {
+        index: 1,
+        duration: 5,
+        narration: "睡前点一滴精油，让卧室慢慢安静下来。",
+        subtitle: "睡前放松",
+        visual_description: "relaxing bedroom night",
+        keywords: ["relaxing bedroom night"],
+      },
+    ],
+  };
+}
+
 function unclassifiedBgmLibraryFixture(): BgmLibrary {
   const base = bgmLibraryFixture();
   return {
@@ -388,6 +442,127 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+describe("material API client", () => {
+  async function actualMaterialApi() {
+    return vi.importActual<typeof import("./api/materials")>("./api/materials");
+  }
+
+  function jsonResponse(payload: unknown, init: ResponseInit = {}) {
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  }
+
+  it("calls material source and index endpoints with the backend DTO shape", async () => {
+    const api = await actualMaterialApi();
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl === "/api/material-sources") {
+        return jsonResponse({
+          allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+          current_source: null,
+          latest_job: null,
+        });
+      }
+      if (requestUrl === "/api/material-sources/current") {
+        return jsonResponse({ current_source: { id: "source_1" }, job: null });
+      }
+      if (requestUrl === "/api/material-index/jobs") {
+        return jsonResponse({ job_id: "job_1", status: "queued" });
+      }
+      if (requestUrl === "/api/material-index/jobs/job_1") {
+        return jsonResponse({ id: "job_1", status: "queued" });
+      }
+      if (requestUrl === "/api/material-index/summary") {
+        return jsonResponse({
+          totals: { raw: 1, segments: 2, portrait: 1, landscape: 1, square: 0, unknown: 0, failed: 0 },
+          current_source: null,
+          latest_job: null,
+        });
+      }
+      if (requestUrl === "/api/material-index/raw-files?limit=25&offset=50&status=failed") {
+        return jsonResponse({ items: [], limit: 25, offset: 50, total: 0 });
+      }
+      if (requestUrl === "/api/material-index/raw-files/raw_1") {
+        return jsonResponse({ id: "raw_1", deleted: true, deleted_segments: 1 });
+      }
+      if (requestUrl === "/api/material-index/library/clear") {
+        return jsonResponse({ deleted_raw: 1, deleted_segments: 2 });
+      }
+      throw new Error(`Unexpected request: ${requestUrl} ${init?.method ?? "GET"}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.fetchMaterialSourceStatus()).resolves.toMatchObject({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+    });
+    await expect(
+      api.saveMaterialSource({ allowed_root_id: "demo", source_relative_path: "clips" }),
+    ).resolves.toMatchObject({ current_source: { id: "source_1" } });
+    await expect(api.startMaterialIndex({ source_config_id: "source_1", force: true })).resolves.toEqual({
+      job_id: "job_1",
+      status: "queued",
+    });
+    await expect(api.fetchMaterialIndexJob("job_1")).resolves.toMatchObject({ id: "job_1" });
+    await expect(api.fetchMaterialLibrarySummary()).resolves.toMatchObject({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 1, failed: 0 },
+    });
+    await expect(
+      api.fetchMaterialRawFiles({ limit: 25, offset: 50, status: "failed" }),
+    ).resolves.toMatchObject({ limit: 25, offset: 50, total: 0 });
+    await expect(api.deleteMaterialRawFile("raw_1")).resolves.toEqual({
+      id: "raw_1",
+      deleted: true,
+      deleted_segments: 1,
+    });
+    await expect(api.clearMaterialLibrary()).resolves.toEqual({
+      deleted_raw: 1,
+      deleted_segments: 2,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/material-sources");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-sources/current",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ allowed_root_id: "demo", source_relative_path: "clips" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-index/jobs",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ source_config_id: "source_1", force: true }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/material-index/library/clear",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm: "CLEAR_MATERIAL_LIBRARY" }),
+      }),
+    );
+  });
+
+  it("maps material API errors to readable messages", async () => {
+    const api = await actualMaterialApi();
+
+    expect(
+      api.readableMaterialError(new api.MaterialApiError("MATERIAL_SCAN_NO_SUPPORTED_FILES", 400)),
+    ).toBe("素材目录里没有支持的视频文件");
+    expect(api.readableMaterialError(new api.MaterialApiError("MATERIAL_SEGMENT_FAILED", 500))).toBe(
+      "素材切片失败，请检查文件格式后重试",
+    );
+    expect(
+      api.readableMaterialError(
+        new api.MaterialApiError("MATERIAL_LIBRARY_CLEAR_CONFIRMATION_REQUIRED", 400),
+      ),
+    ).toBe("清空素材库需要输入确认文案");
+  });
+});
 
 describe("AutoVideo shell", () => {
   beforeEach(() => {
@@ -539,6 +714,193 @@ describe("AutoVideo shell", () => {
     expect(screen.getByText("功能提取处理")).toBeInTheDocument();
     expect(screen.getByText("任务与输出")).toBeInTheDocument();
     expect(screen.getByText("系统设置")).toBeInTheDocument();
+  });
+
+  it("enables material library navigation", async () => {
+    window.location.hash = "#materials";
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "素材库", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "素材库" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "主导航" })).toHaveTextContent("素材库");
+    expect(document.title).toBe("素材库 - AutoVideo");
+  });
+
+  it("renders material source config, job status, stats, and raw files", async () => {
+    mockedFetchMaterialSourceStatus.mockResolvedValue({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialLibrarySummary.mockResolvedValue({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 0, square: 0, unknown: 0, failed: 0 },
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialRawFiles.mockResolvedValue({
+      items: [
+        {
+          id: "raw_1",
+          allowed_root_id: "demo",
+          source_relative_path: "clips/clip.mp4",
+          filename: "clip.mp4",
+          source_display_path: "demo/clips/clip.mp4",
+          size_bytes: 1024,
+          duration_seconds: 12,
+          orientation: "portrait",
+          segments: 2,
+          status: "ready",
+          error_summary: null,
+          created_at: "2026-06-25T00:00:00Z",
+          updated_at: "2026-06-25T00:00:00Z",
+        },
+      ],
+      limit: 50,
+      offset: 0,
+      total: 1,
+    });
+    window.location.hash = "#materials";
+    renderApp();
+
+    expect(await screen.findByLabelText("允许根目录")).toBeInTheDocument();
+    expect(screen.getByLabelText("子目录")).toBeInTheDocument();
+    expect(screen.getByText("clip.mp4")).toBeInTheDocument();
+    expect(screen.getByText("2 个切片")).toBeInTheDocument();
+  });
+
+  it("material workbench uses accessible expandable rows and clear confirmation", async () => {
+    mockedFetchMaterialSourceStatus.mockResolvedValue({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+      current_source: {
+        id: "source_1",
+        allowed_root_id: "demo",
+        allowed_root_alias: "demo",
+        source_display_path: "demo/clips",
+        source_relative_path: "clips",
+        status: "active",
+        created_at: "2026-06-25T00:00:00Z",
+        updated_at: "2026-06-25T00:00:00Z",
+      },
+      latest_job: {
+        id: "job_1",
+        source_config_id: "source_1",
+        allowed_root_id: "demo",
+        source_relative_path: "clips",
+        status: "running",
+        stage: "segmenting",
+        progress_current: 1,
+        progress_total: 2,
+        progress: { current: 1, total: 2 },
+        raw_files_total: 1,
+        segments_total: 1,
+        failed_total: 0,
+        counts: { raw: 1, segments: 1, failed: 0 },
+        attempt_count: 1,
+        error_summary: null,
+        created_at: "2026-06-25T00:00:00Z",
+      },
+    });
+    mockedFetchMaterialLibrarySummary.mockResolvedValue({
+      totals: { raw: 1, segments: 2, portrait: 1, landscape: 0, square: 0, unknown: 0, failed: 0 },
+      current_source: null,
+      latest_job: null,
+    });
+    mockedFetchMaterialRawFiles.mockResolvedValue({
+      items: [
+        {
+          id: "raw_1",
+          allowed_root_id: "demo",
+          source_relative_path: "clips/clip.mp4",
+          filename: "clip.mp4",
+          source_display_path: "demo/clips/clip.mp4",
+          size_bytes: 1024,
+          duration_seconds: 12,
+          orientation: "portrait",
+          segments: 2,
+          status: "ready",
+          error_summary: null,
+          created_at: "2026-06-25T00:00:00Z",
+          updated_at: "2026-06-25T00:00:00Z",
+        },
+      ],
+      limit: 50,
+      offset: 0,
+      total: 1,
+    });
+    window.location.hash = "#materials";
+    renderApp();
+    expect(await screen.findByRole("status", { name: "素材索引状态" })).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    const rowButton = await screen.findByRole("button", { name: /展开 clip.mp4/ });
+    expect(rowButton).toHaveAttribute("aria-expanded", "false");
+    rowButton.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(rowButton).toHaveAttribute("aria-expanded", "true");
+    const clearButton = screen.getByRole("button", { name: "清空素材库" });
+    clearButton.focus();
+    await userEvent.click(clearButton);
+    expect(await screen.findByRole("dialog", { name: "清空素材库确认" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "取消清空" }));
+    expect(clearButton).toHaveFocus();
+  });
+
+  it("refreshes remix material picker cache after material library mutations", async () => {
+    const user = userEvent.setup();
+    const currentSource = {
+      id: "source_1",
+      allowed_root_id: "demo",
+      allowed_root_alias: "demo",
+      source_display_path: "demo/clips",
+      source_relative_path: "clips",
+      status: "active",
+      created_at: "2026-06-25T00:00:00Z",
+      updated_at: "2026-06-25T00:00:00Z",
+    };
+    mockedFetchMaterialSourceStatus.mockResolvedValue({
+      allowed_roots: [{ id: "demo", alias: "demo", display_name: "demo" }],
+      current_source: currentSource,
+      latest_job: null,
+    });
+    mockedFetchMaterialLibrarySummary.mockResolvedValue({
+      totals: { raw: 0, segments: 0, portrait: 0, landscape: 0, square: 0, unknown: 0, failed: 0 },
+      current_source: currentSource,
+      latest_job: null,
+    });
+    mockedFetchMaterialRawFiles.mockResolvedValue({
+      items: [],
+      limit: 50,
+      offset: 0,
+      total: 0,
+    });
+    mockedSaveMaterialSource.mockResolvedValue({ current_source: currentSource, job: null });
+    mockedStartMaterialIndex.mockResolvedValue({ job_id: "job_1", status: "queued" });
+    mockedClearMaterialLibrary.mockResolvedValue({ deleted_raw: 0, deleted_segments: 0 });
+    renderApp();
+
+    await waitFor(() => expect(mockedFetchMaterials).toHaveBeenCalled());
+    let materialsFetchCount = mockedFetchMaterials.mock.calls.length;
+
+    await user.click(screen.getByRole("link", { name: "素材库" }));
+    await screen.findByRole("article", { name: "素材库" });
+    await user.click(screen.getByRole("button", { name: "保存来源" }));
+    await waitFor(() =>
+      expect(mockedFetchMaterials.mock.calls.length).toBeGreaterThan(materialsFetchCount),
+    );
+    materialsFetchCount = mockedFetchMaterials.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "开始索引" }));
+    await waitFor(() =>
+      expect(mockedFetchMaterials.mock.calls.length).toBeGreaterThan(materialsFetchCount),
+    );
+    materialsFetchCount = mockedFetchMaterials.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "清空素材库" }));
+    await user.click(await screen.findByRole("button", { name: "确认清空" }));
+    await waitFor(() =>
+      expect(mockedFetchMaterials.mock.calls.length).toBeGreaterThan(materialsFetchCount),
+    );
   });
 
   it("marks the active desktop and mobile navigation items", async () => {
@@ -1312,7 +1674,7 @@ describe("AutoVideo shell", () => {
       item.textContent?.trim(),
     );
 
-    expect(labels.slice(0, 5)).toEqual(["混剪", "字幕", "BGM", "音色", "任务"]);
+    expect(labels.slice(0, 6)).toEqual(["混剪", "素材", "字幕", "BGM", "音色", "任务"]);
   });
 
   it("declares responsive BGM workbench styles without hover-only dependencies", () => {
@@ -4048,17 +4410,19 @@ describe("AutoVideo shell", () => {
     expect(mockedSearchOnlineMaterials).toHaveBeenCalledTimes(2);
   });
 
-  it("can use existing local material for a shot", async () => {
+  it("can use existing local segment material for a shot", async () => {
     const user = userEvent.setup();
     mockedFetchMaterials.mockResolvedValue([
       {
-        id: "material-real-1",
-        original_filename: "oil-bottle.mp4",
+        id: "material-segment-1",
+        original_filename: "oil-bottle-segment.mp4",
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
-        download_url: "/api/materials/material-real-1/download",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        download_url: "/api/materials/material-segment-1/download",
       },
     ]);
     mockedGenerateScript.mockResolvedValue({
@@ -4087,9 +4451,212 @@ describe("AutoVideo shell", () => {
     await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
 
     expect(await screen.findByRole("dialog", { name: "选择本地素材" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "选择 oil-bottle.mp4" }));
+    await user.click(screen.getByRole("button", { name: "选择 oil-bottle-segment.mp4" }));
 
-    expect(screen.getByText("oil-bottle.mp4")).toBeInTheDocument();
+    expect(screen.getByText("oil-bottle-segment.mp4")).toBeInTheDocument();
+  });
+
+  it("filters upload and online materials out of the local material picker", async () => {
+    const user = userEvent.setup();
+    mockedFetchMaterials.mockResolvedValue([
+      {
+        id: "material-upload-1",
+        original_filename: "uploaded-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "upload",
+        download_url: "/api/materials/material-upload-1/download",
+      },
+      {
+        id: "material-online-1",
+        original_filename: "pexels-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "online",
+        source_provider: "pexels",
+        source_asset_id: "123",
+        source_url: "https://www.pexels.com/video/123/",
+        download_url: "/api/materials/material-online-1/download",
+      },
+      {
+        id: "material-segment-1",
+        original_filename: "local-segment-oil.mp4",
+        content_type: "video/mp4",
+        size_bytes: 128,
+        created_at: "2026-06-14T00:00:00+00:00",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        download_url: "/api/materials/material-segment-1/download",
+      },
+    ]);
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "精油睡眠放松");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await user.click(await screen.findByRole("button", { name: "用本地素材覆盖" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "选择本地素材" });
+    expect(within(dialog).queryByText("uploaded-oil.mp4")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("pexels-oil.mp4")).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "选择 local-segment-oil.mp4" }),
+    ).toBeInTheDocument();
+  });
+
+  it("submits local material source mode when creating a remix task", async () => {
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task_1",
+      title: "任务",
+      output: { download_url: "/api/tasks/task_1/output" },
+    });
+    renderApp();
+
+    await userEvent.type(screen.getByLabelText("视频主题"), "睡眠精油");
+    await userEvent.selectOptions(screen.getByLabelText("素材来源模式"), "local");
+    await userEvent.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByText("镜头 1");
+    await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({ material_source_mode: "local" }),
+      );
+    });
+  });
+
+  it("can select local segment material returned from fetchMaterials", async () => {
+    const user = userEvent.setup();
+    mockedFetchMaterials.mockResolvedValue([
+      {
+        id: "mat_seg_1",
+        original_filename: "local-segment-bedroom-portrait.mp4",
+        content_type: "video/mp4",
+        size_bytes: 2048,
+        created_at: "2026-06-24T00:00:00+00:00",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
+        license_note: "本地素材库",
+        download_url: "/api/materials/mat_seg_1/download",
+      },
+    ]);
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task_1",
+      title: "任务",
+      output: { download_url: "/api/tasks/task_1/output" },
+    });
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "睡眠精油");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    const localOverrideButtons = await screen.findAllByRole("button", { name: "用本地素材覆盖" });
+    await user.click(localOverrideButtons[0]);
+
+    expect(await screen.findByRole("dialog", { name: "选择本地素材" })).toBeInTheDocument();
+    expect(screen.getByText("local-segment-bedroom-portrait.mp4")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "选择 local-segment-bedroom-portrait.mp4" }));
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shot_materials: expect.arrayContaining([{ shot_index: 1, material_id: "mat_seg_1" }]),
+        }),
+      );
+    });
+  });
+
+  it("clears stale local material selections when the material picker data changes", async () => {
+    const user = userEvent.setup();
+    mockedFetchMaterials.mockResolvedValue([
+      {
+        id: "mat_old",
+        original_filename: "old-local-segment.mp4",
+        content_type: "video/mp4",
+        size_bytes: 2048,
+        created_at: "2026-06-24T00:00:00+00:00",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "old_seg",
+        license_note: "本地素材库",
+        download_url: "/api/materials/mat_old/download",
+      },
+    ]);
+    mockedGenerateScript.mockResolvedValue({
+      ...scriptFixture(),
+      shots: [
+        ...scriptFixture().shots,
+        {
+          index: 2,
+          duration: 5,
+          narration: "第二段旁白",
+          subtitle: "第二段字幕",
+          visual_description: "warm studio light",
+          keywords: ["warm studio light"],
+        },
+      ],
+    });
+    mockedSearchOnlineMaterials.mockResolvedValue([
+      {
+        provider: "pexels",
+        asset_id: "pexels_1",
+        query: "warm studio light",
+        source_url: "https://www.pexels.com/video/1/",
+        preview_url: "https://images.example/preview.jpg",
+        candidate_token: "candidate-token-1",
+        file_variant: "hd",
+        duration: 5,
+        width: 1080,
+        height: 1920,
+        license_note: "Pexels",
+      },
+    ]);
+    mockedCreateOnlineMixTask.mockResolvedValue({
+      id: "task_1",
+      title: "任务",
+      output: { download_url: "/api/tasks/task_1/output" },
+    });
+    const { queryClient } = renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "睡眠精油");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    const staleLocalOverrideButtons = await screen.findAllByRole("button", {
+      name: "用本地素材覆盖",
+    });
+    await user.click(staleLocalOverrideButtons[0]);
+    await user.click(await screen.findByRole("button", { name: "选择 old-local-segment.mp4" }));
+    expect(screen.getByText("old-local-segment.mp4")).toBeInTheDocument();
+
+    await user.click(screen.getByText("镜头 2"));
+    await user.click(screen.getAllByRole("button", { name: "搜索素材" })[1]);
+    await user.click(await screen.findByRole("button", { name: "选择候选" }));
+    expect(screen.getByText("已选择 Pexels")).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(["materials"], []);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("old-local-segment.mp4")).not.toBeInTheDocument();
+      expect(screen.queryByText("mat_old")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(mockedCreateOnlineMixTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shot_assets: [{ shot_index: 2, candidate_token: "candidate-token-1" }],
+          shot_materials: [],
+        }),
+      );
+    });
   });
 
   it("submits edited script fields and selected real material id", async () => {
@@ -4101,7 +4668,9 @@ describe("AutoVideo shell", () => {
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
         download_url: "/api/materials/material-real-1/download",
       },
     ]);
@@ -4381,7 +4950,9 @@ describe("AutoVideo shell", () => {
         content_type: "video/mp4",
         size_bytes: 128,
         created_at: "2026-06-14T00:00:00+00:00",
-        source_type: "upload",
+        source_type: "local_segment",
+        source_provider: "local_material_worker",
+        source_asset_id: "seg_1",
         download_url: "/api/materials/material-real-1/download",
       },
     ]);
@@ -4417,6 +4988,37 @@ describe("AutoVideo shell", () => {
     expect(screen.getByRole("button", { name: "重试创建" })).toBeInTheDocument();
     expect(screen.getByText("错误列表")).toBeInTheDocument();
     expect(screen.getByText("ONLINE_MATERIAL_DOWNLOAD_FAILED")).toBeInTheDocument();
+  });
+
+  it("shows material library indexing recovery details when creating a task", async () => {
+    const user = userEvent.setup();
+    mockedGenerateScript.mockResolvedValue(scriptFixture());
+    mockedCreateOnlineMixTask.mockRejectedValue(
+      Object.assign(new Error("MATERIAL_LIBRARY_NOT_READY"), {
+        code: "MATERIAL_LIBRARY_NOT_READY",
+        detail: {
+          code: "MATERIAL_LIBRARY_NOT_READY",
+          job: {
+            id: "job-1",
+            status: "queued",
+            stage: "scanning",
+            progress: { current: 1, total: 4 },
+          },
+        },
+      }),
+    );
+    renderApp();
+
+    await user.type(await screen.findByLabelText("视频主题"), "睡眠精油");
+    await user.click(screen.getByRole("button", { name: "生成脚本" }));
+    await screen.findByText("镜头 1");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    expect(await screen.findByText("创建失败")).toBeInTheDocument();
+    expect(screen.getByText(/本地素材库正在建立索引/)).toBeInTheDocument();
+    expect(screen.getByText(/阶段：扫描素材/)).toBeInTheDocument();
+    expect(screen.getByText(/进度：1\/4/)).toBeInTheDocument();
+    expect(screen.queryByText("MATERIAL_LIBRARY_NOT_READY")).not.toBeInTheDocument();
   });
 
   it("renders mobile collapsible shots and vertical candidate cards", async () => {

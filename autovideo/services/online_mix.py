@@ -29,6 +29,12 @@ from autovideo.services.online_materials import (
     public_candidate,
     rank_candidates,
 )
+from autovideo.services.material_matcher import (
+    MaterialLibraryEmptyError,
+    MaterialLibraryNotReadyError,
+    MaterialMatcherService,
+    MaterialSourceMode,
+)
 from autovideo.services.rendering import (
     FfmpegRenderFailedError,
     build_render_timeline,
@@ -75,6 +81,12 @@ class OnlineMixNoMaterialMatchError(Exception):
     """Raised when every script shot cannot be matched to a material."""
 
 
+class LocalMaterialRequiredError(Exception):
+    def __init__(self, material_id: str) -> None:
+        self.material_id = material_id
+        super().__init__(material_id)
+
+
 class OnlineMaterialSearchFailedError(RuntimeError):
     """Raised when an online material provider search fails."""
 
@@ -83,6 +95,14 @@ class OnlineMaterialProviderNotAvailableError(Exception):
     def __init__(self, provider: str) -> None:
         self.provider = provider
         super().__init__(provider)
+
+
+class OnlineMaterialProviderNotConfiguredError(Exception):
+    pass
+
+
+class OnlineMaterialTokenSecretNotConfiguredError(Exception):
+    pass
 
 
 class SubtitleTemplateInvalidError(ValueError):
@@ -247,6 +267,16 @@ def _material_manifest_item(
         "selection_reason": selection.get("selection_reason")
         or reasons.get(mode, "用户选择已有本地素材"),
     }
+    for field in (
+        "material_segment_id",
+        "raw_file_id",
+        "orientation",
+        "duration_seconds",
+        "source_display_path",
+    ):
+        value = selection.get(field)
+        if value is not None:
+            item[field] = value
     if material.get("source_provider") and material.get("source_url"):
         item.update(
             {
@@ -261,6 +291,15 @@ def _material_manifest_item(
 
 
 def _source_attribution(material: dict[str, Any]) -> dict[str, Any] | None:
+    if (
+        material.get("source_type") == "local_segment"
+        and material.get("source_provider") == "local_material_worker"
+    ):
+        return {
+            "provider": "local_material_worker",
+            "source_asset_id": material.get("source_asset_id"),
+            "license_note": "local material library segment",
+        }
     if not material.get("source_provider") or not material.get("source_url"):
         return None
     return {
@@ -678,6 +717,42 @@ def _online_asset_key_from_material(
     return (provider, asset_id)
 
 
+def _is_local_material_library_segment(material: dict[str, Any]) -> bool:
+    return (
+        material.get("source_type") == "local_segment"
+        and material.get("source_provider") == "local_material_worker"
+    )
+
+
+def _is_current_local_material_library_segment(
+    store: AutoVideoStore,
+    material: dict[str, Any],
+) -> bool:
+    if not _is_local_material_library_segment(material):
+        return False
+    current_source = store.current_material_source_config()
+    if current_source is None:
+        return False
+    segment_id = material.get("source_asset_id")
+    if not isinstance(segment_id, str) or not segment_id:
+        return False
+    segment = store.get_material_segment(segment_id)
+    if segment is None:
+        return False
+    raw_file = store.get_material_raw_file(str(segment["raw_file_id"]))
+    if raw_file is None or raw_file.get("deleted_at") is not None:
+        return False
+    if raw_file.get("source_config_id") == current_source["id"]:
+        return True
+    raw_source = store.get_material_source_config(str(raw_file.get("source_config_id") or ""))
+    if raw_source is None:
+        return False
+    return (
+        raw_source.get("allowed_root_id") == current_source["allowed_root_id"]
+        and raw_source.get("source_path_hash") == current_source["source_path_hash"]
+    )
+
+
 def _online_asset_key_from_candidate(candidate: Any) -> tuple[str, str]:
     return (str(candidate.provider), str(candidate.asset_id))
 
@@ -700,10 +775,15 @@ def create_online_mix_task(
     results_per_query: int,
     options: dict[str, Any],
     provider_status_snapshot: dict[str, Any],
+    material_source_mode: MaterialSourceMode = "online_free",
     voice_provider: Any | None = None,
 ) -> dict[str, Any]:
     validate_shot_selection(script, shot_assets, shot_materials)
-    if (shot_assets or asset_strategy == "auto") and token_service is None:
+    if (
+        material_source_mode == "online_free"
+        and (shot_assets or asset_strategy == "auto")
+        and token_service is None
+    ):
         raise RuntimeError("candidate token service is required for online assets")
 
     user_materials: dict[str, dict[str, Any]] = {}
@@ -712,6 +792,11 @@ def create_online_mix_task(
         material = store.get_material(material_id)
         if material is None:
             raise MaterialNotFoundError(material_id)
+        if material_source_mode in {
+            "local",
+            "hybrid",
+        } and not _is_current_local_material_library_segment(store, material):
+            raise LocalMaterialRequiredError(material_id)
         user_materials[material_id] = material
 
     used_online_assets: set[tuple[str, str]] = set()
@@ -728,15 +813,64 @@ def create_online_mix_task(
         for item in shot_materials
     ]
 
-    validate_manual_shot_coverage(
-        script,
-        shot_assets,
-        shot_materials,
-        asset_strategy,
-    )
     subtitle_options = normalize_subtitle_options(store, options)
     voice_options = normalize_voice_options(options)
     bgm_options = normalize_bgm_options(store, options)
+    selected_indexes = {int(item["shot_index"]) for item in resolved_materials}
+    selected_indexes.update(int(item["shot_index"]) for item in shot_assets)
+    all_shot_indexes = _shot_indexes(script)
+    uncovered_indexes = all_shot_indexes - selected_indexes
+
+    if material_source_mode in {"local", "hybrid"} and uncovered_indexes:
+        try:
+            local_selections = MaterialMatcherService(store).prepare_for_script(
+                script,
+                material_source_mode,
+                only_shot_indexes=uncovered_indexes,
+            )
+        except MaterialLibraryNotReadyError:
+            raise
+        except MaterialLibraryEmptyError:
+            if material_source_mode == "local":
+                raise
+            local_selections = []
+        resolved_materials.extend(local_selections)
+        selected_indexes.update(int(item["shot_index"]) for item in local_selections)
+        uncovered_indexes = all_shot_indexes - selected_indexes
+
+    if material_source_mode == "local" and uncovered_indexes:
+        raise MaterialLibraryEmptyError()
+
+    validate_manual_shot_coverage(
+        script,
+        shot_assets,
+        resolved_materials,
+        asset_strategy,
+    )
+
+    needs_online_assets = bool(shot_assets) or (
+        asset_strategy == "auto"
+        and material_source_mode != "local"
+        and bool(uncovered_indexes)
+    )
+    if (
+        needs_online_assets
+        and asset_strategy == "auto"
+        and provider_name != "auto"
+        and uncovered_indexes
+    ):
+        provider = providers.get(provider_name)
+        if provider is None or not _provider_is_enabled(provider):
+            raise OnlineMaterialProviderNotAvailableError(provider_name)
+    elif (
+        needs_online_assets
+        and asset_strategy == "auto"
+        and uncovered_indexes
+        and not any(_provider_is_enabled(provider) for provider in providers.values())
+    ):
+        raise OnlineMaterialProviderNotConfiguredError()
+    if needs_online_assets and token_service is None:
+        raise OnlineMaterialTokenSecretNotConfiguredError()
 
     for item in shot_assets:
         assert token_service is not None
@@ -763,7 +897,7 @@ def create_online_mix_task(
             }
         )
 
-    if asset_strategy == "auto":
+    if asset_strategy == "auto" and material_source_mode != "local" and uncovered_indexes:
         assert token_service is not None
         if provider_name == "auto":
             selected_providers = [
@@ -779,7 +913,6 @@ def create_online_mix_task(
         if not selected_providers:
             raise OnlineMaterialProviderNotAvailableError(provider_name)
 
-        selected_indexes = {int(item["shot_index"]) for item in resolved_materials}
         for shot in script.get("shots", []):
             shot_index = int(shot["index"])
             if shot_index in selected_indexes:
@@ -877,7 +1010,11 @@ def create_online_mix_task(
         if attribution is not None:
             source_key = (
                 str(attribution["provider"]),
-                str(attribution["source_url"]),
+                str(
+                    attribution.get("source_url")
+                    or attribution.get("source_asset_id")
+                    or ""
+                ),
             )
             source_attribution_by_key[source_key] = attribution
 

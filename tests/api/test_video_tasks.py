@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 from collections.abc import Iterable
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,13 @@ from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
 from autovideo.services.materials import public_material, save_material
 from autovideo.storage.database import AutoVideoStore
+
+
+def _material_files(root: Path) -> list[Path]:
+    materials_dir = root / "materials"
+    if not materials_dir.exists():
+        return []
+    return [path for path in materials_dir.rglob("*") if path.is_file()]
 
 
 class ChunkOnlyFile:
@@ -936,7 +944,7 @@ def test_material_upload_rejects_files_over_configured_limit(tmp_path) -> None:
     payload = response.json()
     assert payload["detail"]["code"] == "MATERIAL_TOO_LARGE"
     assert payload["detail"]["max_upload_bytes"] == 4
-    assert list((tmp_path / "materials").iterdir()) == []
+    assert _material_files(tmp_path) == []
 
 
 def test_material_upload_rejects_request_content_length_before_multipart_parse(

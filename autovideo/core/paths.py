@@ -5,6 +5,8 @@ from autovideo.core.settings import Settings
 
 DATA_SUBDIRS = (
     "materials",
+    "materials/raw",
+    "materials/segments",
     "bgm",
     "voices",
     "subtitle_templates",
@@ -17,6 +19,8 @@ DATA_SUBDIRS = (
 class DataPaths:
     root: Path
     materials: Path
+    material_raw: Path
+    material_segments: Path
     bgm: Path
     voices: Path
     subtitle_templates: Path
@@ -29,6 +33,8 @@ def build_data_paths(settings: Settings) -> DataPaths:
     return DataPaths(
         root=root,
         materials=root / "materials",
+        material_raw=root / "materials" / "raw",
+        material_segments=root / "materials" / "segments",
         bgm=root / "bgm",
         voices=root / "voices",
         subtitle_templates=root / "subtitle_templates",
@@ -42,6 +48,8 @@ def ensure_data_dirs(settings: Settings) -> DataPaths:
     for path in (
         paths.root,
         paths.materials,
+        paths.material_raw,
+        paths.material_segments,
         paths.bgm,
         paths.voices,
         paths.subtitle_templates,

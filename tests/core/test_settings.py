@@ -38,6 +38,7 @@ AUTOVIDEO_ENV_VARS = [
     "AUTOVIDEO_CANDIDATE_TOKEN_TTL_SECONDS",
     "AUTOVIDEO_MAX_SCRIPT_PAYLOAD_BYTES",
     "AUTOVIDEO_MAX_ONLINE_MIX_REQUEST_BYTES",
+    "AUTOVIDEO_MATERIAL_ALLOWED_ROOTS",
 ]
 
 
@@ -60,6 +61,7 @@ def test_settings_have_safe_defaults() -> None:
     assert settings.edge_tts_default_voice == "zh-CN-XiaoxiaoNeural"
     assert settings.max_voice_preview_text_chars == 300
     assert settings.max_voice_preview_request_bytes == 8192
+    assert settings.material_allowed_roots is None
 
 
 def test_settings_read_autovideo_environment(monkeypatch) -> None:
@@ -70,6 +72,10 @@ def test_settings_read_autovideo_environment(monkeypatch) -> None:
     monkeypatch.setenv("AUTOVIDEO_EDGE_TTS_DEFAULT_VOICE", "zh-CN-YunxiNeural")
     monkeypatch.setenv("AUTOVIDEO_MAX_VOICE_PREVIEW_TEXT_CHARS", "180")
     monkeypatch.setenv("AUTOVIDEO_MAX_VOICE_PREVIEW_REQUEST_BYTES", "4096")
+    monkeypatch.setenv(
+        "AUTOVIDEO_MATERIAL_ALLOWED_ROOTS",
+        "demo=/tmp/source",
+    )
 
     settings = Settings(_env_file=None)
 
@@ -80,6 +86,7 @@ def test_settings_read_autovideo_environment(monkeypatch) -> None:
     assert settings.edge_tts_default_voice == "zh-CN-YunxiNeural"
     assert settings.max_voice_preview_text_chars == 180
     assert settings.max_voice_preview_request_bytes == 4096
+    assert settings.material_allowed_roots == "demo=/tmp/source"
 
 
 def test_empty_optional_service_url_is_disabled(monkeypatch) -> None:
@@ -126,6 +133,7 @@ def test_empty_secret_and_api_keys_are_disabled(monkeypatch) -> None:
     monkeypatch.setenv("AUTOVIDEO_PEXELS_API_KEY", "")
     monkeypatch.setenv("AUTOVIDEO_PIXABAY_API_KEY", "")
     monkeypatch.setenv("AUTOVIDEO_CANDIDATE_TOKEN_SECRET", "")
+    monkeypatch.setenv("AUTOVIDEO_MATERIAL_ALLOWED_ROOTS", "")
 
     settings = Settings(_env_file=None)
 
@@ -135,6 +143,7 @@ def test_empty_secret_and_api_keys_are_disabled(monkeypatch) -> None:
     assert settings.pexels_api_key is None
     assert settings.pixabay_api_key is None
     assert settings.candidate_token_secret is None
+    assert settings.material_allowed_roots is None
 
 
 def test_online_remix_settings_read_environment(monkeypatch) -> None:

@@ -1,11 +1,14 @@
 import json
 import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from autovideo.api.app import create_app
 from autovideo.core.settings import Settings
 from autovideo.services.bgm import AudioProbeResult, BgmLibraryService
+from autovideo.services.material_sources import MaterialSourceService
+from autovideo.storage.database import AutoVideoStore
 
 
 def _script() -> dict:
@@ -163,6 +166,15 @@ class FakeEdgeTtsProvider:
         output_path.write_bytes(b"fake narration mp3")
 
 
+class _OnlineMixMaterialProcessingService:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def process_source(self, source: dict[str, object]) -> dict[str, int]:
+        self.calls += 1
+        return {"raw_files_total": 1, "segments_total": 0, "failed_total": 0}
+
+
 def _store_bgm_track(tmp_path, settings: Settings) -> dict:
     service = BgmLibraryService(
         settings,
@@ -175,6 +187,557 @@ def _store_bgm_track(tmp_path, settings: Settings) -> dict:
         content=b"fake bgm mp3",
         original_filename="calm.mp3",
     )
+
+
+def _store_ready_material_segment(store: AutoVideoStore) -> None:
+    if store.current_material_source_config() is None:
+        store.insert_material_source_config(
+            {
+                "id": "source_1",
+                "allowed_root_id": "demo",
+                "allowed_root_alias": "demo",
+                "source_relative_path": "clips",
+                "source_display_path": "demo/clips",
+                "source_path_hash": "a" * 64,
+                "status": "active",
+                "error_summary": None,
+                "created_at": "2026-06-25T00:00:00+00:00",
+                "updated_at": "2026-06-25T00:00:00+00:00",
+            }
+        )
+    segment_path = store.paths.material_segments / "raw_1" / "seg_1.mp4"
+    segment_path.parent.mkdir(parents=True)
+    segment_path.write_bytes(b"segment video")
+    store.upsert_material_raw_file(
+        {
+            "id": "raw_1",
+            "source_config_id": "source_1",
+            "allowed_root_id": "demo",
+            "source_relative_path": "clips/clip.mp4",
+            "source_path_hash": "a" * 64,
+            "source_display_path": "demo/clips/clip.mp4",
+            "original_filename": "clip.mp4",
+            "managed_raw_relative_path": "raw_1.mp4",
+            "content_hash": "b" * 64,
+            "size_bytes": 1024,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": "seg_1",
+            "raw_file_id": "raw_1",
+            "managed_segment_relative_path": "raw_1/seg_1.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "relaxing bedroom night",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+
+
+def _store_ready_segment_material_for_source(
+    store: AutoVideoStore,
+    *,
+    source: dict,
+    raw_id: str,
+    segment_id: str,
+    material_id: str,
+    raw_source_path_hash: str | None = None,
+) -> dict:
+    relative_file = f"{source['source_relative_path']}/{raw_id}.mp4"
+    segment_path = store.paths.material_segments / raw_id / f"{segment_id}.mp4"
+    segment_path.parent.mkdir(parents=True)
+    segment_path.write_bytes(b"segment video")
+    store.upsert_material_raw_file(
+        {
+            "id": raw_id,
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": relative_file,
+            "source_path_hash": raw_source_path_hash or source["source_path_hash"],
+            "source_display_path": f"{source['source_display_path']}/{raw_id}.mp4",
+            "original_filename": f"{raw_id}.mp4",
+            "managed_raw_relative_path": f"{raw_id}.mp4",
+            "content_hash": "b" * 64,
+            "size_bytes": 1024,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "error_summary": None,
+        }
+    )
+    store.upsert_material_segment(
+        {
+            "id": segment_id,
+            "raw_file_id": raw_id,
+            "managed_segment_relative_path": f"{raw_id}/{segment_id}.mp4",
+            "start_seconds": 0.0,
+            "duration_seconds": 8.0,
+            "orientation": "portrait",
+            "status": "ready",
+            "match_text": "relaxing bedroom night",
+            "asr_text": None,
+            "ocr_text": None,
+            "vision_description": None,
+            "content_label_status": "not_configured",
+            "embedding_status": "not_configured",
+            "error_summary": None,
+        }
+    )
+    return store.insert_material(
+        {
+            "id": material_id,
+            "original_filename": f"{material_id}.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": segment_path.stat().st_size,
+            "storage_path": str(segment_path),
+            "created_at": "2026-06-25T00:00:00+00:00",
+            "source_type": "local_segment",
+            "source_provider": "local_material_worker",
+            "source_asset_id": segment_id,
+            "source_url": None,
+            "license_note": None,
+            "query": None,
+        }
+    )
+
+
+def _insert_material(
+    store: AutoVideoStore,
+    tmp_path,
+    *,
+    material_id: str,
+    source_type: str,
+    source_provider: str | None = None,
+    source_asset_id: str | None = None,
+) -> dict:
+    storage_path = tmp_path / f"{material_id}.mp4"
+    storage_path.write_bytes(b"material video")
+    return store.insert_material(
+        {
+            "id": material_id,
+            "original_filename": f"{material_id}.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": storage_path.stat().st_size,
+            "storage_path": str(storage_path),
+            "created_at": "2026-06-25T00:00:00+00:00",
+            "source_type": source_type,
+            "source_provider": source_provider,
+            "source_asset_id": source_asset_id,
+            "source_url": "https://example.com/video.mp4"
+            if source_type == "online"
+            else None,
+            "license_note": None,
+            "query": None,
+        }
+    )
+
+
+def test_online_mix_uses_local_material_library_mode(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    _store_ready_material_segment(store)
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材库混剪",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
+    task = response.json()
+    manifest_text = (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(manifest_text)
+    assert manifest["shot_materials"][0]["material_segment_id"] == "seg_1"
+    assert "managed_segment_relative_path" not in manifest_text
+    assert str(tmp_path) not in manifest_text
+
+
+def test_online_mix_rejects_non_local_segment_manual_material_in_local_mode(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    upload = _insert_material(store, tmp_path, material_id="upload-1", source_type="upload")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地覆盖拒绝上传素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "shot_materials": [{"shot_index": 1, "material_id": upload["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "LOCAL_MATERIAL_REQUIRED"
+    assert response.json()["detail"]["material_id"] == upload["id"]
+
+
+def test_online_mix_rejects_online_manual_material_in_hybrid_mode(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    online = _insert_material(
+        store,
+        tmp_path,
+        material_id="online-1",
+        source_type="online",
+        source_provider="pexels",
+        source_asset_id="asset-1",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "混合覆盖拒绝线上素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "hybrid",
+                "shot_materials": [{"shot_index": 1, "material_id": online["id"]}],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "LOCAL_MATERIAL_REQUIRED"
+    assert response.json()["detail"]["material_id"] == online["id"]
+
+
+@pytest.mark.parametrize("material_source_mode", ["local", "hybrid"])
+def test_online_mix_rejects_old_source_local_segment_manual_material_after_switch(
+    tmp_path,
+    material_source_mode,
+) -> None:
+    root = tmp_path / "source"
+    (root / "old").mkdir(parents=True)
+    (root / "new").mkdir()
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_service = MaterialSourceService(store)
+    old_source = source_service.save_current_source("demo", "old")
+    old_segment = _store_ready_segment_material_for_source(
+        store,
+        source=old_source,
+        raw_id="raw_old",
+        segment_id="seg_old",
+        material_id="local-segment-old",
+    )
+    source_service.save_current_source("demo", "new")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材旧目录覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": material_source_mode,
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": old_segment["id"]}
+                ],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "LOCAL_MATERIAL_REQUIRED"
+    assert response.json()["detail"]["material_id"] == old_segment["id"]
+
+
+@pytest.mark.parametrize("material_source_mode", ["local", "hybrid"])
+def test_online_mix_accepts_local_segment_manual_material_in_local_mode(
+    tmp_path,
+    material_source_mode,
+) -> None:
+    root = tmp_path / "source"
+    (root / "current").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source = MaterialSourceService(store).save_current_source("demo", "current")
+    local_segment = _store_ready_segment_material_for_source(
+        store,
+        source=source,
+        raw_id="raw_current",
+        segment_id="seg_current",
+        material_id="local-segment-1",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": material_source_mode,
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": local_segment["id"]}
+                ],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
+    task = response.json()
+    manifest = json.loads(
+        (settings.data_dir / "outputs" / task["id"] / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["shot_materials"][0]["material_id"] == local_segment["id"]
+    assert manifest["source_attribution"][0]["provider"] == "local_material_worker"
+
+
+@pytest.mark.parametrize("material_source_mode", ["local", "hybrid"])
+def test_online_mix_accepts_same_directory_local_segment_after_source_resave(
+    tmp_path,
+    material_source_mode,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    source_service = MaterialSourceService(store)
+    old_source = source_service.save_current_source("demo", "clips")
+    local_segment = _store_ready_segment_material_for_source(
+        store,
+        source=old_source,
+        raw_id="raw_same_dir_old",
+        segment_id="seg_same_dir_old",
+        material_id="local-segment-same-dir",
+        raw_source_path_hash="file-level-hash",
+    )
+    source_service.save_current_source("demo", "clips")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "同目录重新保存后本地素材覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": material_source_mode,
+                "shot_materials": [
+                    {"shot_index": 1, "material_id": local_segment["id"]}
+                ],
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
+
+
+def test_online_mix_hybrid_uses_local_without_provider_when_local_covers_all(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+    )
+    store = AutoVideoStore(settings)
+    _store_ready_material_segment(store)
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "混合素材本地覆盖",
+                "script": _single_shot_script(),
+                "asset_strategy": "auto",
+                "material_source_mode": "hybrid",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert response.status_code == 201
+    task = response.json()
+    manifest_text = (tmp_path / "outputs" / task["id"] / "manifest.json").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(manifest_text)
+    assert manifest["shot_materials"][0]["material_segment_id"] == "seg_1"
+    assert "ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED" not in manifest_text
+
+
+def test_online_mix_hybrid_falls_back_to_online_when_local_empty(tmp_path) -> None:
+    app = create_app(Settings(_env_file=None, data_dir=tmp_path))
+
+    with TestClient(app) as client:
+        local_response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "只用本地素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+        hybrid_response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "混合素材",
+                "script": _single_shot_script(),
+                "asset_strategy": "auto",
+                "material_source_mode": "hybrid",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert local_response.status_code == 409
+    assert local_response.json()["detail"]["code"] == "MATERIAL_LIBRARY_EMPTY"
+    assert hybrid_response.status_code == 503
+    assert hybrid_response.json()["detail"]["code"] == (
+        "ONLINE_MATERIAL_PROVIDER_NOT_CONFIGURED"
+    )
+
+
+def test_online_mix_returns_not_ready_when_current_source_has_no_ready_segments(
+    tmp_path,
+) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    MaterialSourceService(store).save_current_source("demo", "clips")
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        local_response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材未就绪",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+        hybrid_response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "混合素材未就绪",
+                "script": _single_shot_script(),
+                "asset_strategy": "auto",
+                "material_source_mode": "hybrid",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+
+    assert local_response.status_code == 409
+    assert local_response.json()["detail"]["code"] == "MATERIAL_LIBRARY_NOT_READY"
+    assert local_response.json()["detail"]["job"]["status"] in {"queued", "running"}
+    assert local_response.json()["detail"]["job"]["counts"] == {
+        "raw": 0,
+        "segments": 0,
+        "failed": 0,
+        "raw_files_total": 0,
+        "segments_total": 0,
+        "failed_total": 0,
+    }
+    assert hybrid_response.status_code == 409
+    assert hybrid_response.json()["detail"]["code"] == "MATERIAL_LIBRARY_NOT_READY"
+    assert hybrid_response.json()["detail"]["job"]["status"] in {"queued", "running"}
+
+
+def test_online_mix_not_ready_starts_created_index_job(tmp_path) -> None:
+    root = tmp_path / "source"
+    (root / "clips").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        ffmpeg_path=_write_fake_ffmpeg(tmp_path),
+        material_allowed_roots=f"demo={root}",
+    )
+    store = AutoVideoStore(settings)
+    MaterialSourceService(store).save_current_source("demo", "clips")
+    processing = _OnlineMixMaterialProcessingService()
+    app = create_app(settings)
+    app.state.material_processing_service = processing
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/online-mix/tasks",
+            json={
+                "title": "本地素材未就绪并启动索引",
+                "script": _single_shot_script(),
+                "asset_strategy": "manual",
+                "material_source_mode": "local",
+                "options": {"aspect_ratio": "9:16", "subtitle_enabled": False},
+            },
+        )
+        job_id = response.json()["detail"]["job"]["id"]
+        job_response = client.get(f"/api/material-index/jobs/{job_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "MATERIAL_LIBRARY_NOT_READY"
+    assert processing.calls == 1
+    assert job_response.json()["status"] == "failed"
+    assert job_response.json()["attempt_count"] == 1
 
 
 def test_online_mix_renders_video_and_writes_timeline_when_ffmpeg_available(
@@ -1883,7 +2446,9 @@ def test_online_mix_auto_rejects_provider_direct_media_source_url(
 
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == "ONLINE_MATERIAL_SEARCH_FAILED"
-    assert list((tmp_path / "materials").iterdir()) == []
+    assert [
+        path for path in (tmp_path / "materials").rglob("*") if path.is_file()
+    ] == []
 
 
 def test_online_mix_auto_resolve_failure_returns_structured_error(tmp_path) -> None:
@@ -1985,7 +2550,9 @@ def test_online_mix_validates_user_materials_before_online_downloads(
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "MATERIAL_NOT_FOUND"
     assert download_requests == []
-    assert list((tmp_path / "materials").iterdir()) == []
+    assert [
+        path for path in (tmp_path / "materials").rglob("*") if path.is_file()
+    ] == []
 
 
 def test_online_mix_manual_requires_all_shots_before_online_downloads(
@@ -2050,7 +2617,9 @@ def test_online_mix_manual_requires_all_shots_before_online_downloads(
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "ONLINE_MIX_NO_MATERIAL_MATCH"
     assert download_requests == []
-    assert list((tmp_path / "materials").iterdir()) == []
+    assert [
+        path for path in (tmp_path / "materials").rglob("*") if path.is_file()
+    ] == []
 
 
 def test_online_mix_auto_search_failure_returns_structured_error(tmp_path) -> None:
