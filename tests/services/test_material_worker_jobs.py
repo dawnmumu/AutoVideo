@@ -215,11 +215,93 @@ class _FakeProcessingService:
         self.error = error
         self.calls: list[dict[str, str]] = []
 
-    def process_source(self, source: dict[str, str]) -> dict[str, int]:
+    def process_source(
+        self,
+        source: dict[str, str],
+        progress_callback=None,
+    ) -> dict[str, int]:
         self.calls.append(source)
         if self.error is not None:
             raise self.error
         return self.result
+
+
+class _LeaseProbeProcessingService:
+    def __init__(
+        self,
+        store: AutoVideoStore,
+        job_id: str,
+    ) -> None:
+        self.store = store
+        self.job_id = job_id
+        self.stale_count: int | None = None
+        self.duplicate_created = False
+
+    def process_source(
+        self,
+        source: dict[str, str],
+        progress_callback=None,
+    ) -> dict[str, int]:
+        old = datetime.now(UTC) - timedelta(hours=2)
+        self.store.update_material_index_job(
+            self.job_id,
+            {"heartbeat_at": old.isoformat()},
+        )
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "stage": "segmenting",
+                    "progress_current": 1,
+                    "progress_total": 2,
+                }
+            )
+        self.stale_count = MaterialWorkerService(self.store).recover_stale_jobs()
+        try:
+            MaterialWorkerService(self.store).create_index_job(source["id"], force=True)
+        except MaterialIndexAlreadyRunningError:
+            self.duplicate_created = False
+        else:
+            self.duplicate_created = True
+        return {
+            "raw_files_total": 1,
+            "segments_total": 1,
+            "failed_total": 0,
+        }
+
+
+class _ExternallyStalesProcessingService:
+    def __init__(
+        self,
+        store: AutoVideoStore,
+        job_id: str,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self.store = store
+        self.job_id = job_id
+        self.error = error
+
+    def process_source(
+        self,
+        source: dict[str, str],
+        progress_callback=None,
+    ) -> dict[str, int]:
+        finished_at = datetime.now(UTC).isoformat()
+        self.store.update_material_index_job(
+            self.job_id,
+            {
+                "status": "stale",
+                "finished_at": finished_at,
+                "error_summary": "MATERIAL_INDEX_JOB_STALE",
+            },
+        )
+        if self.error is not None:
+            raise self.error
+        return {
+            "raw_files_total": 1,
+            "segments_total": 1,
+            "failed_total": 0,
+        }
 
 
 def test_run_job_claims_specific_job_and_marks_succeeded(tmp_path: Path) -> None:
@@ -247,6 +329,63 @@ def test_run_job_claims_specific_job_and_marks_succeeded(tmp_path: Path) -> None
     assert finished["heartbeat_at"] is not None
     assert finished["finished_at"] is not None
     assert processing.calls == [source]
+
+
+def test_run_job_heartbeat_keeps_long_running_job_active(tmp_path: Path) -> None:
+    store, source = _store_and_source(tmp_path)
+    created = MaterialWorkerService(store).create_index_job(source["id"])
+    processing = _LeaseProbeProcessingService(store, created["id"])
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    finished = service.run_job(created["id"])
+
+    latest = store.latest_material_index_job_for_source_identity(
+        source["allowed_root_id"],
+        source["source_path_hash"],
+    )
+    assert processing.stale_count == 0
+    assert processing.duplicate_created is False
+    assert finished["status"] == "succeeded"
+    assert latest is not None
+    assert latest["id"] == created["id"]
+
+
+def test_run_job_does_not_overwrite_externally_staled_job_on_success(
+    tmp_path: Path,
+) -> None:
+    store, source = _store_and_source(tmp_path)
+    created = MaterialWorkerService(store).create_index_job(source["id"])
+    processing = _ExternallyStalesProcessingService(store, created["id"])
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    finished = service.run_job(created["id"])
+    current = store.get_material_index_job(created["id"])
+
+    assert finished["status"] == "stale"
+    assert current is not None
+    assert current["status"] == "stale"
+    assert current["error_summary"] == "MATERIAL_INDEX_JOB_STALE"
+
+
+def test_run_job_does_not_overwrite_externally_staled_job_on_failure(
+    tmp_path: Path,
+) -> None:
+    store, source = _store_and_source(tmp_path)
+    created = MaterialWorkerService(store).create_index_job(source["id"])
+    processing = _ExternallyStalesProcessingService(
+        store,
+        created["id"],
+        error=RuntimeError("boom"),
+    )
+    service = MaterialWorkerService(store, processing_service=processing)
+
+    finished = service.run_job(created["id"])
+    current = store.get_material_index_job(created["id"])
+
+    assert finished["status"] == "stale"
+    assert current is not None
+    assert current["status"] == "stale"
+    assert current["error_summary"] == "MATERIAL_INDEX_JOB_STALE"
 
 
 def test_run_job_fails_when_no_segments_were_produced(tmp_path: Path) -> None:

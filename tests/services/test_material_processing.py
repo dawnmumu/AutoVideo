@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,42 @@ def test_scan_copies_and_records_video_segments(tmp_path: Path) -> None:
     assert Path(raw_files[0]["managed_raw_relative_path"]).is_absolute() is False
     assert segments[0]["managed_segment_relative_path"].startswith(raw_files[0]["id"])
     assert str(tmp_path / "source") not in str(raw_files + segments)
+
+
+def test_process_source_reports_progress_callback_for_source_file_loop(
+    tmp_path: Path,
+) -> None:
+    assert (
+        "progress_callback"
+        in inspect.signature(MaterialProcessingService.process_source).parameters
+    )
+    source_root = tmp_path / "source" / "clips"
+    source_root.mkdir(parents=True)
+    (source_root / "clip-a.mp4").write_bytes(b"video-a")
+    (source_root / "clip-b.mp4").write_bytes(b"video-b")
+    store = _store(tmp_path)
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+    events: list[dict[str, int | str]] = []
+    service = MaterialProcessingService(
+        store,
+        probe_video=lambda path: VideoProbeResult(
+            duration_seconds=8.0,
+            width=1080,
+            height=1920,
+            codec_name="h264",
+        ),
+        slice_video=lambda source_path, target_path, start, duration: target_path.write_bytes(
+            b"segment"
+        ),
+    )
+
+    result = service.process_source(source, progress_callback=events.append)
+
+    assert result["raw_files_total"] == 2
+    assert result["segments_total"] == 2
+    assert events
+    assert events[-1]["progress_current"] == 2
+    assert events[-1]["progress_total"] == 2
 
 
 def test_scan_rejects_file_symlink_outside_allowed_root(tmp_path: Path) -> None:

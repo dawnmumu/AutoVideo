@@ -323,6 +323,40 @@ class AutoVideoStore:
             ).fetchone()
         return self._material_index_job_from_row(row) if row else {}
 
+    def update_running_material_index_job(
+        self,
+        job_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        unknown = set(patch) - MATERIAL_INDEX_JOB_COLUMNS
+        if unknown:
+            raise ValueError(f"unknown material index job fields: {sorted(unknown)}")
+        if not patch:
+            existing = self.get_material_index_job(job_id)
+            if existing is None:
+                raise KeyError(job_id)
+            return existing
+
+        assignments = ", ".join(f"{column} = ?" for column in patch)
+        values = list(patch.values()) + [job_id]
+        with self.connect() as connection:
+            connection.execute(
+                f"""
+                UPDATE material_index_jobs
+                SET {assignments}
+                WHERE id = ?
+                  AND status = 'running'
+                """,
+                values,
+            )
+            row = connection.execute(
+                "SELECT * FROM material_index_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        return self._material_index_job_from_row(row)
+
     def latest_material_index_job(
         self,
         source_config_id: str | None = None,

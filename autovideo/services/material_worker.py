@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -108,10 +109,12 @@ class MaterialWorkerService:
                 raise MaterialIndexJobNotFoundError()
             raise MaterialIndexJobNotRunnableError()
         now = datetime.now(UTC).isoformat()
-        claimed = self.store.update_material_index_job(
+        claimed = self.store.update_running_material_index_job(
             claimed["id"],
             {"stage": "segmenting", "heartbeat_at": now},
         )
+        if claimed["status"] != "running":
+            return claimed
         source_config = self.store.get_material_source_config(claimed["source_config_id"])
         if source_config is None:
             return self._fail_claimed_job(
@@ -121,8 +124,30 @@ class MaterialWorkerService:
         processing_service = self.processing_service or MaterialProcessingService(
             self.store
         )
+
+        def heartbeat(progress: dict[str, Any] | None = None) -> None:
+            patch: dict[str, Any] = {"heartbeat_at": datetime.now(UTC).isoformat()}
+            if progress:
+                stage = progress.get("stage")
+                if stage is not None:
+                    patch["stage"] = str(stage)
+                for key in (
+                    "progress_current",
+                    "progress_total",
+                    "raw_files_total",
+                    "segments_total",
+                    "failed_total",
+                ):
+                    if key in progress:
+                        patch[key] = int(progress[key])
+            self.store.update_running_material_index_job(claimed["id"], patch)
+
         try:
-            counts = processing_service.process_source(source_config)
+            counts = self._process_source_with_heartbeat(
+                processing_service,
+                source_config,
+                heartbeat,
+            )
         except MaterialFfmpegUnavailableError:
             return self._fail_claimed_job(
                 claimed["id"],
@@ -147,7 +172,7 @@ class MaterialWorkerService:
         status = "succeeded" if segments_total > 0 else "failed"
         error_summary = None if status == "succeeded" else "MATERIAL_INDEX_JOB_FAILED"
         stage = "ready" if status == "succeeded" else "segmenting"
-        return self.store.update_material_index_job(
+        return self.store.update_running_material_index_job(
             claimed["id"],
             {
                 "status": status,
@@ -165,7 +190,7 @@ class MaterialWorkerService:
 
     def _fail_claimed_job(self, job_id: str, *, error_summary: str) -> dict[str, Any]:
         finished_at = datetime.now(UTC).isoformat()
-        return self.store.update_material_index_job(
+        return self.store.update_running_material_index_job(
             job_id,
             {
                 "status": "failed",
@@ -175,6 +200,25 @@ class MaterialWorkerService:
                 "finished_at": finished_at,
             },
         )
+
+    @staticmethod
+    def _process_source_with_heartbeat(
+        processing_service: Any,
+        source_config: dict[str, Any],
+        heartbeat: Any,
+    ) -> dict[str, int]:
+        method = processing_service.process_source
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError):
+            return method(source_config, progress_callback=heartbeat)
+        accepts_progress = "progress_callback" in signature.parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if accepts_progress:
+            return method(source_config, progress_callback=heartbeat)
+        return method(source_config)
 
     def mark_stale_jobs(self, stale_after_seconds: int = 900) -> int:
         now = datetime.now(UTC)

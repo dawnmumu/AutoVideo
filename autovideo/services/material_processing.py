@@ -42,6 +42,8 @@ class VideoProbeResult:
 
 ProbeVideo = Callable[[Path], VideoProbeResult]
 SliceVideo = Callable[[Path, Path, float, float], None]
+ProgressCallback = Callable[[dict[str, int | str]], None]
+HeartbeatCallback = Callable[[], None]
 
 
 class MaterialProcessingService:
@@ -66,7 +68,11 @@ class MaterialProcessingService:
             )
         )
 
-    def process_source(self, source_config: dict[str, Any]) -> dict[str, int]:
+    def process_source(
+        self,
+        source_config: dict[str, Any],
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, int]:
         resolved_source = MaterialSourceService(self.store).resolve_source(
             str(source_config["allowed_root_id"]),
             str(source_config["source_relative_path"]),
@@ -74,26 +80,53 @@ class MaterialProcessingService:
         raw_files_total = 0
         segments_total = 0
         failed_total = 0
-
-        for source_path in self._iter_source_files(
+        source_files = self._iter_source_files(
             resolved_source.resolved_path, resolved_source.allowed_root.resolved_path
-        ):
+        )
+        progress_total = len(source_files)
+
+        def emit_progress(current: int, stage: str = "segmenting") -> None:
+            if progress_callback is None:
+                return
+            progress_callback(
+                {
+                    "stage": stage,
+                    "progress_current": current,
+                    "progress_total": progress_total,
+                    "raw_files_total": raw_files_total,
+                    "segments_total": segments_total,
+                    "failed_total": failed_total,
+                }
+            )
+
+        emit_progress(0, "scanning")
+        for index, source_path in enumerate(source_files, start=1):
+            heartbeat_current = index - 1
+
+            def heartbeat() -> None:
+                emit_progress(heartbeat_current)
+
+            heartbeat()
             try:
                 processed = self._process_video_file(
                     source_config,
                     source_path,
                     resolved_source.allowed_root.resolved_path,
+                    heartbeat_callback=heartbeat,
                 )
             except MaterialFfmpegUnavailableError:
                 raise
             except Exception:
                 failed_total += 1
+                emit_progress(index)
                 continue
             if processed is None:
+                emit_progress(index)
                 continue
             raw_files_total += 1
             segments_total += processed["segments_total"]
             failed_total += processed["failed_total"]
+            emit_progress(index)
 
         return {
             "raw_files_total": raw_files_total,
@@ -176,9 +209,13 @@ class MaterialProcessingService:
         source_config: dict[str, Any],
         source_path: Path,
         allowed_root: Path,
+        *,
+        heartbeat_callback: HeartbeatCallback | None = None,
     ) -> dict[str, int] | None:
         if source_path.suffix.lower() not in SUPPORTED_VIDEO_EXTENSIONS:
             return None
+        if heartbeat_callback is not None:
+            heartbeat_callback()
         source_relative_path = source_path.relative_to(allowed_root).as_posix()
         copy_source = source_path
         if source_path.is_symlink():
@@ -199,6 +236,7 @@ class MaterialProcessingService:
             copy_source,
             source_path.name,
             source_relative_path,
+            heartbeat_callback=heartbeat_callback,
         )
 
     def _process_video_file_resolved(
@@ -207,6 +245,8 @@ class MaterialProcessingService:
         source_path: Path,
         original_filename: str,
         source_relative_path: str,
+        *,
+        heartbeat_callback: HeartbeatCallback | None = None,
     ) -> dict[str, int]:
         source_identity = (
             f"{source_config['allowed_root_id']}:{source_relative_path}"
@@ -216,7 +256,13 @@ class MaterialProcessingService:
         raw_relative_path = f"{raw_id}{ext}"
         raw_path = self.store.paths.material_raw / raw_relative_path
         raw_path.parent.mkdir(parents=True, exist_ok=True)
-        size_bytes, content_hash = self._copy_file_with_hash(source_path, raw_path)
+        size_bytes, content_hash = self._copy_file_with_hash(
+            source_path,
+            raw_path,
+            heartbeat_callback=heartbeat_callback,
+        )
+        if heartbeat_callback is not None:
+            heartbeat_callback()
         segment_dir = self.store.paths.material_segments / raw_id
         if segment_dir.exists():
             shutil.rmtree(segment_dir)
@@ -228,6 +274,8 @@ class MaterialProcessingService:
         self.store.mark_material_segments_deleted(raw_id, deleted_at)
         failure_error_summary = "MATERIAL_PROBE_FAILED"
         try:
+            if heartbeat_callback is not None:
+                heartbeat_callback()
             probe = self.probe_video(raw_path)
             ranges = _segment_ranges(probe.duration_seconds)
             if not ranges:
@@ -239,7 +287,11 @@ class MaterialProcessingService:
                 segment_relative_path = f"{raw_id}/{segment_id}{ext}"
                 segment_path = self.store.paths.material_segments / segment_relative_path
                 segment_path.parent.mkdir(parents=True, exist_ok=True)
+                if heartbeat_callback is not None:
+                    heartbeat_callback()
                 self.slice_video(raw_path, segment_path, start, duration)
+                if heartbeat_callback is not None:
+                    heartbeat_callback()
                 created_segments.append(
                     {
                         "id": segment_id,
@@ -382,7 +434,13 @@ class MaterialProcessingService:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def _copy_file_with_hash(self, source_path: Path, target_path: Path) -> tuple[int, str]:
+    def _copy_file_with_hash(
+        self,
+        source_path: Path,
+        target_path: Path,
+        *,
+        heartbeat_callback: HeartbeatCallback | None = None,
+    ) -> tuple[int, str]:
         digest = hashlib.sha256()
         size_bytes = 0
         with source_path.open("rb") as source_file, target_path.open("wb") as target_file:
@@ -390,6 +448,8 @@ class MaterialProcessingService:
                 target_file.write(chunk)
                 digest.update(chunk)
                 size_bytes += len(chunk)
+                if heartbeat_callback is not None:
+                    heartbeat_callback()
         return size_bytes, digest.hexdigest()
 
     def _guarded_managed_path(self, root: Path, relative_path: str) -> Path | None:
