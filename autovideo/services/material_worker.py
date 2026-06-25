@@ -20,6 +20,7 @@ from autovideo.storage.database import AutoVideoStore
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "stale", "canceled"}
 ACTIVE_JOB_STATUSES = {"queued", "running"}
+MATERIAL_INDEX_JOB_STALE_AFTER_SECONDS = 900
 MATERIAL_SOURCE_ERRORS = (
     MaterialSourceInvalidPathError,
     MaterialSourceNotDirectoryError,
@@ -60,6 +61,7 @@ class MaterialWorkerService:
         source_config = self.store.get_material_source_config(source_config_id)
         if source_config is None:
             raise MaterialIndexJobNotFoundError()
+        self.recover_stale_jobs()
         active = self.store.active_material_index_job(
             source_config["allowed_root_id"],
             source_config["source_path_hash"],
@@ -178,6 +180,11 @@ class MaterialWorkerService:
         now = datetime.now(UTC)
         stale_before = (now - timedelta(seconds=stale_after_seconds)).isoformat()
         return self.store.mark_stale_material_index_jobs(stale_before, now.isoformat())
+
+    def recover_stale_jobs(self) -> int:
+        return self.mark_stale_jobs(
+            stale_after_seconds=MATERIAL_INDEX_JOB_STALE_AFTER_SECONDS,
+        )
 
     def latest_job(self, source_config_id: str | None = None) -> dict[str, Any] | None:
         return self.store.latest_material_index_job(source_config_id)

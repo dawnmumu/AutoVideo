@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,40 @@ def test_prepare_for_script_reuses_active_job_for_same_source_identity(
 
     assert exc_info.value.job["id"] == existing_job["id"]
     assert exc_info.value.job["status"] == "queued"
+
+
+def test_prepare_for_script_recovers_stale_running_job_before_not_ready(
+    tmp_path: Path,
+) -> None:
+    store, source = _store_with_current_source(tmp_path)
+    stale_heartbeat = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    stale_job = store.insert_material_index_job(
+        {
+            "id": "stale-running-job",
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": source["source_relative_path"],
+            "source_path_hash": source["source_path_hash"],
+            "status": "running",
+            "stage": "segmenting",
+            "progress_current": 1,
+            "progress_total": 3,
+            "raw_files_total": 1,
+            "segments_total": 0,
+            "failed_total": 0,
+            "heartbeat_at": stale_heartbeat,
+            "attempt_count": 1,
+            "error_summary": None,
+            "created_at": "2026-06-24T00:00:00+00:00",
+            "started_at": "2026-06-24T00:00:30+00:00",
+            "finished_at": None,
+        }
+    )
+    script = {"aspect_ratio": "9:16", "shots": [{"index": 1, "duration": 5}]}
+
+    with pytest.raises(MaterialLibraryNotReadyError) as exc_info:
+        MaterialMatcherService(store).prepare_for_script(script, "local")
+
+    assert exc_info.value.job["id"] != stale_job["id"]
+    assert exc_info.value.job["status"] == "queued"
+    assert store.get_material_index_job(stale_job["id"])["status"] == "stale"

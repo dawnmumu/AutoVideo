@@ -181,6 +181,7 @@ def save_material_source(
 ) -> dict[str, Any]:
     current_source = _save_source_config(store, payload)
     worker = MaterialWorkerService(store)
+    worker.recover_stale_jobs()
     active_job = store.active_material_index_job(
         str(current_source["allowed_root_id"]),
         str(current_source["source_path_hash"]),
@@ -194,7 +195,7 @@ def save_material_source(
         str(current_source["allowed_root_id"]),
         str(current_source["source_path_hash"]),
     )
-    if latest_job is not None:
+    if latest_job is not None and latest_job.get("status") != "stale":
         return {
             "current_source": _public_source_config(current_source),
             "job": _public_job(latest_job),

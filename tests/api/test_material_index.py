@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -34,6 +35,47 @@ def test_create_index_job_rejects_active_job(tmp_path: Path) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "MATERIAL_INDEX_ALREADY_RUNNING"
+
+
+def test_create_index_job_recovers_stale_running_job(tmp_path: Path) -> None:
+    settings, store = _store_with_root(tmp_path)
+    source = MaterialSourceService(store).save_current_source("demo", "clips")
+    stale_heartbeat = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    stale_job = store.insert_material_index_job(
+        {
+            "id": "stale-running-job",
+            "source_config_id": source["id"],
+            "allowed_root_id": source["allowed_root_id"],
+            "source_relative_path": source["source_relative_path"],
+            "source_path_hash": source["source_path_hash"],
+            "status": "running",
+            "stage": "segmenting",
+            "progress_current": 1,
+            "progress_total": 3,
+            "raw_files_total": 1,
+            "segments_total": 0,
+            "failed_total": 0,
+            "heartbeat_at": stale_heartbeat,
+            "attempt_count": 1,
+            "error_summary": None,
+            "created_at": "2026-06-24T00:00:00+00:00",
+            "started_at": "2026-06-24T00:00:30+00:00",
+            "finished_at": None,
+        }
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/material-index/jobs",
+            json={"source_config_id": source["id"], "force": True},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_id"] != stale_job["id"]
+    assert payload["status"] == "queued"
+    assert store.get_material_index_job(stale_job["id"])["status"] == "stale"
 
 
 def test_get_material_index_job_not_found(client) -> None:

@@ -137,6 +137,7 @@ class MaterialMatcherService:
         if current_source is None:
             raise MaterialLibraryEmptyError()
 
+        self.worker_service.recover_stale_jobs()
         latest_job = self.worker_service.latest_job_for_identity(
             str(current_source["allowed_root_id"]),
             str(current_source["source_path_hash"]),
